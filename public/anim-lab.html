@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>动作实验室 · Animation Lab</title>
+<style>
+  :root {
+    --bg: #0d1016;
+    --panel: rgba(18, 22, 30, 0.92);
+    --line: #2a3240;
+    --ink: #dfe6f2;
+    --dim: #8b96a8;
+    --accent: #d8a657;
+    --good: #3ddc6a;
+    --bad: #ff5b52;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 13px/1.5 "Microsoft YaHei", system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+
+  #panel {
+    position: fixed; top: 12px; left: 12px; width: 292px; max-height: calc(100% - 24px);
+    overflow: auto; padding: 14px; border-radius: 12px; background: var(--panel);
+    border: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 10;
+  }
+  #panel h1 { margin: 0 0 4px; font-size: 15px; letter-spacing: .5px; color: var(--accent); }
+  #panel .sub { margin: 0 0 12px; color: var(--dim); font-size: 11px; }
+  .row { margin-bottom: 10px; }
+  .row > label { display: block; margin-bottom: 4px; color: var(--dim); font-size: 11px; }
+  select, input[type=range] { width: 100%; }
+  select {
+    padding: 6px 8px; border-radius: 7px; background: #151b25; color: var(--ink);
+    border: 1px solid var(--line); outline: none;
+  }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1 1 auto; padding: 7px 10px; cursor: pointer; border-radius: 7px;
+    background: #1d2531; color: var(--ink); border: 1px solid var(--line); font-size: 12px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #1a1206; border-color: var(--accent); }
+  input[type=range] { accent-color: var(--accent); }
+  .val { color: var(--ink); float: right; }
+  .hint { color: var(--dim); font-size: 11px; }
+  .stat { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11px; }
+  .stat b { color: var(--ink); }
+
+  #logwrap {
+    position: fixed; right: 12px; bottom: 12px; width: 340px; max-height: 46%;
+    display: flex; flex-direction: column; border-radius: 12px; background: var(--panel);
+    border: 1px solid var(--line); z-index: 10;
+  }
+  #logwrap header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; cursor: pointer; color: var(--accent); font-size: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  #log { margin: 0; padding: 10px 12px; overflow: auto; font: 11px/1.55 Consolas, monospace;
+    white-space: pre-wrap; color: var(--dim); }
+  #log .ok { color: var(--good); }
+  #log .err { color: var(--bad); }
+  #logwrap.folded #log { display: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="panel">
+  <h1>动作实验室</h1>
+  <p class="sub">把 new motion 里的 Mixamo 动作重定向到原神少女模型上</p>
+
+  <div class="row">
+    <label>角色模型</label>
+    <select id="model"></select>
+  </div>
+
+  <div class="row">
+    <label>动作</label>
+    <select id="motion"></select>
+  </div>
+
+  <div class="row">
+    <label>上半身动作（开火/换弹等）</label>
+    <select id="motion-upper"></select>
+  </div>
+
+  <div class="row btns">
+    <button id="play" class="on">暂停</button>
+    <button id="restep">重新烘焙</button>
+  </div>
+
+  <div class="row btns">
+    <button id="probe">检测全部动作</button>
+    <button id="layer-toggle" class="on">分层模式：开</button>
+  </div>
+
+  <div class="row">
+    <label>播放速度 <span class="val" id="speedV">1.00×</span></label>
+    <input type="range" id="speed" min="0" max="2" step="0.05" value="1">
+  </div>
+
+  <div class="row">
+    <label>进度 <span class="val" id="timeV">0.00s</span></label>
+    <input type="range" id="time" min="0" max="1" step="0.001" value="0">
+  </div>
+
+  <div class="row">
+    <label>动作朝向修正 Y <span class="val" id="yawV">0°</span></label>
+    <input type="range" id="yaw" min="-180" max="180" step="1" value="0">
+  </div>
+
+  <div class="row">
+    <label>动作俯仰修正 X <span class="val" id="pitchV">0°</span></label>
+    <input type="range" id="pitch" min="-90" max="90" step="1" value="0">
+  </div>
+
+  <div class="row">
+    <label>角色自转 Y <span class="val" id="myawV">0°</span></label>
+    <input type="range" id="myaw" min="-180" max="180" step="1" value="0">
+  </div>
+
+  <div class="stat" id="stat">等待加载…</div>
+</div>
+
+<div id="logwrap" class="folded">
+  <header id="logtoggle">骨骼映射日志 <span id="logfold">展开</span></header>
+  <pre id="log"></pre>
+</div>
+
+<script type="module" src="./js/animlab.js?v=8"></script>
+</body>
+</html>

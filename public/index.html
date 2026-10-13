@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>堑壕前线 Trench Front</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<!-- ================================ 主菜单 ================================ -->
+<section id="screen-menu" class="screen">
+  <div class="menu-bg"></div>
+  <div class="menu-inner">
+    <h1 class="logo">
+      <span class="logo-cn">堑壕前线</span>
+      <span class="logo-en">TRENCH&nbsp;FRONT</span>
+    </h1>
+    <p class="logo-sub">1916 · 索姆河无人区 · 团队死斗</p>
+
+    <div class="panel menu-panel">
+      <label class="field">
+        <span>代号</span>
+        <input id="input-name" type="text" maxlength="16" placeholder="输入你的名字" autocomplete="off">
+      </label>
+
+      <label class="field">
+        <span>服务器地址</span>
+        <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
+      </label>
+      <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p>
+
+      <div class="bot-row hidden" id="bot-row">
+        <span>AI 数量</span>
+        <div class="seg" id="bot-count">
+          <button type="button" data-n="4">4</button>
+          <button type="button" data-n="6" class="on">6</button>
+          <button type="button" data-n="8">8</button>
+          <button type="button" data-n="12">12</button>
+        </div>
+      </div>
+      <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
+
+      <div class="map-field">
+        <span class="map-label">选择地图</span>
+        <div class="map-row" id="map-row"></div>
+        <p id="map-note" class="hint dim"></p>
+      </div>
+
+      <div class="mode-row">
+        <button id="btn-mode-multi" class="mode-btn" type="button">
+          <b>多人模式</b><span>联机团队死斗 · 与真人同场竞技</span>
+        </button>
+        <button id="btn-mode-solo" class="mode-btn" type="button">
+          <b>单人模式</b><span>与 AI 队友并肩，对抗 AI 敌军</span>
+        </button>
+        <button id="btn-mode-settings" class="mode-btn" type="button">
+          <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
+        </button>
+      </div>
+
+      <p id="skin-note" class="hint dim"></p>
+
+      <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
+      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩</p>
+    </div>
+    <p id="menu-error" class="error"></p>
+    <p class="hint dim">角色出现白块 / 黑块（头发、衣服、鞋子变色）？<a href="/colorfixer.html">打开颜色修复者 ColorFixer</a></p>
+  </div>
+</section>
+
+<!-- ============================ 兵种 / 武器选择 ============================ -->
+<section id="screen-select" class="screen hidden">
+  <div class="menu-bg"></div>
+  <div class="select-inner">
+    <header class="select-head">
+      <h2>选择你的兵种</h2>
+      <p>堑壕里的每个人都有位置 —— 挑一个，然后活下去。</p>
+    </header>
+
+    <div class="class-row" id="class-row"></div>
+
+    <div class="weapon-block">
+      <h3 id="weapon-title">主武器</h3>
+      <div class="weapon-row" id="weapon-row"></div>
+    </div>
+
+    <footer class="select-foot">
+      <button id="btn-back" class="ghost-btn" type="button">返回</button>
+      <div class="team-note" id="team-note">队伍将自动平衡</div>
+      <button id="btn-deploy" class="big-btn small" type="button">部署</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ============================== 设置模式（角色模型） ============================== -->
+<section id="screen-settings" class="screen hidden">
+  <div class="menu-bg"></div>
+  <div class="settings-inner">
+    <header class="select-head">
+      <h2>设置模式 · 角色模型与骨架</h2>
+      <p>导入带蒙皮的 glTF/GLB，把模型骨骼映射到游戏关节，微调后上传即可全场共享。</p>
+    </header>
+
+    <div class="settings-grid">
+      <div class="rig-stage">
+        <canvas id="rig-preview"></canvas>
+        <div class="rig-stage-foot">
+          <button id="rig-play" class="ghost-btn" type="button" aria-pressed="false">播放走路</button>
+          <span id="rig-height-out" class="hint dim">高度 —</span>
+        </div>
+      </div>
+
+      <div class="rig-panel">
+        <label class="field">
+          <span>模型文件</span>
+          <input id="rig-file" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json">
+        </label>
+        <p id="rig-status" class="hint dim">尚未导入模型。仅支持未压缩的 glTF/GLB（不支持 Draco / meshopt）。</p>
+
+        <label class="field">
+          <span>角色名</span>
+          <input id="rig-name" type="text" maxlength="24" placeholder="给你的角色起个名字" autocomplete="off">
+        </label>
+
+        <div class="rig-sliders">
+          <label class="field">
+            <span>缩放 <b id="rig-scale-out">1.00</b></span>
+            <input id="rig-scale" type="range" min="0.5" max="2" step="0.01" value="1">
+          </label>
+          <label class="field">
+            <span>朝向 <b id="rig-rotY-out">0°</b></span>
+            <input id="rig-rotY" type="range" min="-180" max="180" step="1" value="0">
+          </label>
+        </div>
+
+        <h3 class="rig-h3">骨骼映射</h3>
+        <div id="rig-bones" class="rig-bones"></div>
+
+        <h3 class="rig-h3">骨骼偏移微调 · <span id="rig-offset-target">右肩</span></h3>
+        <div id="rig-offset" class="rig-offsets"></div>
+      </div>
+    </div>
+
+    <div class="rig-shared-block">
+      <h3 class="rig-h3">共享角色（所有人可用）</h3>
+      <div id="rig-shared" class="rig-shared"></div>
+    </div>
+
+    <footer class="select-foot">
+      <button id="rig-back" class="ghost-btn" type="button">返回主页</button>
+      <button id="rig-reset" class="ghost-btn" type="button">重置</button>
+      <button id="rig-local" class="ghost-btn" type="button">仅本地保存</button>
+      <button id="rig-upload" class="big-btn small" type="button">上传共享</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ================================== HUD ================================== -->
+<section id="screen-hud" class="hidden">
+
+  <div id="topbar">
+    <div class="tb-score tb-left">
+      <span class="tb-name" id="tb-name-0">协约国</span>
+      <span class="tb-num" id="tb-score-0">0</span>
+    </div>
+    <div class="tb-center">
+      <span id="tb-timer">8:00</span>
+      <span class="tb-limit">/ <b id="tb-limit">75</b></span>
+      <span id="tb-map" class="tb-map"></span>
+    </div>
+    <div class="tb-score tb-right">
+      <span class="tb-num" id="tb-score-1">0</span>
+      <span class="tb-name" id="tb-name-1">同盟国</span>
+    </div>
+  </div>
+
+  <div id="crosshair">
+    <i class="ch ch-t"></i><i class="ch ch-b"></i><i class="ch ch-l"></i><i class="ch ch-r"></i>
+    <b class="ch-dot"></b>
+    <svg id="hitmarker" viewBox="0 0 40 40"><path d="M8 8 L15 15 M32 8 L25 15 M8 32 L15 25 M32 32 L25 25"/></svg>
+    <div id="dmg-pops"></div>
+  </div>
+
+  <div id="damage-vignette"></div>
+  <div id="hit-dir"></div>
+  <div id="suppress-blur"></div>
+
+  <div id="lockslot" class="hidden">
+    <p class="lock-title">点击画面继续战斗</p>
+    <p class="lock-sub">鼠标将被锁定 · 按 Esc 释放</p>
+  </div>
+
+  <div id="killfeed"></div>
+  <div id="chat-log"></div>
+
+  <div id="statusbar">
+    <div class="hp-wrap">
+      <div class="hp-bar"><i id="hp-fill"></i></div>
+      <div class="hp-text"><b id="hp-num">100</b><span id="hp-cls">突击兵</span></div>
+    </div>
+    <div class="ammo-wrap">
+      <b id="ammo-mag">32</b><span id="ammo-max">/32</span><span id="ammo-reserve">150</span>
+      <div class="reload-bar"><i id="reload-fill"></i></div>
+      <span id="reload-text" class="hidden">换弹中</span>
+    </div>
+  </div>
+
+  <div id="ability-chip">
+    <div class="ab-key">Q</div>
+    <div class="ab-body">
+      <b id="ab-name">炸药包</b>
+      <div class="ab-cd"><i id="ab-fill"></i></div>
+    </div>
+  </div>
+
+  <div id="event-toast" class="hidden"></div>
+
+  <!-- 死亡 / 重新部署 -->
+  <div id="death-panel" class="overlay hidden">
+    <div class="panel death-panel">
+      <p class="death-title">你阵亡了</p>
+      <p class="death-by" id="death-by"></p>
+      <p class="death-count"><b id="death-count">3</b> 秒后可重新部署</p>
+      <div class="death-loadout" id="death-loadout"></div>
+      <button id="btn-respawn" class="big-btn small" type="button" disabled>重新部署</button>
+    </div>
+  </div>
+
+  <!-- 记分板 -->
+  <div id="scoreboard" class="overlay hidden">
+    <div class="panel sb-panel">
+      <header class="sb-head">
+        <h3>战场战绩</h3>
+        <span id="sb-timer">8:00</span>
+      </header>
+      <div class="sb-teams">
+        <div class="sb-team"><div class="sb-team-head" id="sb-head-0"></div><table><tbody id="sb-body-0"></tbody></table></div>
+        <div class="sb-team"><div class="sb-team-head" id="sb-head-1"></div><table><tbody id="sb-body-1"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结算 -->
+  <div id="result-panel" class="overlay hidden">
+    <div class="panel result-panel">
+      <h2 id="result-title">协约国 胜利</h2>
+      <p class="result-score"><span id="result-0">0</span> : <span id="result-1">0</span></p>
+      <p class="result-sub">10 秒后开始新的一局</p>
+      <div id="result-mvp" class="result-mvp"></div>
+    </div>
+  </div>
+
+</section>
+
+<div id="boot" class="screen">
+  <p class="boot-text">正在装载战场数据…</p>
+</div>
+
+<div id="map-load" class="screen hidden">
+  <p class="boot-text">正在装载地图…</p>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

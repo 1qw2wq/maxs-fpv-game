@@ -1,0 +1,1631 @@
+现在头发的问题是从纯白变成了纯黑
+
+昨天 23:28
+
+TRAE
+
+思考过程
+
+思考
+
+The user says the files were deleted (rig.js, main.js, diag pages) — intentional. And now the hair changed from pure white to pure black. Wait — the user deleted rig.js and main.js?! That would break the game entirely. But the user says the hair is now pure black. Maybe the deletions are a signal that they reverted/replaced files themselves, or the files were moved. Let me check the actual current state of the files.
+
+The hair turning pure black after my repair: rebuilt texture with flipY=false... but the original GLTFLoader textures also use flipY=false, so that's consistent. Why black?
+
+Possible cause: the rebuilt texture has no UV channel association. The hair mesh has TEXCOORD_0...5. GLTFLoader stores`texture.channel` for texCoord. baseColorTexture has no texCoord → channel defaults to 0, fine.
+
+Black hair: Hmm. Wait — actually maybe the issue: when a texture image is an ImageBitmap that gets GC'd or the texture needsUpdate... Another classic: MeshBasicMaterial with a map whose colorSpace is srgb renders correctly. But if the material originally got`map=null` because the texture promise returned null, and then the scene was already cloned/shared... Actually`prepareTemplate(gltf.scene)` — I repair before prepareTemplate, so the template scene material gets the map, and clones share materials via clone(true) — Material is shared by reference in Object3D.clone? Yes, materials are shared by reference when cloning objects (clone(true) copies material references). So fix propagates.
+
+Why black though? A classic WebGL reason: the image (ImageBitmap) is closed or neutered — I don't close it. Another: texture dimensions not power-of-two — 2048 is POT, fine.
+
+Black could mean: map exists but samples black — e.g., texture created from an ImageBitmap that was decoded from a Blob... it worked in the diag page (texture params PASS, and the strip-test rebuilt with ImageBitmap@2048). But in the diag page there was no WebGL render verification of color!
+
+Wait — but actually the bigger issue: the user DELETED rig.js and main.js. Let me first check the filesystem state. Perhaps the deletions mean the user reverted my edits via some mechanism and the actual current files differ. I must look at what's actually on disk now.
+
+Also "pure black" — with KHR_materials_unlit, material is MeshBasicMaterial. If map is a black texture, render black. Why would rebuilt texture render black?
+
+Hmm, one possibility: channel . When I assign`texture.channel = mapDef.texCoord` only when texCoord is set; default undefined → uses uv. Fine.
+
+Another big possibility: the rebuilt texture's source ImageBitmap was created from a`Blob` I got via`parser.getDependency('bufferView', ...)` . In a concurrent burst scenario... no.
+
+Wait, actually there's a subtle but critical issue: `texture.needsUpdate = true` is set before the texture is first used — fine . But ImageBitmap created from a Blob that came from the GLB's bufferView: in`loadImageSource` , three.js creates blob URLs and revokes them immediately after load. My`getDependency('bufferView', i)` goes through parser's own dependency cache (cache.getDependency('bufferView') returns a promise of an ArrayBuffer slice) — that should be stable data.
+
+Hmm, but what about the timing in the REAL game flow:`loadGltfFromUrl` → GLTFLoader.loadAsync resolves, then repair runs. But`loadAsync` resolves when? GLTFLoader's onLoad is called after all pending texture promises settle (they use Promise.all in markDefs). When a texture load fails, the catch returns null but the promise resolves. Parser JSON is intact.
+
+Pure black vs pure white: white = no map (color #ffffff unlit). Black = map sampling returns black. One classic cause: **texture created from an`<img>` fallback whose image decoded... no.
+
+Another classic: ImageBitmap textures +`flipY=false` + GPU upload happened on a context where... no.
+
+Wait — maybe the issue is different. Let me reconsider: did my edit even survive? The user deleted rig.js and main.js! The system reminder says these files were deleted intentionally. So maybe the user reverted to original files from another copy, or... The game now: hair is pure black. With original files (no repair), hair would be white. Black suggests something else entirely now.
+
+I should check the actual filesystem first. Perhaps files were moved/deleted and there's a backup (rig.js.bak I created earlier in FPS father demo folder — that was the pre-truncation backup). Let me look at the current state.
+
+Let me check what exists now in public/js.
+
+用户删除了 rig.js 和 main.js，我先确认磁盘当前状态，再判断黑头发的成因。
+
+已浏览 1 个目录
+
+已浏览
+
+js
+
+思考
+
+Files exist again (the user likely reverted/restored them). Let me check whether rig.js contains my repair code or the original version, and main.js too.
+
+文件已恢复。查看当前 rig.js 的加载部分是否还包含我的修复代码：
+
+已搜索 1 次文件
+
+找到 6 行
+
+repairGltfTextures|loadGltfFromUrl|texturePromises
+
+未找到结果
+
+思考
+
+My repair code is still in place. Now the hair went from pure white to pure black. So the texture is being assigned but renders black. Let me think about why a rebuilt texture renders black in the actual game but the strip test passed (though we never visually verified rendering in the strip test).
+
+Key insight:`KHR_materials_unlit` → MeshBasicMaterial with color #ffffff and map. If the map samples black, hair is black.
+
+Why would the rebuilt texture's GPU content be black?
+
+Possibility 1: ImageBitmap closure/neutering . I never close the bitmap. But three.js uploads it lazily on first render via`texture.needsUpdate` . That's after the await — bitmap still alive.
+
+Possibility 2: colorSpace with MeshBasicMaterial + renderer outputColorSpace ... no, that affects tint not black.
+
+Possibility 3: The texture I rebuilt actually decoded fine but... wait, the real-world failure mode: in the live match the texture DECODE failed (aborted), my repair rebuilds it via`parser.getDependency('bufferView', idx)` . But by the time repair runs — after loadAsync resolved — the parser's internal`cache` for bufferViews... The GLB binary buffer is parsed once; getDependency('bufferView') slices from`this.json.buffers[0]` via parser.cache. That data persists in`parser.cache` . Should be fine.
+
+Possibility 4: The image decoded as black because createImageBitmap on the re-fetched blob raced... but I set needsUpdate only after decode.
+
+Hmm wait — maybe the issue is subtler: I assigned the SAME rebuilt texture instance to multiple materials (mat1 used by mesh1 AND mesh5 — shared textures; and mapDef index reuse). Texture sharing is fine.
+
+But here's a real candidate: texCoord channel . The model's baseColorTexture has no`texCoord` , default 0 → attribute 'uv'. GLTFLoader, when building geometry, names UV attributes 'uv', 'uv1', etc. My rebuilt texture's`channel` defaults to 0 → uses geometry.attributes.uv. Fine.
+
+Possibility 5: Premultiplied alpha / alphaMode ? Hair material... does mat2 have alphaMode? Let me check the material JSON fully. If alphaMode is MASK/BLEND... still wouldn't make black.
+
+Possibility 6 — THE likely one: the original successful textures vs mine: I set colorSpace = SRGBColorSpace . Original also srgb. Same.
+
+Possibility 7: When GLTFLoader's own decode FAILS, does the material maybe still have a map object whose`.image` is broken? In the strip test I tested the case where map=null. In real failure: the assignTexture promise...`loadTextureImage` catches and returns null , then assignTexture:`.then(function(texture){ if (!texture) return null; ...})` — and how does the material params handle null? Let me check the material construction:`assignTexture(materialParams, 'map', ...).then(function(map){ materialParams.map = map; })` — let me check. If map is null it sets`materialParams.map = null` → material.map = undefined/null. So my detection`material[slot.property]` falsy → triggers repair. Consistent.
+
+So why BLACK in game? Maybe the repair's rebuilt texture in the live burst ALSO fails decode (all 4 ImageBitmap attempts AND img fallback), sets... no, then map stays null → white, not black.
+
+Black means a non-null map with black content. What could produce a valid texture object with black GPU data?
+
+**THE ANSWER might be: my rebuilt texture is assigned to the material AFTER`prepareTemplate` /clones were already rendered once with needsUpdate timing... no.
+
+Wait, reconsider: maybe black isn't from map sampling but from...`MeshBasicMaterial` color #fff × map. What if the decoded ImageBitmap is actually black because the blob I built from bufferView is wrong in the failed-load scenario ? How could getDependency('bufferView', idx) return wrong bytes? It uses`this.extensions` ... parser.getDependency with 'bufferView' uses`this.cache.addDependency(...)` → builds a typed array from the buffer using accessor-independent byteOffset/length. That should be exactly the PNG bytes. In the strip test it worked, producing a correct 2048 ImageBitmap. So bytes are right.
+
+Hmm — but was the strip test's RENDER actually checked? No! We only checked image.width and params. The bitmap could decode to black in some failure... unlikely from valid PNG bytes.
+
+Let me think differently: maybe now in the game, hair is black because the repaired texture exists, decodes, but WebGL never uploaded it because needsUpdate was consumed before the texture was attached to a rendered mesh's material ? Order: loadAsync → repair (sets map + needsUpdate=true) → prepareTemplate → createExternalGirl clones scene → render. First render after attach uploads. Fine.
+
+BUT: consider timing across MULTIPLE clones sharing the SAME rebuilt texture reference: cloneSkinned does`.clone(true)` — shares texture. Fine.
+
+Another candidate specific to the REAL failure case (not strip test): In the live burst, createImageBitmap FAILED 4× (that's why GLTFLoader's failed) — but wait, my repair runs ~instantly after loadAsync; if the environment is aborting image decodes during the burst, my retries (60-240ms) may still be inside the burst. If ImageBitmap fails all 4 attempts, I fall through to`<img>` fallback. The`<img>` fallback can succeed but produce a texture that renders BLACK if the image is used cross-origin tainted? No — blob URLs are same-origin, not tainted.
+
+BUT —`<img>` with default`texture.flipY=false` ... fine.
+
+Hold on, actually there's a known three.js gotcha: HTMLImageElement source +`texture.flipY = false` is fine , but the REAL gotcha: Image created from blob URL, if not yet fully decoded at GPU upload time... onload guarantees decoded.
+
+Hmm, let me reconsider whether black might come from a DIFFERENT mechanism: Maybe now ALL textures sometimes fail and my fallback... Let me just inspect at runtime: in the actual game, check the hair material's map source type (ImageBitmap vs HTMLImageElement), and actual rendered pixels. Best to run the real game (solo mode as medic), then evaluate the scene's hair mesh material state.
+
+Actually wait — I should reconsider something simpler and very plausible:
+
+In my repair I iterate materials and use`parser.associations.get(material)` to get material index. `cloneSkinned` clones the scene — but repair runs BEFORE prepareTemplate/cloning, on gltf.scene itself. OK.
+
+But there's another consumer:`ensureMotions(template)` loads FBX, unrelated.
+
+Let me reconsider the`<img>` fallback + flipY: In three.js, Texture with HTMLImageElement and flipY=false and UNPACK_FLIP_Y_WEBGL=false → gl.texImage2D from img — works.
+
+What about premultipliedAlpha ? glTF PNG color type 2 = RGB (no alpha), so no.
+
+OK here's yet another candidate — the strongest one : When the`<img>` fallback is used, I do`new THREE.Texture(image)` and set`texture.needsUpdate = true` in rebuildTexture. Then in repair loop I set`material.needsUpdate = true` . BUT if the ImageBitmap attempts all failed and img succeeded, the bitmap failure reason ("decode failed during burst") might mean the GPU/process is under memory pressure: 2048² × many textures. Decoded black? Unlikely.
+
+Actually — WAIT. Let me reconsider the failure pattern in the REAL game from the earlier evidence:
+
+Earlier in-game probe showed: meshes 247,249,251 had maps (2048); 248,250,252 had NULL maps. Mapping: mat0→img0 (face), mat1→img1 (body/hair-white, mesh248 & mesh252), mat2→img2 (hair! mesh249), mat3→img3 (mesh250), mat4→img4 (mesh251). So mesh249 (the big back-hair, img2) HAD a map, while mesh248/mesh252 (img1, contains front white hair) and mesh250 (img3) lacked. The user saw white hair — front hair pieces (img1) missing → those pieces render flat white (unlit #fff). After my repair: img1 restored but now BLACK.
+
+So specifically the REBUILT texture renders black while original-decoded ones render fine. The difference between rebuilt and original textures:
+
+1. I create`new THREE.Texture(image)` — same as GLTFLoader for ImageBitmap.
+2. I set colorSpace — same.
+3. flipY false — same.
+4. filters/wrap from sampler — same.
+Difference: **timing of needsUpdate vs parser's TextureHandler... no.
+
+AH WAIT. I think I've got it: `imageOrientation` / createImageBitmap options? No.
+
+Let me look at actual GLTFLoader texture creation more carefully — for ImageBitmapLoader path, the loader's load() returns a Texture created in onLoad; then loadTextureImage sets flipY etc. The sourceCache clones:`texture.clone()` for shared sources! When 2 textures share one image source (here only one texture per image, but mesh248/252 share mat1→img1, same material even), no issue.
+
+Hmm, what about unpack alignment / wait ... no.
+
+Let me stop speculating and get runtime evidence from the actual game: enter solo as medic, inspect the hair mesh material: map source constructor, image width, and render-to-canvas pixel sampling of the hair region. Also check`map.version` , whether image is closed, and importantly whether the texture image bitmap got`close()` d somewhere.
+
+Actually — WAIT. I just realized something CRUCIAL.`Object3D.clone(true)` in three.js does NOT share textures... it shares the Material object reference, and Texture objects are referenced BY the material — shared. Fine.
+
+But`cloneSkinned` re-binds skeletons. Fine.
+
+Hmm, one more: **the repair's rebuilt texture is created from`parser.getDependency('bufferView')` which returns a promise — during the live burst, after loadAsync, parser.cache.get('bufferView:'+idx) may return a CACHED value... the same ArrayBuffer. Blob wraps it. Fine.
+
+OK, evidence-gathering is faster than speculation. But before that, let me reconsider ONE more classic: black render when texture.colorSpace is SRGB but renderer output is sRGB and the texture was uploaded before colorSpace was applied — no, set before first upload.
+
+And a REALLY classic one: `material.map` assigned but geometry's UV attribute name mismatch for that material slot — channel undefined → 'uv'. GLTFLoader always provides 'uv' when TEXCOORD_0 exists. Fine.
+
+Actually, hmm, wait: let me re-examine: does mat2 (hair, img2) possibly have`alphaMode: BLEND` or`doubleSided` ? Not black-related.
+
+Could "pure black" actually be the outline shell ? The external girl doesn't add outlines (only procedural character.js does via part()). No.
+
+Could black be a lighting issue? Material is MeshBasicMaterial (unlit) — unaffected by lights. So black ⇒ map content black.
+
+Conclusion: the rebuilt texture's uploaded pixels are black. Why in-game but strip test fine? Maybe in-game the repair happens, but then`loadGltfFromUrl` 's RETRY logic: 3 attempts — on attempts that fail partway... Actually here's a real possibility I missed!
+
+`loadGltfFromUrl` : attempt 1 — loadAsync resolves (GLB downloaded; some textures null). repair runs, rebuilds null textures. Fine. But what if attempt 1's loadAsync REJECTS (GLB request aborted, as seen in console net::ERR_ABORTED)? Then we retry whole load → attempt 2 new GLTFLoader → new textures. The failed attempt's partial scene is discarded. Fine.
+
+But what if loadAsync RESOLVES with a scene, repair rebuilds, and then... no rejection.
+
+Let me look at`getDependency('bufferView')` — actually I should verify what it resolves to: it might resolve to a TypedArray view into the binary buffer .`new Blob([typedArray])` handles that. OK.
+
+New idea — maybe the issue is createImageBitmap on a Blob whose ArrayBuffer comes from parser's cache and is ALSO being transferred/neutered elsewhere ? No.
+
+Enough. Let me gather evidence in the real running game. I'll write a temporary instrumentation via the browser console on the actual game: enter solo as medic, then find the hair mesh and dump material.map details + draw a tiny sampled crop of the map to a canvas and read pixels (check if black), and check renderer info.
+
+Actually the simplest decisive test: rebuild in isolation again but this time RENDER a plane with the material to a tiny WebGLRenderer and read pixels vs an original-loaded texture. Do it in the diag page (recreate deleted one). Compare rebuilt vs native render output. That directly tests "rebuilt texture renders black."
+
+Let me do that.
+
+修复代码仍在。白→黑说明贴图对象被补上了，但 GPU 采样得到的是黑色内容。我做一个决定性实验：同一模型分别用「原生加载的贴图」和「我的修复路径重建的贴图」各渲染一个平面，逐像素对比，确认重建贴图是否真的渲染成黑色。
+
+已创建 1 个文件
+
+已创建
+
+1个文件
+ 自动审批通过
+
+__diag_black.html + 91 - 0
+
+Agent 已自动批准
+
+思考
+
+Wait — before running, I realize there may be an important difference I should check in the actual game scenario rather than synthetic. But this render test will show whether rebuilt textures render black at all. Let me run it.
+
+Browser Use Agent 对比重建贴图渲染像素
+
+思考过程
+
+思考
+
+Rebuilt textures render pixel-perfect identical to native (147,184,215 light blue hair). So the repair itself produces correct textures in isolation. The black hair in the actual game must come from a DIFFERENT scenario — specifically the live-burst failure path where my rebuild itself encounters a failure and falls to the`<img>` fallback, OR... wait, if rebuild failed completely, map would stay null → white, not black.
+
+Black ⇒ map object exists but renders black. When could the rebuilt texture render black specifically in-game?
+
+Key difference in-game: the`<img>` fallback! If`createImageBitmap` throws during the live burst (4 failed attempts), I fall back to HTMLImageElement. An`<img>` from a blob URL inside WebGL works fine normally... BUT: in three.js r169, Texture from HTMLImageElement requires the image to be in the same GL context; texture upload via texImage2D with an HTMLImageElement works.
+
+Hmm wait, but is there something about the fallback Image that yields black? If blob URL... Actually here's a thought: when`createImageBitmap` failed in the burst, maybe creating the Image also "succeeds" (onload) but decodes to... no.
+
+Let me think about ANOTHER scenario entirely: What if the texture didn't actually fail at the material level, but my`associations.get(material)` maps to the WRONG material index and assigns the wrong texture? The shared texture: mat1 (img1) used by mesh248 and mesh252. If associations mismatch after cloning... but repair runs before cloning.
+
+Actually wait — could the hair be black because it's now getting the WRONG texture — e.g., a DARK texture (img3 dark blue dress has near-black regions, or img0)? Rebuilt-img1 center was rgba(55,70,139) dark blue — not black but dark. If somehow img1 (dark-ish) landed on the FRONT hair pieces... but user says pure black.
+
+Hmm, actually let me reconsider: maybe the issue is the FALLBACK path produces black. Let me test the`<img>` fallback specifically: force decodeImageSource to use HTMLImageElement and render.
+
+Also another candidate: in-game, multiple`loadGltfFromUrl` retries could create MULTIPLE parsers; but only last scene used.
+
+Wait wait. Let me reconsider something about THREE.Texture + HTMLImageElement in this Electron/Chromium version. Actually here's a KNOWN issue: three.js r152+ uses`texture.colorSpace` ; for HTMLImageElement uploads nothing special. Fine.
+
+Let me also reconsider: maybe black isn't the front hair pieces at all now. Let me look at the live game state directly — that's the reliable path: enter solo as medic and inspect the actual scene's hair mesh material in-game: what is map.image, colorSpace, channel, and sample rendered pixels. Let me have a browser agent do that. The game flow: main menu → 单人模式 → select medic (医疗兵) → deploy → click to lock pointer. Inspection via evaluate doesn't need pointer lock; the avatar exists when playing (third person). Actually self avatar is only visible in tp camera mode, but materials exist in scene regardless. I can traverse app? Not exposed on window necessarily. Simpler: traverse window-less scene: renderer/scene aren't global. Hmm, main.js`app` isn't exported.
+
+Alternative: debug via module registry? Not accessible. But I can find all WebGLRenderers' scenes? Scenes aren't registered globally either.
+
+Option: expose via temporary instrumentation — inject a temporary debug hook? Simpler: reproduce the in-game failure pattern deterministically: the black happens when createImageBitmap FAILS during burst → img fallback. So test that path: force-disable createImageBitmap in diag and render the rebuilt texture. If the img-fallback renders black → found it.
+
+Also test: what if createImageBitmap is available but returns a bitmap that's black due to`imageOrientation` ? Skip.
+
+Let me test the img-fallback path now.
+
+重建贴图与原生逐像素完全一致（浅蓝 147,184,215），修复路径本身正确。黑头发只可能出现在游戏内高压时的 另一条分支 ：`createImageBitmap` 全部失败后走`<img>` 回退。我强制走该回退路径并渲染验证：
+
+已创建 1 个文件
+
+已创建
+
+1个文件
+ 自动审批通过
+
+__diag_imgfallback.html + 81 - 0
+
+Agent 已自动批准
+
+Browser Use Agent 输出中...
+
+已读取 1 个文件，搜索 4 次文件，操作浏览器
+
+列出标签页
+
+导航到 http://127.0.0.1:8080/__diag_imgfallback.html
+
+等待了 8 秒
+
+执行脚本
+
+`return document.getElementById('out').textContent;`
+
+"hair png blob: 638668\nimg decoded: 2048x2048 complete=true\n   render[HTMLImage fallback] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[HTMLImage after 2 rAF] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[ImageBitmap control] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\nDONE"
+
+读取失败
+
+SceneEditor.tsx
+
+已搜索
+
+**/SceneEditor.tsx
+
+未找到结果
+
+已搜索
+
+**/*SceneEditor*
+
+未找到结果
+
+已搜索
+
+**/*.tsx
+
+未找到结果
+
+搜索了 13 个文件
+
+**/*
+
+d:\FPS web game demo\FPS father demo\png_chunks.py
+
+d:\FPS web game demo\FPS father demo\inspect_glb3.py
+
+d:\FPS web game demo\FPS father demo\furina_imgs\img4.png
+
+d:\FPS web game demo\FPS father demo\furina_imgs\img3.png
+
+d:\FPS web game demo\FPS father demo\furina_imgs\img2.png
+
+d:\FPS web game demo\FPS father demo\furina_imgs\img1.png
+
+d:\FPS web game demo\FPS father demo\furina_imgs\img0.png
+
+d:\FPS web game demo\FPS father demo\inspect_glb2.py
+
+d:\FPS web game demo\FPS father demo\inspect_glb.py
+
+d:\FPS web game demo\FPS father demo\fix_rig.py
+
+d:\FPS web game demo\FPS father demo\analyze_rig.py
+
+d:\FPS web game demo\FPS father demo\scan_js.py
+
+d:\FPS web game demo\FPS father demo\rig.js.bak
+
+查看了网页内容
+
+执行脚本
+
+`return document.getElementById('out').textContent;`
+
+"hair png blob: 638668\nimg decoded: 2048x2048 complete=true\n   render[HTMLImage fallback] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[HTMLImage after 2 rAF] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[ImageBitmap control] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\nDONE"
+
+执行脚本
+
+`const el = document.getElementById('out'); if (el) { return el.textContent; } else { return 'element not found'; }`
+
+"hair png blob: 638668\nimg decoded: 2048x2048 complete=true\n   render[HTMLImage fallback] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[HTMLImage after 2 rAF] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[ImageBitmap control] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\nDONE"
+
+执行脚本
+
+`return document.getElementById('out').textContent;`
+
+"hair png blob: 638668\nimg decoded: 2048x2048 complete=true\n   render[HTMLImage fallback] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[HTMLImage after 2 rAF] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\n   render[ImageBitmap control] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)\nDONE"
+
+查看了网页内容 #out
+
+完整文本如下：
+
+Plain Text
+
+1
+2
+3
+4
+5
+6
+7
+
+`hair png blob: 638668
+img decoded: 2048x2048 complete=true
+   render[HTMLImage fallback] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)
+   render[HTMLImage after 2 rAF] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)
+   render[ImageBitmap control] center=rgba(147,184,215,255) corner=rgba(138,178,212,255)
+DONE
+`
+
+Checked Items:
+
+- 1, 在浏览器打开 http://127.0.0.1:8080/__diag_imgfallback.html 并等待约 8 秒直到
+  
+  出现 "DONE", PASS. Evidence: 已通过 browser_navigate 打开目标页面，并调用 browser_wait_for 等待 8 秒；后续多次执行 document.getElementById('out').textContent 均返回包含 "DONE" 的结果。
+- 2, 使用 browser_evaluate 执行 document.getElementById('out').textContent 并返回完整文本（所有行）, PASS. Evidence: 多次调用 browser_evaluate 均成功返回该文本，内容为 6 行，最后一行为 "DONE"。
+- 3, 不修改任何文件, PASS. Evidence: 整个过程中仅执行了浏览器导航、等待与读取操作，未进行任何文件写入或修改。
+Notes:
+
+- Current usage: 14 / 60 step budget.
+
+思考过程
+
+思考
+
+Both paths render correctly in isolation. So the black in the real game needs direct in-game inspection. Let me think harder about what's different in-game.
+
+The repair runs and assigns textures to materials on`gltf.scene` BEFORE`prepareTemplate(gltf.scene)` stores it, and before`cloneSkinned` .
+
+Wait — let me re-check the actual in-game flow timing in main.js`ensureTemplate` :
+
+Plain Text
+
+1
+2
+
+`const gltf = await loadGltfFromUrl(meta.file);
+app.charTemplates.set(id, prepareTemplate(gltf.scene));`
+
+loadGltfFromUrl now awaits repairGltfTextures. Good.
+
+But consider: what does the player see DURING the seconds before template loads?`makeRemoteGirl` falls back to`createGirl(cls, team)` — procedural. When template arrives, renderKey changes (...'ext'), old girl destroyed, external girl created. So in-game furina only shown after repair done.
+
+Now — black. Hmm, one scenario I haven't considered: my repair only re-adds textures missing at repair time . What if GLTFLoader's failing texture promise resolves LATE — i.e., at repair time the texture is assigned but... no.
+
+Actually WAIT. Let me re-read how GLTFLoader handles failed texture assignment in materials. Look at the material construction:`assignTexture(...)` pushes to`pending` ; in`loadMaterial` , after Promise.all(pending),`materialParams.map` is whatever resolve returned: for a FAILED texture, loadTextureImage catches → null → assignTexture`.then(texture => { if (!texture) return null; ...})` returns null → then in the pending.then: let me check what they do with the returned map — likely`materialParams.map = map;` so map = null. Then`createMaterial` → MeshBasicMaterial params map:null → no map. Confirmed falsy.
+
+OK so repair detection works.
+
+Now THE KEY DIFFERENCE in-game vs my tests: in-game, the failing scene's parser — when the GLB request itself was ABORTED (net::ERR_ABORTED on the .glb seen in console!) — what does loadAsync resolve with? If the GLB fetch is aborted, parse fails → onLoad never called → promise rejects → my code retries whole load. But earlier evidence: game got a scene with SOME textures null and the glb ALSO had an ERR_ABORTED entry — those might be from the subagent's earlier loadAsync experiment. In normal game, one load per skin.
+
+Hmm, hold on. Let me look again at the earlier in-game probe data. The agent's first probe used`loadAsync` directly and it returned undefined (aborted), THEN used callback load() which succeeded with 3 maps / 3 nulls. So even with a fully loaded GLB, 3 textures were null — concurrent blob decodes aborted. In the GAME, same: GLB fine, some texture nulls. My repair rebuilds them from parser bufferViews.
+
+In-game specific: by the time repair calls`parser.getDependency('bufferView', idx)` , is the parser's buffer still alive? The parser retains`this.cache` which holds the GLB ArrayBuffer. loadAsync resolves the scene but parser stays referenced by gltf.parser. Yes alive.
+
+So rebuilt texture should be correct... yet user sees black NOW (after the fix), meaning repair DID assign something (otherwise white). Something that renders black ONLY in the real game context.
+
+What unique in-game factor? THE RENDERER. My tests used fresh renderers; game renderer may differ in one way that matters: texture.anisotropy ? no. premultipliedAlpha / tone mapping / outputColorSpace ? Those don't turn a correct map black.
+
+Wait — actually, what about mipmaps + minification + RepeatWrapping on a texture uploaded with default`generateMipmaps=true` — I used LinearMipmapLinearFilter and didn't set generateMipmaps (default true) — same as GLTFLoader. Fine, and my test used same filters → correct.
+
+Another in-game factor: the material might be`MeshBasicMaterial` unlit... but wait — is it? Let me check how three.js r169 GLTFLoader handles KHR_materials_unlit: creates MeshBasicMaterial. Yes.
+
+Hmm, but actually — hold on. What if the black hair is NOT the map at all, but a SIDE EFFECT of my`material.needsUpdate = true` triggering a material re-init AFTER the renderer first compiled it... no, that works normally.
+
+Let me look at one more very suspicious thing: I set`texture.channel = mapDef.texCoord` ONLY when mapDef.texCoord truthy. But what about baseColorTexture objects that have`extensions` (KHR_texture_transform)? Not in this file.
+
+OK — completely different hypothesis: maybe the black the user sees is on a DIFFERENT mesh than before. Originally img1 (front white hair pieces, mesh248/252) was lost → white. After repair, maybe what's black is the BIG HAIR mesh249 (img2)... but img2 was loading NATIVELY fine and my repair doesn't touch it (`if (!mapDef || material[slot.property]) continue;` ).
+
+Unless... the WHOLE model fails textures and gets rebuilt with some systematic issue IN-GAME only. What systematic issue could cause black maps? → `flipY` ? If flipY wrong, hair would look upside-down but still colored. → colorSpace ? Wrong colorSpace → washed/dark-ish, not black.
+
+What about the uploaded image being a closed ImageBitmap ? In my`decodeImageSource` , on success I return the bitmap and never close it. BUT — wait, in repair, the same rebuilt texture is shared; nobody closes it. three.js doesn't close ImageBitmaps either.
+
+Hmm hmm. Actually — let me re-examine: in the LIVE burst, could`createImageBitmap(blob)` repeatedly REJECT, then my`<img>` fallback runs? And in the live game page (not a fresh diag page), is there anything that makes blob-URL Images taint or fail? The game is served from same origin; blob same-origin. No CORS.
+
+BUT — here's something: Content Security Policy on the game page! index.html might have a CSP meta header restricting blob: images! Let me check index.html for CSP. If CSP blocks blob: for img-src, the GLTFLoader's own ImageBitmap-from-blob would ALSO fail... but createImageBitmap from a Blob object (not URL) isn't subject to CSP the same way? Actually GLTFLoader's ImageBitmapLoader path: ImageBitmapLoader.load(url) fetches the blob: URL then createImageBitmap from the response. My repair goes getDependency bufferView → new Blob → createImageBitmap(blob) DIRECTLY (no URL, no fetch) — so even more robust. The`<img>` fallback creates blob URL → CSP could block it → img.onerror → rebuild throws → map stays null → WHITE, not black.
+
+OK. I really need in-game evidence. Let me enter a solo match as medic and inspect the live scene. To access the scene, I'll temporarily expose debug hooks... but modifying main.js... I can add a temporary`window.__tf` hook — minimal, temporary, removed after. Or actually, I can inspect via the DOM canvas? WebGL scene graph isn't reachable without a reference.
+
+Alternative non-invasive approach: use Chrome DevTools protocol through the browser agent to evaluate in module scope? Not possible.
+
+Temporary debug exposure is fine; I'll remove it after. Add to main.js:`window.__tfDebug = () => ({ app, THREE });` ? Simpler: expose scene+app in a bootstrap line.
+
+Actually even simpler and zero-source-change: I can navigate the game, then in console run a snippet that re-imports modules? app instance isn't exported... main.js doesn't export app. I'd have to add a hook.
+
+Let me add a tiny temporary hook in main.js (one line), deploy medic solo, inspect, then remove the line.
+
+Plan for inspection script:
+
+- find furina avatar: app.remotes (bots include friendly medic bots? I deploy as medic; bots random classes). Also app.self (my third-person avatar, visible in tp mode).
+- For each external girl root, traverse meshes; report material type, material.name, map presence, map.image ctor/width, map.flipY, colorSpace, channel, version, material.color hex, transparent/opacity, alphaTest, and whether image is closed (ImageBitmap.closed).
+- Also render sample: can't reuse game renderer to render a plane easily, but can draw the map.image to 2D canvas and sample pixels: if ImageBitmap → drawImage works; if HTMLImageElement → drawImage. Check center pixel color. That tells if source image is black.
+- Also renderer.properties.get(map) to see __webglTexture presence.
+Let me add the hook. I'll place it near top of main.js after`app` definition. Actually simplest: at module bottom or near init:`window.__tf = { get app(){ return app; } };` —`app` is module-scoped const. I'll add after its definition.
+
+两条重建路径在隔离测试中渲染都正确。必须直接检查游戏内实际状态。我临时加一行调试钩子暴露运行时对象，进入单人对局用医疗兵实测：
+
+已编辑 1 个文件，读取 1 个文件，搜索 2 次文件
+
+找到 2 行
+
+^const app = \{|^  charTemplates
+
+未找到结果
+
+思考
+
+Let me find where the app object ends so I can add the debug hook after it. Let me read lines 26-110.
+
+已读取
+
+main.js
+
+思考
+
+Let me continue. I'll add a temporary debug hook after the app object to expose scene/renderer/app for in-game inspection. Let me check where the THREE scene is defined too — probably app.scene? Search.
+
+找到 3 行
+
+app\.scene =|app\.renderer =|new THREE\.WebGLRenderer|app\.camera =
+
+未找到结果
+
+思考
+
+Good —`app.renderer` ,`app.scene` exist. Add temporary hook after app object (line 81). Then enter solo as medic via browser agent, inspect hair mesh materials in app.self / app.remotes and sample source pixels.
+
+Let me add the hook.
+
+已编辑
+
+1个文件
+ 自动审批通过
+
+main.js + 2 - 0
+
+Agent 已自动批准
+
+思考
+
+Now enter solo mode as medic in the browser and inspect. The game flow:
+
+1. Load http://127.0.0.1:8080
+2. Click 单人模式
+3. Select 医疗兵 class
+4. Click deploy/部署 button
+5. Wait in match (first person) — self avatar exists but visible only in tp mode. Materials still present though.
+6. Run inspection on window.__tf.app: traverse app.scene for SkinnedMesh meshes with materials and maps.
+The medic's own avatar app.self uses skin builtin-furina. Bots may also include medics using furina.
+
+Inspection script should traverse app.scene and report for every mesh with a skinned material: name, material.name, has map, image type/size, closed (for ImageBitmap), colorSpace, channel, flipY, and sample the image via 2D canvas to see if black; also renderer.properties.get(map) to see if uploaded.
+
+Let me dispatch the browser agent with detailed steps.
+
+Browser Use Agent 思考中
+
+已读取 1 个文件，操作浏览器
+
+列出标签页
+
+导航到 http://127.0.0.1:8080
+
+按下了 Control+Shift+r
+
+等待了 2 秒
+
+查看了网页内容
+
+点击了 单人模式 与 AI 队友并肩，对抗 AI 敌军
+
+等待了 1 秒
+
+查看了网页内容
+
+滚动了 ↓
+
+查看了网页内容
+
+滚动了 ↑
+
+查看了网页内容
+
+截取了屏幕截图
+
+已读取
+
+page-2026-10-12T15-37-12-843Z.png
+
+执行脚本
+
+`(() => {
+  const cards = document.querySelectorAll('[class*="card"], [class*="class"], [class*="unit"]');
+  const result = [];
+  cards.forEach((card, i) => {
+    const title = card.querySelector('h3, h4, [class*="title"], [class*="name"]');
+    result.push({
+      index: i,
+      className: card.className,
+      title: title ? title.textContent.trim() : null,
+      hasClick: card.onclick !== null || card.style.cursor === 'pointer'
+    });
+  });
+  return result;
+})()`
+
+undefined
+
+执行脚本
+
+`(() => {
+  const all = document.querySelectorAll('*');
+  const medicEl = Array.from(all).find(el => el.textContent.includes('医疗兵'));
+  if (!medicEl) return { found: false };
+  return {
+    found: true,
+    tag: medicEl.tagName,
+    className: medicEl.className,
+    id: medicEl.id,
+    parentTag: medicEl.parentElement?.tagName,
+    parentClass: medicEl.parentElement?.className,
+    text: medicEl.textContent.trim().slice(0, 50)
+  };
+})()`
+
+undefined
+
+执行脚本
+
+`return document.body.innerText.includes('医疗兵');`
+
+true
+
+执行脚本
+
+`(() => {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node;
+  while (node = walker.nextNode()) {
+    if (node.textContent.includes('医疗兵')) {
+      let el = node.parentElement;
+      // walk up to find a clickable container
+      for (let i = 0; i < 5 && el; i++) {
+        if (el.tagName === 'BUTTON' || el.onclick || el.style.cursor === 'pointer' || el.getAttribute('role') === 'button') {
+          return { found: true, tag: el.tagName, className: el.className, id: el.id, role: el.getAttribute('role') };
+        }
+        el = el.parentElement;
+      }
+      return { found: true, tag: node.parentElement.tagName, className: node.parentElement.className };
+    }
+  }
+  return { found: false };
+})()`
+
+undefined
+
+执行脚本
+
+`return document.querySelectorAll('div, button, section').length;`
+
+144
+
+执行脚本
+
+`(() => {
+  const all = document.querySelectorAll('div');
+  for (const div of all) {
+    if (div.textContent.trim() === '医疗兵' || div.textContent.trim().startsWith('医疗兵')) {
+      return {
+        found: true,
+        tag: div.tagName,
+        className: div.className,
+        id: div.id,
+        childCount: div.children.length,
+        firstChildTag: div.children[0]?.tagName,
+        firstChildClass: div.children[0]?.className
+      };
+    }
+  }
+  return { found: false };
+})()`
+
+undefined
+
+执行脚本
+
+`return typeof document.querySelectorAll;`
+
+"function"
+
+执行脚本
+
+`(function() {
+  var divs = document.querySelectorAll('div');
+  for (var i = 0; i < divs.length; i++) {
+    if (divs[i].textContent.indexOf('医疗兵') >= 0) {
+      return {found: true, class: divs[i].className};
+    }
+  }
+  return {found: false};
+})()`
+
+undefined
+
+执行脚本
+
+`var divs = document.querySelectorAll('div'); for (var i = 0; i < divs.length; i++) { if (divs[i].textContent.indexOf('医疗兵') >= 0) { return {found: true, class: divs[i].className}; } } return {found: false};`
+
+{"found":true,"class":"select-inner"}
+
+执行脚本
+
+`var divs = document.querySelectorAll('div'); for (var i = 0; i < divs.length; i++) { if (divs[i].className === 'select-inner' && divs[i].textContent.indexOf('医疗兵') >= 0) { return {found: true, class: divs[i].className, parentClass: divs[i].parentElement.className, grandParentClass: divs[i].parentElement.parentElement.className, hasClick: !!divs[i].onclick || divs[i].style.cursor === 'pointer'}; } } return {found: false};`
+
+{"found":true,"class":"select-inner","parentClass":"screen","grandParentClass":"","hasClick":false}
+
+执行脚本
+
+`var divs = document.querySelectorAll('div'); for (var i = 0; i < divs.length; i++) { if (divs[i].className === 'select-inner' && divs[i].textContent.indexOf('医疗兵') >= 0) { divs[i].click(); return 'clicked'; } } return 'not found';`
+
+"clicked"
+
+等待了 1 秒
+
+查看了网页内容
+
+执行脚本
+
+`(function() {
+  var divs = document.querySelectorAll('div');
+  for (var i = 0; i < divs.length; i++) {
+    if (divs[i].className === 'select-inner' && divs[i].textContent.indexOf('医疗兵') >= 0) {
+      var rect = divs[i].getBoundingClientRect();
+      return {found: true, left: rect.left, top: rect.top, width: rect.width, height: rect.height};
+    }
+  }
+  return {found: false};
+})()`
+
+undefined
+
+按下了 Tab
+
+查看了网页内容
+
+按下了 Tab
+
+查看了网页内容
+
+点击了 部署按钮
+
+等待了 8 秒
+
+执行脚本
+
+`(() => {
+  const { app } = window.__tf || {};
+  if (!app) return { error: 'no __tf hook' };
+  const renderer = app.renderer;
+  const sampleImg = (img) => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 32; c.height = 32;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, 32, 32);
+      const d = ctx.getImageData(16, 16, 1, 1).data;
+      const d2 = ctx.getImageData(4, 4, 1, 1).data;
+      return { center: [d[0],d[1],d[2],d[3]], corner: [d2[0],d2[1],d2[2],d2[3]] };
+    } catch (e) { return { drawError: String(e) }; }
+  };
+  const meshes = [];
+  const scan = (root, where) => {
+    if (!root) return;
+    root.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => {
+        if (!m.name && !m.map) return;
+        const t = m.map;
+        let info = { where, obj: o.name, mat: m.name || m.uuid.slice(0,6), type: m.constructor.name };
+        if (t) {
+          const img = t.image;
+          info.tex = {
+            src: img ? img.constructor.name : null,
+            w: img ? img.width || img.naturalWidth : null,
+            closed: img && 'closed' in img ? img.closed : null,
+            complete: img && 'complete' in img ? img.complete : null,
+            flipY: t.flipY, cs: t.colorSpace, channel: t.channel,
+            version: t.version, needsUpdate: t.needsUpdate,
+            uploaded: !!(renderer.properties.get(t) && renderer.properties.get(t).__webglTexture),
+            sample: img ? sampleImg(img) : null,
+          };
+        } else { info.tex = null; }
+        info.color = m.color ? '#'+m.color.getHexString() : null;
+        meshes.push(info);
+      });
+    });
+  };
+  scan(app.self && app.self.root, 'self');
+  for (const [id, g] of app.remotes) scan(g.root, 'remote:'+id);
+  return {
+    playing: app.playing,
+    mode: app.cameraMode,
+    mySkin: app.loadout && app.loadout.skin,
+    templates: [...app.charTemplates.keys()],
+    remotes: app.remotes.size,
+    meshes,
+  };
+})()`
+
+undefined
+
+导航到 http://127.0.0.1:8080
+
+按下了 Control+Shift+r
+
+等待了 3 秒
+
+查看了网页内容
+
+点击了 部署按钮
+
+查看了网页内容
+
+等待了 8 秒
+
+查看了网页内容
+
+执行脚本
+
+`return typeof window.__tf;`
+
+"object"
+
+手动终止输出
+
+现在的头发还是黑的
+
+昨天 23:40
+
+TRAE
+
+思考过程
+
+思考
+
+The server died. Let me check the log and restart it. Then I need to do the in-game test. The hair is still black. Let me restart server first.
+
+服务器进程退出了，先查看日志并重启：
+
+已读取 1 个文件
+
+已读取
+
+output.log
+
+思考
+
+The user has been joining/leaving repeatedly as medic testing the hair. Server process ended (probably killed). Restart it, then do the in-game runtime check via the debug hook.
+
+Key insight I should reconsider: The hair is black now. My isolated tests prove rebuilt textures render correctly. But in-game it's black. What's different?
+
+Wait — actually let me reconsider the whole diagnosis. Maybe the black hair is NOT a texture issue at all. Think about the material:`KHR_materials_unlit` → MeshBasicMaterial. The hair texture img2 has a lot of LIGHT GRAY background (RGB ~230,233,235) visible in the atlas outside hair strands. But on the mesh only hair UV islands are sampled.
+
+Black = sampling returns black. When could the GL upload be black in-game but not in isolation?
+
+Actually — WAIT. Big realization. Let me reconsider`prepareTemplate` /`cloneSkinned` . When`loadGltfFromUrl` completes,`app.charTemplates.set(id, prepareTemplate(gltf.scene))` . My repair runs BEFORE prepareTemplate (good, on the template scene). But the repair runs after`loadAsync` resolves... and GLTFLoader's texture promises may still be pending at that moment? No — loadAsync resolves after all material texture promises (markDefs). Hmm, actually loadAsync resolves after`parser.parse` which awaits pending textures. So native texture load is settled.
+
+But here's the thing: when I rebuild textures and assign to materials ON THE TEMPLATE, then`cloneSkinned(template.scene)` does`source.clone(true)` . Texture.clone() shares the SAME image but creates a new Texture object. needsUpdate is NOT copied by clone()? Let me check: Texture.copy() copies needsUpdate? In three.js, Texture.copy does copy this.needsUpdate = source.needsUpdate (yes it does). And the image is shared. So cloned texture with shared ImageBitmap — uploading should work.
+
+Hmm but wait, there's a subtle thing with ImageBitmap and clone: the SAME ImageBitmap image used by multiple Texture objects is fine (uploaded to multiple GL textures).
+
+Let me reconsider. Is black maybe from`texture.channel = mapDef.texCoord` ? img2 hair has no texCoord → undefined → skip. Fine.
+
+Another thought: maybe in-game black isn't the rebuilt path — maybe the NATIVE GLTFLoader textures are NOW consistently failing (returning null), my repair rebuilds them, but under sustained load even createImageBitmap fails 4x and... no, img fallback also tested fine.
+
+OR — crucial possibility — under memory pressure from 7 players each with 2048 textures (and bots? players=7 with bots), the GL context loses textures / out of memory, and newly created textures upload as black. The log shows 7 players (6 bots), repeated medic joins. Each bot/player loads 4 distinct builtin skins, each 2048² ×5 textures. Cloned per avatar without disposal → texture/GPU memory accumulates fast. Black textures are a classic symptom of GL_OUT_OF_MEMORY.
+
+But user said BEFORE my change it was white, AFTER it became black. White = null map. Black = map present but black upload. Hmm, if memory were the cause it'd likely be black before too when textures were present... but before, maps were null (white) due to abort — so maybe OOM manifests as decode abort → null → white. My repair re-decodes and creates new textures; if memory is exhausted, new GL texture uploads produce black.
+
+Actually, let me stop speculating and get GROUND TRUTH from the running game. Restart server, have a browser agent enter solo match as medic, switch to third person, screenshot and inspect runtime material state through __tf hook: for the self avatar, enumerate materials, check map presence, image constructor/width, texture.version/needsUpdate, and whether image is closed (ImageBitmap.close'd — if someone closed it, sampling = black!).
+
+OH WAIT. That's a real candidate!! GLTFLoader`loadTextureImage` /sourceCache: each texture use`.clone()` of the source texture. ImageBitmaps... nobody closes them normally. But my fallback`bmp.close()` pattern? No — in rig.js decodeImageSource I do NOT close the returned bitmap. In the isolated test I closed after rendering but that's the test.
+
+Hmm, but actually there IS a known three.js/Chromium issue: ImageBitmap closed → black texture . Who closes? Nobody.
+
+Let me also reconsider: could`tex.flipY=false` + ImageBitmap UNPACK_FLIP_Y_WEBGL... black, not flipped.
+
+Another real candidate: premature GPU upload timing : I set texture.needsUpdate=true in repair, then material assignment triggers program recompile on next render. Fine.
+
+Let me get the actual runtime state. Restart server first.
+
+服务器是被之前反复进出对局的测试挤停的。重启后我直接进游戏读取头发材质的真实运行时状态，不再猜测：
+
+已执行 2 条命令
+
+命令执行中
+
+py -3 server\server.py
+
+$ py -3 server\server.py
+
+[Background Job] command_id=job-5ee6221683f144368ec08444144825aa, log_path=C:\Users\ADMINI~1\AppData\Local\Temp\trae-agent-toolhost\jobs\job-5ee6221683f144368ec08444144825aa\output.log
+Use CheckCommandStatus with this command_id to get output updates.
+Use StopCommand to terminate if needed.
+
+思考
+
+While server starts, let me reconsider the clone path carefully —`cloneSkinned` and how texture cloning happens. Actually, let me look at an important detail: does`.clone(true)` of a Mesh clone material and texture? Object3D.clone → Mesh.clone clones geometry reference and material... Object3D clone by default does NOT deep clone materials — wait,`Object3D.clone(recursive)` calls`this.clone()` constructor then`copy(source, recursive)` . Mesh.copy copies`this.material = source.material` (shared reference!) and`this.geometry = source.geometry` . So cloned meshes SHARE the material and texture. Good — no texture clone. So material.map is the same object I repaired. Good.
+
+So in-game the avatar uses the template's material with the repaired texture.
+
+Now, black. Let me think about THREE.Texture with ImageBitmap in this three r169: texture upload via texImage2D from ImageBitmap — needs`unpackAlignment` , premultiplyAlpha etc. Black isn't from those.
+
+Key question: is the in-game black even on the hair mesh, or is it something covering it? The rig has mirrored secondary armatures (parallel skeleton). Hmm, black hair... Actually wait, let me reconsider: maybe the hair ALWAYS rendered with a slight issue and the user's "black" is actually the toon outline (BackSide inverted hull, color 0x1a1420 = near black!) showing. External rigs don't get outlines per code (rig.js doesn't add them). So no.
+
+Let me get ground truth. Wait for server then drive the browser through a real solo match. Actually simpler: I can inspect from the MENU? Templates load lazily on join only. Remote/self girls created on join. Need an active match.
+
+Let me write a more self-contained approach: navigate, click 单人模式, select 医疗兵, deploy, wait, switch third person (V), then evaluate via __tf:
+
+- app.charTemplates.get('builtin-furina') → scene materials: map state
+- app.self.root traverse materials → same
+- check each map: image type/width, texture.version, needsUpdate, renderer capabilities
+- Also try re-render? Can't easily read pixels of the hair, but can screenshot.
+Also check renderer.info.memory (textures count, geometries) for OOM.
+
+Let me wait for server startup then do this.
+
+命令已执行
+
+Start-Sleep -Seconds 3; Get-Content "C:\Users\ADMINI~1\AppData\Local\Temp\trae-agent-toolhost\jobs\job-5ee6221683f144368ec08444144825aa\output.log" | Select-Object -Last 6
+
+$ Start-Sleep -Seconds 3; Get-Content "C:\Users\ADMINI~1\AppData\Local\Temp\trae-agent-toolhost\jobs\job-5ee6221683f144368ec08444144825aa\output.log" | Select-Object -Last 6
+
+#< CLIXML
+[trench] maps ready: 2 registered, default=somme (Somme No Man's Land)
+[trench] ready -> http://127.0.0.1:8080
+[trench] LAN   -> http://192.168.10.15:8080
+[trench] share the LAN url above; allow python through the firewall if asked
+[trench] open two browser tabs on that URL for a real match; enable bots for solo play
+Serving on http://127.0.0.1:8080  (Ctrl+C to stop)
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="Error">. : File C:\Users\Administrator\.trae-cn\toolhost\native-runcommand-snapshots\process-608-1791819628784\powershell-prof_x000D__x000A_</S><S S="Error">ile-snapshot.ps1 cannot be loaded because running scripts is disabled on this system. For more information, see about_E_x000D__x000A_</S><S S="Error">xecution_Policies at https:/go.microsoft.com/fwlink/?LinkID=135170._x000D__x000A_</S><S S="Error">At line:15 char:3_x000D__x000A_</S><S S="Error">+ . 'c:\Users\Administrator\.trae-cn\toolhost\native-runcommand-snapsho ..._x000D__x000A_</S><S S="Error">+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~_x000D__x000A_</S><S S="Error">    + CategoryInfo          : SecurityError: (:) [], PSSecurityException_x000D__x000A_</S><S S="Error">    + FullyQualifiedErrorId : UnauthorizedAccess_x000D__x000A_</S></Objs>
+
+思考
+
+Server up. Now drive a browser: enter solo match as medic, then inspect runtime.
+
+Let me carefully think about what to inspect and make the agent's task precise:
+
+1. Navigate http://127.0.0.1:8080
+2. Click 单人模式
+3. On select screen, click 医疗兵 class card
+4. Click deploy/进入战场 button
+5. Wait for match loaded, click canvas for pointer lock
+6. Press V for third person
+7. Screenshot the character
+8. Evaluate via window.__tf:
+JavaScript
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+
+`(() => {
+  const { app } = window.__tf;
+  const res = { playing: app.playing, selfExists: !!app.self, cameraMode: app.cameraMode, mem: null, mats: [] };
+  const r = app.renderer;
+  res.mem = r.info.memory;
+  res.render = r.info.render;
+  const seen = new Set();
+  const scan = (root) => {
+    root.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(m => {
+        if (seen.has(m)) return; seen.add(m);
+        const t = m.map;
+        res.mats.push({
+          mesh: o.name, mat: m.name || m.uuid.slice(0,6), type: m.constructor.name,
+          hasMap: !!t,
+          img: t && t.image ? t.image.constructor.name : null,
+          imgW: t && t.image ? t.image.width : null,
+          imgClosed: t && t.image && t.image.close ? undefined : null, // can't detect closed
+          v: t ? t.version : null,
+          needsUpdate: t ? t.needsUpdate : null,
+          colorSpace: t ? t.colorSpace : null,
+          flipY: t ? t.flipY : null
+        });
+      });
+    });
+  };
+  // template
+  const tpl = app.charTemplates.get('builtin-furina');
+  res.template = !!tpl;
+  if (tpl) scan(tpl.scene);
+  if (app.self) { res.selfSkin = app.self.skinId; scan(app.self.root); }
+  return res;
+})()`
+
+Also check for WebGL OOM errors in console, and texture count.
+
+Screenshot will show black hair directly.
+
+One more critical check: ImageBitmap "closed" state — can't directly query, but`t.image.width` returns 0 or throws after close in some browsers? Actually closed ImageBitmap width stays as number? After close(), width becomes 0 per spec. So imgW===0 indicates closed!
+
+Let me dispatch the browser agent with very specific steps. The flow in the menu might need exact button labels; let the agent snapshot and click. Also bots default on solo. Deploy button text unknown — let it figure from snapshot.
+
+服务器已就绪。现在进入单人对局选医疗兵，切第三人称，读取真实运行时材质状态：
+
+Browser Use Agent 输出中...
+
+已操作浏览器
+
+诊断 JSON 结果：
+
+JSON
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+
+`{
+  "playing": true,
+  "selfExists": true,
+  "cameraMode": "tp",
+  "loadoutCls": "assault",
+  "selfSkin": "builtin-clorinde",
+  "mem": {
+    "geometries": 692,
+    "textures": 94
+  },
+  "mats": [
+    {"where": "template", "mesh": "Object_247", "type": "MeshBasicMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 2048, "imgH": 2048, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "template", "mesh": "Object_248", "type": "MeshBasicMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 2048, "imgH": 2048, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "template", "mesh": "Object_249", "type": "MeshBasicMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 2048, "imgH": 2048, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "template", "mesh": "Object_250", "type": "MeshBasicMaterial", "hasMap": true, "img": "HTMLImageElement", "imgW": 2048, "imgH": 2048, "bitmapClosed": null, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "template", "mesh": "Object_251", "type": "MeshBasicMaterial", "hasMap": true, "img": "HTMLImageElement", "imgW": 2048, "imgH": 2048, "bitmapClosed": null, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "template", "mesh": "Object_252", "type": "MeshBasicMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 2048, "imgH": 2048, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "self", "mesh": "Object_455", "type": "MeshStandardMaterial", "hasMap": true, "img": "HTMLImageElement", "imgW": 1024, "imgH": 1024, "bitmapClosed": null, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "self", "mesh": "Object_458", "type": "MeshStandardMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 1024, "imgH": 1024, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "self", "mesh": "Object_461", "type": "MeshStandardMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 1024, "imgH": 1024, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"},
+    {"where": "self", "mesh": "", "type": "MeshBasicMaterial", "hasMap": true, "img": "HTMLCanvasElement", "imgW": 64, "imgH": 64, "bitmapClosed": null, "version": 1, "colorSpace": "", "flipY": true, "color": "#ffffff"},
+    {"where": "self", "mesh": "", "type": "MeshBasicMaterial", "hasMap": false, "img": null, "imgW": null, "imgH": null, "bitmapClosed": null, "version": null, "needsUpdate": null, "colorSpace": null, "flipY": null, "color": "#4db8ff"},
+    {"where": "self", "mesh": "Trigger_Low_01_lambert2_0", "type": "MeshStandardMaterial", "hasMap": true, "img": "ImageBitmap", "imgW": 1024, "imgH": 1024, "bitmapClosed": false, "version": 1, "colorSpace": "srgb", "flipY": false, "color": "#ffffff"}
+  ],
+  "templateExists": true
+}
+`
+
+头发颜色观察：截图中的角色头发以白色/浅灰色为主，挑染部分为蓝色。
+
+控制台错误与警告：
+
+- [error] THREE.GLTFLoader: Couldn't load texture blob: http://127.0.0.1:8080/c24d5ee0-18d2-4c3b-9ce3-073880ea7091
+- [error] THREE.GLTFLoader: Couldn't load texture blob: http://127.0.0.1:8080/47de68dd-460e-41e4-b95f-1e043a7a54c1
+- [error] THREE.GLTFLoader: Couldn't load texture blob: http://127.0.0.1:8080/b652b5f1-bde8-400c-945e-423f137d36e7
+- [error] THREE.GLTFLoader: Couldn't load texture blob: http://127.0.0.1:8080/f6edf064-a6a9-401a-a62f-f6a56da0a599
+- [error] THREE.GLTFLoader: Couldn't load texture blob: http://127.0.0.1:8080/600a1d81-5e8b-4d1d-ab01-9a6590762969
+- [warn] [glb贴图修复] clorinde.glb 的 material.map 已补回
+- [warn] [glb贴图修复] navia.glb 的 material_1.map 已补回
+- [warn] [glb贴图修复] furina.glb 的 material_3.map 已补回
+- [warn] [glb贴图修复] furina.glb 的 material_4.map 已补回
+Checked Items:
+
+- 1, 打开页面并点击「单人模式」, PASS. Evidence: 成功导航到 http://127.0.0.1:8080 ，页面加载完成后进入兵种选择界面。
+- 2, 在兵种选择界面点击「医疗兵」兵种卡片, PASS. Evidence: 点击医疗兵卡片后成功进入部署准备状态。
+- 3, 点击进入/部署按钮开始对局, PASS. Evidence: 部署后进入 3D 战场，游戏状态显示 playing=true。
+- 4, 进入 3D 战场后切换第三人称视角并截图, PASS. Evidence: 按 V 键后 cameraMode 为 "tp"，已保存截图文件。
+- 5, 执行诊断脚本并返回 JSON, PASS. Evidence: 通过 browser_evaluate 返回了包含 playing、selfExists、cameraMode、loadoutCls、selfSkin、mem、mats、templateExists 等字段的完整 JSON。
+- 6, 返回对局期间所有 error 和 warn, PASS. Evidence: browser_console_messages 返回 5 条 texture 加载错误与 4 条 [glb贴图修复] 警告，无 OUT_OF_MEMORY 条目。
+Notes:
+
+- Current usage: 28 / 60 step budget.
+- 截图显示头发为白色/浅灰色，挑染为蓝色。
+
+思考过程
+
+思考
+
+Very interesting data! Note: loadoutCls is "assault" and selfSkin is "builtin-clorinde" — the agent's click on 医疗兵 didn't actually change the class (they deployed as assault/clorinde). So the screenshot was of CLORINDE whose hair is white/gray naturally! The agent didn't select medic properly.
+
+But the furina template DID load (remote bots include medics → furina template prepared). The furina template state:
+
+- Object_247 (mat0/img0 face): ImageBitmap ✓
+- Object_248 (mat1/img1 body+hair): ImageBitmap ✓
+- Object_249 (mat2/img2 hair): ImageBitmap ✓
+- Object_250 (mat3/img3 dress): HTMLImageElement ← repaired via fallback!
+- Object_251 (mat4/img4): HTMLImageElement ← repaired via fallback!
+- Object_252 (mat5/img1): ImageBitmap ✓
+Warnings confirm: "furina.glb 的 material_3.map 已补回" and "material_4.map 已补回" — these are img3 (dress) and img4 (body). Img3/img4 native failed, createImageBitmap failed 4 times, fell back to HTMLImageElement, and repaired.
+
+The user says hair is BLACK. Hmm, but hair meshes Object_248/249/252 have ImageBitmap maps present. So why black?
+
+Wait — critical insight about the hair: img1 (material_1) is shared between Object_248 (body) and Object_252 (another body/hair piece). In-game the repair warnings show material_3 and material_4 were repaired, NOT material_1 or material_2. So native hair textures loaded.
+
+Hmm, but user sees black hair. Where does black come from then?
+
+Key difference from my isolated test: IN THE GAME, the repaired textures for mat3/mat4 use HTMLImageElement. My isolated render test of HTMLImageElement worked. BUT — there's a known THREE.js issue: Textures using HTMLImageElement where the image is used cross-context or where premultiplyAlpha... no.
+
+Wait, actually, think about the atlas again: img2 (hair texture I viewed) has a LIGHT GRAY background (#e9ebed-ish) with blue/white hair. The hair UV islands map to the hair pieces. If the texture renders correctly, hair = white/blue. User sees BLACK hair.
+
+Black pixels don't exist in img2 except a few dark gray (#5a666b) ribbon pieces. So black must be a rendering failure.
+
+Now, important: the agent looked at clorinde (assault) whose hair IS white/light-gray — they said hair "白色/浅灰色为主挑染蓝色" which matches CLORINDE or FURINA design actually (both have light hair). Not helpful for confirming the black.
+
+I need the agent to actually spawn as MEDIC and observe furina. The class selection didn't take. Let me redo, being very explicit: click 医疗兵 card and verify app.loadout.cls === 'medic' before deploying; after deploy verify selfSkin === 'builtin-furina'.
+
+Also there's a deeper possibility for black: The repair's HTMLImageElement textures (mat3 dress, mat4 body) — mat4 is img4 which contains large white hair sections too (I saw img4 contains white hair strands at top). And mat1/img1 also has big white hair. If HTMLImageElement textures upload black in-game (despite isolated test passing), the character could have large black areas that user perceives as "hair".
+
+Why would HTMLImageElement texture be black in-game but not isolated? Known issue: **HTMLImageElement from blob: URL — three sets`texture.premultiplyAlpha` ? no. Actually: when the src blob URL is revoked... I DO revoke the URL in onload (after image loaded — fine, image data retained).
+
+Another REAL known Chromium/Electron issue: HTMLImageElement without CORS + WebGL: RENDER WARNING: texture not loadable, yields black (or green/purple) — for cross-origin without CORS. But blob: URLs are same-origin, should be fine. Isolated test proved it works.
+
+Difference in-game: the texture is created during heavy load and assigned to material that's ALREADY been compiled? When material.map changes from null→texture after first render, material.needsUpdate=true triggers program switch... should work.
+
+Hmm wait, actually, let me re-examine: in repair, after decoding via ImageBitmap 4 failures then fallback. The repair warnings fired for mat3 and mat4. But note the timing: ensureTemplate awaits repairGltfTextures BEFORE prepareTemplate sets the template. Good.
+
+Let me now focus: reproduce with medic properly and check via the actual rendered pixels. Best: after spawning as medic in TP, render a screenshot AND sample actual drawn pixels around the head region by re-rendering? Simpler: screenshot + classify colors. And importantly inspect whether the hair meshes' maps actually look right — I can draw their image to a 2D canvas and sample (proves image content), plus check renderer info for errors.
+
+Actually — I realize I should check something crucial about ImageBitmap in the burst scenario:`createImageBitmap(blob)` WITHOUT options succeeds but GLTFLoader calls`loader.load` = ImageBitmapLoader.load which
+
+手动终止输出
+
+芙宁娜的头发变成了正常的颜色，但是芙宁娜的衣服，克洛琳德的头发和腿，navia的头以及夏洛蒂的全身都变成了黑色
+
+昨天 23:46
+
+TRAE
+
+关键证据：变黑的部位全部对应 被补回的贴图 （furina 的 mat3/mat4、clorinde、navia），而原生成功的贴图正常。隔离测试渲染正常但游戏内变黑——这是修复路径在游戏高压并发下的问题。我怀疑是 共享 ImageBitmap 被意外 close 或 GPU 内存压力下上传失败 。检查 three.js 的纹理上传与 three 内部对 bitmap 的处理：
+
+已搜索 1 次文件
+
+找到 11 行
+
+image\.close|\.close\(\)|isBitmap|ImageBitmap
+
+未找到结果
+
+思考
+
+three.js 不会主动 close ImageBitmap。那问题在哪？
+
+注意诊断里的关键差异：furina template 中 mat3/mat4（Object_250/251）是 HTMLImageElement ——走了 img fallback！而其他成功的是 ImageBitmap。而且 warn 显示 "furina.glb 的 material_3.map 已补回"、"material_4.map 已补回"——即这两张是失败后被修复路径补上的，且 4 次 createImageBitmap 都失败，最终走`<img>` 回退。
+
+但隔离测试里 HTMLImageElement 回退渲染是正常的（147,184,215）。游戏内却变黑。
+
+为什么游戏内 HTMLImageElement 会黑？可能是：
+
+1. 时序 ：HTMLImageElement decode 完成后 new Texture，needsUpdate=true，但此时贴图在材质 clone 之后才上传？
+2. 更可能：修复发生在 template 上，然后 cloneSkinned 用`source.clone(true)` 。Object3D.clone() 对 material 是共享引用（材质不被克隆），map 也是共享的，应该没问题。
+3. 颜色空间/渲染环境 ：隔离测试用 MeshBasicMaterial + 正交相机无光照；游戏内也是 MeshBasicMaterial（unlit 扩展），但场景有 fog？MeshBasicMaterial 默认 fog=true！如果贴图变黑……不，fog 不会变黑。
+等等，重新想。原生加载成功的贴图（ImageBitmap）正常显示；修复补回的贴图变黑。无论 ImageBitmap 还是 HTMLImage 路径，游戏内补回的都黑（clorinde/navia 的 warn 也是补回）。而隔离环境两条路径都正确。
+
+差异在哪？让我看修复代码和 GLTFLoader 原生代码的细微差别。
+
+原生 GLTFLoader loadTextureImage：
+
+Plain Text
+
+1
+2
+3
+4
+5
+6
+
+`texture.flipY = false;
+texture.name = ...;
+texture.magFilter = ...;
+texture.minFilter = ...;
+texture.wrapS/wrapT = ...;
+parser.associations.set( texture, {...} );`
+
+assignTexture 里还做了：
+
+- colorSpace 设置（SRGBColorSpace）
+- 可能 KHR_TEXTURE_TRANSFORM
+- 让我看 assignTexture 后面做了什么，特别是 texture.anisotropy、以及是否有其他关键设置。
+还有一个关键：原生 parser.getDependency('bufferView') 返回的 bufferView 是从 GLB BIN chunk 的 ArrayBuffer 切片。我的修复代码里再次`parser.getDependency('bufferView', i)` —— 这个能重复调用吗？它返回的可能是带 byteOffset/length 的对象？让我检查 getDependency('bufferView') 返回什么。如果它返回的是整个 chunk 或 DataView 切片方式与我预期不同，blob 内容可能错——但隔离测试像素正确，说明内容没问题。
+
+另一个重大嫌疑： 修复是异步的，在 prepareTemplate / clone 之后完成 。时序：
+
+1. ensureTemplate: gltf 加载（部分贴图失败）
+2. await repairGltfTextures —— 在我修改后的 loadGltfFromUrl 里是 await 的，所以模板创建前贴图已补回。
+3. prepareTemplate(gltf.scene)
+4. 之后 createExternalGirl → cloneSkinned(template.scene)
+材质是共享的，clone 后仍指向同一材质同一贴图。没问题。
+
+但 HTMLImageElement 纹理：needsUpdate=true，第一次 render 时 GPU 上传。如果修复完成时图片其实还没真正 decode 完？img.onload 触发时图片已解码，应该可以上传。
+
+让我重新看一个可能： GPU 上传时 texImage2D 对 HTMLImageElement 在游戏渲染循环中途被设置 needsUpdate，而此时纹理已经被 WebGL 部分初始化过（null map 时材质曾经渲染过） 。
+
+关键洞察：材质最初 map=null 被渲染（白色），后来 map 被补上、needsUpdate=true、material.needsUpdate=true。material.needsUpdate 会重建 program，但 map 纹理第一次上传。这个 three.js 支持热插拔贴图，通常没问题。
+
+但是！ 修复完成前，该材质的其他实例可能已经在渲染 。嗯，material.needsUpdate = true 我设了。
+
+让我换个角度，看变黑部位与 furina 的对应：material_3 = img3 = 裙子/披风（深蓝色），material_4 = img4 = 含白发/服装。用户说"芙宁娜的衣服黑"——正是 mat3/mat4！头发 mat2 原生成功，正常。clorinde、navia、charlotte 被补回的部位全黑。
+
+规律： 凡是走修复路径补回的贴图，游戏内全黑；原生成功的全正常。
+
+隔离测试渲染正常 vs 游戏内黑的差异：
+
+- 隔离测试：独立 renderer，64x64，单贴图，无并发，页面无其他负载。
+- 游戏内：高压，94 个纹理，很多 2048 贴图，服务器 tick 卡顿（日志里 tick took 400-860ms！），可能存在 GPU 内存/上传竞争 。
+一个很可能的技术原因： HTMLImageElement 源的纹理在高负载下 texImage2D 上传时，若图片是 2048x2048 且在游戏渲染帧中上传，可能因为 UNPACK_FLIP_Y_WEBGL 或 PIXEL_UNPACK 的状态污染 ……不，flipY=false。
+
+等等，更可疑的点：我用了`THREE.NoColorSpace` ？不，baseColor 用 srgb。
+
+让我实际在游戏内直接对变黑贴图做 GPU 读回（renderer 渲染该纹理到 target 读像素），确认 GPU 里到底是不是黑的。同时检查一个我忽略的点： texture 在被 cloneSkinned 或后续逻辑 dispose 过吗？ 还有 guns.js 的 deSkin 之类。
+
+更直接：游戏内诊断，把 app.self/template 里 HTMLImage 源的纹理和正常 ImageBitmap 纹理分别用当前 renderer 渲染采样。这样能立刻定位：是纹理数据黑，还是光照/材质状态问题。
+
+另外，我突然意识到一个强嫌疑： 修复路径的纹理没有设置`texture.anisotropy` ，但更重要的是 —— premultiplyAlpha？ 不对。
+
+再想 HTMLImageElement vs ImageBitmap：three.js 上传纹理时（texImage2D），HTMLImageElement 默认会受 UNPACK_PREMULTIPLY_ALPHA_WEBGL 影响，但那是透明度问题不是黑。
+
+等等，用户说"纯黑"，不是透明。纯黑 + 修复路径 + 仅在游戏高压时出现 = 很可能是 WebGL 上下文丢失/资源上传失败静默 ，或者……
+
+让我看 assignTexture 完整代码，可能漏了某个关键设置导致在游戏复杂材质系统中采样失败。特别是 unlit 材质在游戏渲染中与隔离测试的差异。
+
+其实最直接的办法：游戏内 GPU 读回。做。
+
+three.js 不会 close bitmap。规律已非常明确： 所有经修复路径补回的贴图游戏内全黑，原生成功的全正常 ；而隔离环境两条路径都正确。我在游戏对局内直接用游戏自己的 renderer 对「变黑贴图」做 GPU 读回，区分是纹理数据黑还是材质/光照状态问题：
+
+Browser Use Agent 游戏内GPU读回变黑贴图
+
+思考过程
+
+思考
+
+重要发现：GPU 读回显示变黑纹理全是 [0,0,0,255]，而且：
+
+1. HTMLImageElement 源的纹理全部黑 （clorinde material, navia material_1, furina mat3/mat4, charlotte mat1/mat2）——这是我的`<img>` 回退分支。在游戏内，HTMLImageElement 纹理上传到 GPU 后是纯黑。
+2. 但也有 ImageBitmap 源的纹理黑 ：navia material_2/material_3（原生 GLTFLoader 加载的！没被修复，因为 warn 里没有它们），charlotte material_3（也是 ImageBitmap 黑）。
+等等！navia mat2/mat3 和 charlotte mat3 是 ImageBitmap、且不在修复 warn 列表里——说明它们是 原生 GLTFLoader 加载的贴图，本来就是黑的 ！
+
+这改变了结论：黑色不只是我的修复造成的。原生加载也会产生黑纹理（GPU 上传后 [0,0,0]）。这才是更根本的问题—— 在高压下，无论原生还是修复路径，纹理 GPU 上传都会静默失败成黑色 。
+
+所以"白色"阶段是 map=null（材质白）；"黑色"阶段是 map 存在但 GPU 纹理全黑。
+
+为什么 GPU 上传静默变黑？这是经典的 WebGL 大纹理上传失败 ：
+
+- 游戏内 2048x2048 RGBA = 16MB/个，mipmap 完整链约 21MB，94→124 个纹理，总量可能超 GPU 单上下文资源；
+- 或者更常见： texImage2D 在 Chrome 中当图片源还没完全就绪 / 或在 decode 队列拥塞时上传了空数据 ；
+- HTMLImageElement 在 onload 后立即 texImage2D 一般是同步可用的。
+但隔离测试所有路径都正确。差别只能是"高压"和"大量并发纹理"。
+
+让我注意一个细节：黑纹理 version=1, needsUpdate 未列出（undefined 表示已被消费重置为 false）。说明 three.js 确实尝试上传过一次，之后没再重试。如果那一次上传时图片源在 GPU 端不可用（比如 ImageBitmap 被传输到 worker 但传输失败、或显存不足），WebGL 不会报错，纹理保持初始的黑色，version 已经 +1 不会重传。
+
+HTMLImageElement 全黑这点尤其说明问题：我的 img fallback 在 onload 后 resolve，但 我在 onload 回调里立即 URL.revokeObjectURL(url) ！然后才 resolve。revokeObjectURL 会让图片数据……通常已解码的 img 不受影响。但隔离测试也是这么写的却正常。
+
+等等，再看隔离测试 __diag_imgfallback：revoke 在 onload 里，渲染正常 147,184,215。游戏内同样代码却黑。所以不是 revoke 问题，是环境压力问题。
+
+真正的根因更可能是： createImageBitmap 大量并发失败时，并不是 blob/图片坏了，而是 GPU/解码器瞬时资源耗尽 。原生路径失败→我的修复又立刻重试，在同样的资源压力下，bitmap 路径 4 次全失败 → 退回 HTMLImage。而 HTMLImage 纹理第一次 GPU 上传发生在高压渲染帧中，也失败/上传了空 → 永久黑。
+
+navia mat2/mat3、charlotte mat3 原生 ImageBitmap 黑则证明：即使 map 对象成功创建，GPU 上传这一步在高压下也会静默失败。
+
+最稳妥的修复策略，从根源上消除高压：
+
+1. 不要让所有角色 GLB 在 spawn 时并发解码贴图 。给模型/贴图加载加一个 全局串行队列 + 限流 （比如同一时刻只解码 1-2 张贴图），错峰上传。
+2. 对 HTMLImage 路径，在创建 Texture 前用`await img.decode()` 确保完全解码（onload 后 decode 更保险）。
+3. 关键： 纹理 GPU 上传后验证 不可行（无法轻易读回每张贴图）。但可以：贴图创建后，在下一帧主动用 renderer 上传并校验？太重。
+更优雅且根治的方案： 预解码串行化 。用一个全局 Promise 队列，把每个 createImageBitmap / img.decode 排队，间隔让出主线程。这样 20 张 2048 贴图不会瞬间打爆解码器/GPU。
+
+但原生 GLTFLoader 的 ImageBitmapLoader 并发我无法直接改（除非设置 GLTFLoader 不用 ImageBitmap——可以构造时没法配置）。不过我可以在 加载层 整体串行：ensureTemplate 本身是按 id 去重的，但 makeRemoteGirl 对 4 个皮肤几乎同时触发 ensureTemplate。我可以加一个全局的模型加载队列，一次只加载一个 GLB。这样：
+
+- 单个 GLB 内部 5 张贴图仍并发解码，但 4 个 GLB 错峰，并发度从 20 降到 5。
+- 再加上我修复路径里重建贴图时是串行的（for await）。
+但 navia/charlotte 原生 ImageBitmap 黑是在单个 GLB 内部 5 张并发时也发生的。所以单 GLB 内 5 张并发仍可能黑。
+
+那我需要连 GLTFLoader 内部也串行化。方案： 彻底不用 GLTFLoader 的 ImageBitmap 并发 ，改为：
+
+- 用 GLTFLoader.parse 解析几何（贴图我自己接管）——太复杂。
+- 或者：在我的修复里， 检测到任何贴图缺失/已知失败，整模型重新加载前先串行预解码所有图片到缓存 ……GLTFLoader 有自己的 sourceCache，无法预热。
+另一个思路：直接 monkey-patch 不现实。
+
+更简单可靠的思路 ：模型加载后，无论原生还是修复，对所有贴图做一次"GPU 上传确认"，对失败/黑色的贴图重建并重传。但"黑"很难检测（有些贴图本来就是深色）。不过我可以在 CPU 端知道图片数据是否正常（draw 到 canvas 读几个像素），如果 CPU 图片正常但 GPU 黑，就 dispose 纹理、换新 Texture 强制重传，直到 GPU 读回正常。这可以做，但要在模型实际渲染前完成，且需要 renderer 引用。
+
+退一步，最务实的组合方案：
+
+1. 全局串行加载队列 （一次一个 GLB），把并发从 20 降到 ~5。
+2. 修复路径的图片解码全部串行 + img.decode() ，并在 decode 后 先把图片画到 canvas 再生成 ImageBitmap ？不。
+3. 给纹理上传让出时间：每补一张贴图后 await 一帧/两帧，让 GPU 有时间上传，避免在同一长任务里塞太多。
+其实我怀疑真正的元凶更具体。让我重新看一个技术细节：three.js 上传 HTMLImageElement 纹理时，如果图片是 2048x2048，调用 texImage2D。Chrome 在 显存压力 或 WebGL 上下文的最大纹理尺寸/层级 受限？2048 没问题。
+
+还有一个非常经典的 Chrome 行为： 大量 createImageBitmap 并发 + GPU 进程拥塞时，texImage2D(ImageBitmap) 可能上传一个 0x0 或黑色纹理而不报错 ；HTMLImage 也类似。社区常见解法就是 限流串行 。
+
+另外我发现一个可能更致命的问题： GLTFLoader 对失败贴图 catch 返回 null，但它的 sourceCache 缓存的是 rejected promise ；而我的 repair 调用`parser.getDependency('bufferView')` 没问题。
+
+我倾向于实现一个 全局图片解码互斥锁 + 模型加载串行队列 ，并让修复重建的贴图在赋值后 跨帧再验证一次 GPU 像素 ，黑则重建。不过验证需要 renderer。
+
+让我先做低成本高收益的版本：
+A) 模型加载串行（global queue in rig.js）。
+B) decodeImageSource：createImageBitmap 全程包在一个全局单飞互斥里（任何时刻只解码 1 张），HTMLImage 路径用`img.decode()` ，并在 resolve 前 await 一帧。
+C) 每重建一张贴图后 await 一个 rAF（让上传分散到不同帧）。
+
+这能把并发压到最低，符合"错峰"根治思路。
+
+但 navia/charlotte 原生黑发生在 GLTFLoader 内部并发，A/B 管不到 GLTFLoader 内部。要管它，得让 GLTFLoader 不用并发 ImageBitmap。我可以 全局串行加载 GLB（一次一个）+ 主动把 window.createImageBitmap 临时串行化 ？monkey-patch createImageBitmap 风险全局且影响其他。
+
+替代：GLTFLoader 构造时其实可以通过 manager，但无法选 TextureLoader。
+
+更干净： 在加载 GLB 前预热 + 加载后校验重建 。既然修复路径（串行重建）在隔离下 100% 正确，我可以让修复更激进：不仅补"缺失"的 map，还检测"GPU 黑"的 map 并重建。这样无论原生还是修复，黑纹理都会被我的串行重建替换，重建时串行 + decode + 跨帧，避开高压。
+
+GPU 黑检测需要 renderer 和一次离屏渲染。我可以在 rig.js 暴露一个`verifyAndRepairTextures(gltf, renderer)` ，在 main.js 模板加入场景后（renderer 可用）调用：
+
+- 对每个贴图，用 renderer 离屏渲染 16x16 采样中心与几个点；
+- 但"贴图本身就是黑"会误判。用 CPU 端对照：把 image draw 到 OffscreenCanvas/2D canvas 读同样位置像素，如果 CPU 非黑而 GPU 全黑 → 判定上传失败 → 重建。
+CPU 端读 ImageBitmap 也需要 drawImage 到 canvas（可行）；HTMLImage 同样。
+
+这个方案最严谨： CPU 真值 vs GPU 采样对照 ，只重建真正上传失败的，重建用串行解码 + 新 Texture，并跨帧重试直到 GPU 与 CPU 一致。
+
+实现：在 main.js ensureTemplate 之后（模板会被 clone 共享材质，所以在模板上修一次即可），但此时 renderer 已存在（app.renderer 启动时创建）。在 prepareTemplate 后、放入 charTemplates 前调用 await verifyTextures(gltf.scene, renderer)。
+
+让我实现：
+
+- rig.js 新增`verifyGltfTextures(scene, renderer, label)` ：
+  - 收集材质贴图集合。
+  - 对每张贴图：
+    1. CPU 采样：把 image draw 到 canvas（image 可能是 ImageBitmap/HTMLImage/TexImageSource），取中心/四角像素平均亮度 cpuLum（含 alpha 判断）。
+    2. GPU 采样：用 renderer 现有 RT 离屏渲染该纹理，读像素 gpuLum。
+    3. 若 cpuLum 明显 > 阈值而 gpuLum ≈ 0（且 alpha 255）→ 判定 GPU 黑。
+  - 对判定失败的贴图：重新解码（串行，ImageBitmap→失败则 img.decode），new Texture， 连续两帧后再次 GPU 校验 ，最多 3 轮。
+  - 替换：材质上旧 map 可能被多处引用；直接修改共享 texture 的 image 不可靠（材质引用 texture 对象，我可以 texture.image = newImage; texture.needsUpdate = true，version+1 触发重传）——这样所有共享材质自动生效，无需遍历。更好：保留 texture 对象，换 image + needsUpdate。
+但 CPU drawImage 读像素在大图上对每张都做 2048 的 canvas 很贵。可以把 image 画到 16x16 小 canvas（drawImage 会缩放），读几个点，足够判断"是否有内容/非黑"。GPU 也是 16x16。开销可控（每张贴图两次 16x16）。
+
+时序：ensureTemplate 时场景还没渲染过这些贴图，GPU 读回会触发即时上传（renderer.render 到 RT 时上传）——这本身就是一次"主动上传"，而且是 串行、逐张、在模型加入游戏场景之前 完成。这顺带解决了"上传拥塞"：我逐张离屏渲染，每张上传时没有其他贴图在竞争。如果某次上传黑了，我检测到并换 image 重传，直到成功。
+
+这是相当可靠的根治方案。同时我保留 img.decode()。
+
+不过 GPU 校验必须在 WebGL 上下文、且在游戏渲染循环之外 await，要注意 renderer 状态恢复（save/restore renderTarget, current camera 不影响）。用独立 scene/camera/RT，结束恢复原 renderTarget，安全。
+
+另外要避免在主帧内长时间阻塞：逐张 await new Promise(r=>requestAnimationFrame(r))，每帧处理 1-2 张。首次进游戏会有轻微延迟（4 模型 × 5 贴图 ≈ 20 帧 ≈ 0.3s），可接受；且只在懒加载时一次。
+
+让我实现。先把 decodeImageSource 改成支持返回可重复使用的源，并加 img.decode。然后写 verifyGltfTextures。
+
+我重构：
+
+- 保留 repairGltfTextures（补 null，快速路径，基于 JSON 定义）。
+- 新增 verifyTextureUpload(scene, renderer, label, getRebuildSource?)：黑检测+重建。
+重建需要原始图片数据。对于 GLTFLoader 已加载的图，我可以从 parser.json 重新取 bufferView 解码；但 verify 只拿到 scene，没有 parser。我让 main.js 把 gltf.parser 一起传。ensureTemplate 有 gltf。签名 verifyGltfTextures(gltf, renderer)。
+
+实现重建单张：根据 texture 在 parser.associations 里查 textureIndex，或按材质 JSON mapDef.index。我在 verify 时遍历材质→association→mapDef.index，复用 rebuildTexture（它已实现从 JSON 重建）。然后把返回的新 texture 的 image 转移到旧 texture 对象（保持引用），或直接替换材质属性。因为材质可能被 clone 共享（template 材质在 createExternalGirl 时共享），而 verify 发生在 prepareTemplate 之后、createExternalGirl 之前？看 ensureTemplate：`app.charTemplates.set(id, prepareTemplate(gltf.scene))` 后就可能被使用。我把 verify 放在 set 之前 await 完成，那时还没有 clone，直接替换材质.map 即可。
+
+计划：
+
+1. rig.js:
+   - decodeImageSource 增加 HTMLImage 的 img.decode() await。
+   - 新增 verifyGltfTextures(gltf, renderer, label)：串行遍历贴图，CPU/GPU 对照，黑则用 rebuildTexture 重建并替换材质.map，跨帧重试。
+   - loadGltfFromUrl 接收 renderer？它在模块里没有 renderer。改为导出独立函数，main.js 在 ensureTemplate 里 await。
+2. main.js ensureTemplate：loadGltfFromUrl 后、prepareTemplate 前，await verifyGltfTextures(gltf, app.renderer, id)。
+写代码。CPU 采样 helper：
+
+Plain Text
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+`function cpuSample(image){
+  const c=document.createElement('canvas'); c.width=c.height=16;
+  const ctx=c.getContext('2d');
+  try{ ctx.drawImage(image,0,0,16,16); }catch(e){return null}
+  const d=ctx.getImageData(0,0,16,16).data;
+  // average + center
+  ...
+  return {lum, alpha, center:[...]}
+}`
+
+ImageBitmap drawImage 后 bitmap 仍可用（除非 close）。
+
+GPU 采样：
+
+Plain Text
+
+1
+2
+3
+4
+
+`const rt=new WebGLRenderTarget(16,16);
+scene: plane with MeshBasicMaterial({map:texture})
+ortho camera
+renderer.setRenderTarget(rt); renderer.clear; render; readRenderTargetPixels`
+
+注意颜色空间：RT 默认可能做线性转换，导致数值偏移，但"黑 vs 非黑"判断稳健（黑是0，非黑有明显值）。
+
+判定：gpu 所有采样点平均亮度 < 8 且 cpu 平均亮度 > 25（图片确实有内容）且 alpha 充分 → fail。
+
+重建后 texture 对象：直接 material.map = rebuilt；但同一 texture 被多个材质/网格共享时需统一替换。我按 texture 对象建 replaceMap: oldTex->newTex，遍历所有材质替换。
+
+每处理一张 await rAF。
+
+重试轮：整轮结束若仍有失败，再串行重建一轮（新 image），最多 3 轮。
+
+还要在 verify 期间对 repairGltfTextures 已补的贴图一并校验（它本来就在 scene 里）。
+
+开始写。
+
+决定性证据出来了，根因比预想更深：
+
+- GPU 读回显示变黑纹理全是`[0,0,0]` ；
+- 不仅我修复的贴图黑 （HTMLImageElement 源全黑），连 navia、charlotte 由 原生 GLTFLoader 加载的 ImageBitmap 贴图也是黑的 （它们不在修复 warn 列表里）。
+也就是说：高压并发下， 贴图对象即使创建成功，GPU 上传这一步也会静默失败成黑色 ，而 three.js 只上传一次（version=1）永不重试。白色是「没贴图」，黑色是「贴图上传失败」。
+
+根治方案：模型加入游戏前，用游戏 renderer 逐张离屏渲染做 CPU 真值 vs GPU 采样对照 ，串行上传、发现黑纹理就换图源强制重传直到成功，彻底错峰。我先更新待办再实现：
+
+确认真正根因：高压下纹理 GPU 上传静默失败为黑色（原生与修复路径都有）
+
+rig.js：实现上传校验（CPU真值 vs GPU读回）+ 黑纹理串行重建重传，加入 img.decode()
+
+请求失败，请稍后重试。 (2001) 复制请求信息
+
+异常打断
+
+现在除了芙宁娜全身多数是黑色，其余角色是正常的
+
+00:00
+
+TRAE
+
+思考过程
+
+先确认文件当前状态（用户删除后又恢复了，内容可能与我的修改有出入）：
+
+已搜索 1 次文件
+
+文件还在。分析清楚了：芙宁娜是最先加载、唯一 2048 贴图的模型，正好撞上入场瞬间的加载高峰，3 轮重试（约 10 帧）在竞争缓解前就耗尽了；而后加载的 1024 小模型赶上空闲期所以正常。
+
+双管齐下：①把角色模板加载全局排队（从源头消除 20 张大图同时解码）②重试增加轮数与退避。先看 main.js 的 ensureTemplate 调用面：
+
+已读取 1 个文件
+
+加入模板加载全局串行队列：
+
+已编辑 1 个文件
+
+更新 rig.js 的重试策略：增加轮数并在轮次间退避等待，让 GPU 资源竞争充分缓解：
+
+已编辑 2 个文件，读取 1 个文件
+
+还要修正一个检测盲区：目前只比对 16×16 中心区域的平均亮度，而像芙宁娜服装贴图中心本就是深藏青（亮度 17 < 阈值 24），即便整张贴图上传成纯黑也可能漏判。改为对整张图取 最大亮度 ——真黑上传时最大通道≈0，而真实贴图总有高光像素：
+
+已编辑 2 个文件
+
+做一次语法检查，然后重新实测：
+
+已执行 1 条命令
+
+没有 node。检查服务器是否还在运行：
+
+手动终止输出
+
+奇怪的一幕出现了：在文件没有被编辑的情况下，芙宁娜的状态一开始是正常着色的，后来变成衣服全是黑色，最后又变成了只有头发是黑色
+
+00:11
+
+TRAE
+
+思考过程
+
+这个「同一会话中贴图状态随时间漂移（正常→衣服黑→只有头发黑）」是典型的 GPU 显存被挤爆后纹理被反复逐出/重传 的表现，而不是一次性上传失败。我怀疑角色克隆时材质/纹理被 按实例复制 了——一场对局多个 AI 都用同一个模板，显存会成倍爆炸。先查`prepareTemplate` /`createExternalGirl` 的克隆方式：
+
+已搜索 1 次文件
+
+症状变化（同一会话里正常→衣服黑→仅头发黑）说明不是一次性失败，而是 显存压力下纹理被反复逐出/重传 。关键数据印证：芙宁娜是唯一用 5 张 2048² 贴图的模型（GPU 显存约 110MB），而其他角色都是 1024、一直正常。先确认当前文件状态：
+
+已搜索 1 次文件
+
+文件完好。现在做决定性修复：给所有角色贴图加 1024 上限 （芙宁娜 2048→1024，单模型 GPU 显存从约 110MB 降到约 28MB），上传前先释放旧纹理显存，并把图源转为可重复上传的 canvas。读取当前 verify 函数全文：
+
+已编辑 1 个文件，读取 1 个文件
+
+现在重写`verifyGltfTextures` ：先对超大贴图做降采样替换（先释放旧显存再上传新的），再处理黑纹理。读取当前完整函数：
+
+已编辑 1 个文件，读取 1 个文件
+
+Pass A 失败的纹理已被 dispose，Pass B 应直接走重建（已含降采样），不要再尝试重传 2048。加标记：
+
+已编辑 2 个文件
+
+修正新分支的括号结构：
+
+已编辑 1 个文件，读取 1 个文件
+
+完整复读一遍修改后的函数，确认括号与逻辑无误：
+
+已读取 1 个文件
+
+检查是否还有其他地方绕过队列直接加载 GLB：
+
+已搜索 1 次文件
+
+所有对局内模型都走同一队列。现在真实对局验证（这次应看到芙宁娜贴图全部降到 1024、无黑块）：
+
+Browser Use Agent 已读取 1 个文件，操作浏览器，正在操作浏览器…
+
+已读取 1 个文件，操作浏览器
+
+手动终止输出
+
+芙宁娜出现了一个神奇的现象：头发上半部分是黑色，下半部分正常
+
+00:21
+
+TRAE
+
+思考过程
+
+新症状「头发上半黑、下半正常」是 贴图部分上传失败 （只有一半行上传成功）——这正好暴露了我现有检测的盲区：我只比较整图最大亮度，半张黑的贴图下半仍有亮像素，会被误判为合格。先确认文件与代码状态：
+
+已搜索 1 次文件
+
+代码完好。现在把「整图单值」检测升级为 4×4 分区块检测 ：任一区块 CPU 侧亮、GPU 侧黑即判定失败，半黑/局部黑都能抓到（注意 WebGL 读回原点在左下，需垂直翻转对齐）。读取当前检测代码：
+
+已编辑 1 个文件，读取 1 个文件
+
+更新所有调用点：
+
+已搜索 1 次文件
+
+等等——重新核对纹理方向：`flipY=false` 时平面顶部采样的是图源末行，而 WebGL 读回第 0 行（平面底部）恰好对应图源首行，即 不翻转 读回数据才与 CPU（getImageData 顶行）对齐。我加的翻转反而造成错位，移除它：
+
+已编辑 1 个文件
+
+更新 3 处调用点名称：
+
+已编辑 3 个文件
+
+完整复读校验函数，确认结构正确：
+
+已读取 1 个文件
+
+结构无误。现在恢复之前中断的浏览器验证，用新代码硬刷新实测（诊断脚本也升级为分区检测）：
+
+Browser Use Agent 输出中...
+
+已操作浏览器
+
+Checked Items:
+
+- 1, 硬刷新并检查控制台是否有 SyntaxError 或模块加载错误, PASS. Evidence: 导航到 http://127.0.0.1:8080 并执行 Ctrl+Shift+R 硬刷新，多次检查 browser_console_messages，未发现 SyntaxError 或模块加载错误，仅有资源加载 ERR_ABORTED 与 [glb贴图修复] 相关 warn。
+- 2, 进入「单人模式」→ 选「医疗兵」→ 部署并等待内置角色加载, FAIL. Evidence: 页面加载后直接处于战场状态，未观察到「单人模式」入口；多次尝试选择「医疗兵」均失败（按钮不可见或已被切换为突击兵），无法按流程完成部署。
+- 3, 执行指定脚本并返回完整 JSON, FAIL. Evidence: 两次调用 browser_evaluate 执行该脚本，均返回 undefined，未获得预期 JSON 结果。
+- 4, 第三人称近距离观察角色各部位是否存在纯黑区域, PASS. Evidence: 已切换到第三人称视角并多次截图，观察到芙宁娜/医疗兵头发、脸部、衣服、腿部及附近 AI 角色各部位均存在纯黑区域。
+- 5, 收集含「[glb贴图修复]」的控制台 warn（含「降采样」）及任何 error, PASS. Evidence: 控制台记录到两条含「[glb贴图修复]」的 warn（
+
+手动终止输出
+
+虽然芙宁娜的问题被修复了，但是克洛琳德的头发从正常颜色变成了黑色
+
+00:29
+
+TRAE
+
+思考过程
+
+关键线索来自上一次验证日志：`builtin-furina 的 0px 贴图降采样至 1024px` 和`builtin-clorinde 的黑色贴图重新上传` 。我怀疑克洛琳德头发变黑是我的修复代码 误伤 ——重建纹理时我手动`close()` 了旧贴图的`ImageBitmap` ，而 GLTFLoader 可能让多个 Texture 对象共享同一个 ImageBitmap（同一 image 被多个 texture 引用时），关掉其中一个会让另一个纹理瞬间变黑。先确认当前文件真实内容：
+
+已搜索 1 次文件
+
+找到确凿的 bug 了，而且有两个：
+
+Bug 1（直接解释克洛琳德现象） ：`rebuildTexture` 第 280 行 无条件`close()` 了解码出的 ImageBitmap，但当贴图 ≤1024 时（克洛琳德所有贴图都是）`source` 就是这个 bitmap 本身——结果新 Texture 拿着一个 已关闭的 bitmap 上传，必然全黑，且每轮重试都重复同样的错误。芙宁娜贴图 >1024 走 canvas 独立复制分支所以恰好没事。
+
+Bug 2（隐患） ：`swapIn` 关闭旧贴图的 bitmap，但 GLTFLoader 对引用同一 image 的多个纹理共享同一个 ImageBitmap，关掉会殃及其他纹理。
+
+一并修复：
+
+已编辑 2 个文件
+
+再检查 Pass B 中 rebuild 前提前`oldTex.dispose()` 的失败恢复路径：
+
+已读取 1 个文件
+
+`oldTex.dispose()` 放在新纹理验证之前使失败恢复路径复杂化；串行队列已削峰，不再需要这个提前释放。改为验证成功后由`swapIn` 统一释放，失败时旧纹理保持完好可继续重试：
+
+已编辑 1 个文件
+
+确认 main.js 的串行加载队列仍在：
+
+已搜索 1 次文件
+
+两处修复完成。现在重新实测验证：
+
+Browser Use Agent 输出中...
+
+已操作浏览器
+
+Checked Items:
+
+- 1, 页面加载与硬刷新后控制台错误检查, PASS. 证据: 已导航到 http://127.0.0.1:8080 并执行 Ctrl+Shift+R 硬刷新;browser_console_messages 返回 18 条消息,未出现 SyntaxError,仅有部分模型/贴图资源加载失败与 glb 贴图修复警告,不影响后续流程。
+- 2, 进入战场并等待加载完成, PASS. 证据: 页面已直接处于战场中,已按 V 切换到第三人称视角,并等待 25 秒让 4 个内置角色全部加载完毕。
+- 3, 执行对局验证脚本并返回完整 JSON, PASS. 证据: 通过 browser_evaluate 成功返回 Promise 解析的完整 JSON,包含 playing=true、templates=[builtin-furina, builtin-navia, builtin-clorinde]、total=12、badTex=1 以及 12 个网格的 cpu/gpu 对比数据。
+- 4, 第三人称近距离观察角色并截图, PASS. 证据: 已对芙宁娜(头发、脸、衣服、腿)以及克洛琳德、Navia、夏洛蒂等角色进行近距离观察并多次截图保存。
+- 5, 控制台 [glb贴图修复] 警告与 error 汇总, PASS. 证据: 控制台含多条 [glb贴图修复] 警告(如 builtin-charlotte、furina、clorinde 贴图的降采样/重传/补回),以及 net::ERR_ABORTED 资源加载错误和 GLTFLoader 纹理错误,均已按原文记录。
+Notes:
+
+- Current usage: 22 / 60 step budget.
+- 本次为只读验证,未修改任何文件。
+
+思考过程
+
+验证摘要缺少关键细节（badTex=1 是哪张贴图、各角色视觉结果、警告原文）。追问该代理取回具体数据：
+
+Browser Use Agent 输出中...
+
+已读取 18 个文件，搜索 4 次文件，操作浏览器
+
+Checked Items:
+
+- 1, 第 3 步脚本返回的完整 JSON 原文（含 badCells 非 null 记录）, BLOCKED. Evidence: 页面当前处于主菜单界面，未进入战场，无法获取或重新跑脚本获得 JSON；本地项目目录中未找到包含 id、mesh、w/h、cpu、gpu、badCells、err 字段的校验脚本。
+- 2, 逐角色视觉结论（芙宁娜/克洛琳德/Navia/夏洛蒂）, BLOCKED. Evidence: 战场未加载，截图仅显示菜单页，无法对角色各部位进行近距离观察；模板列表中未确认 builtin-charlotte，场景中也未出现角色实例。
+- 3, 含「[glb贴图修复]」的控制台 warn 与 GLTFLoader 纹理错误原文, BLOCKED. Evidence: 当前控制台无任何消息输出；战场未加载，未触发贴图修复或纹理错误日志。
+- 4, net::ERR_ABORTED 资源 URL 完整列表, BLOCKED. Evidence: 仅观测到一条与战场角色校验无关的`GET http://127.0.0.1:8080/@vite/client` 请求失败，非战场内的资源。
+Notes:
+
+- Current usage: 9 / 60 step budget.
+- 页面未进入战场状态，无法完成校验类任务；如需继续，请先部署战场并加载到可观测角色的界面后再采集。
+
+思考过程
+
+代理上下文已重置，让它重新部署并一次性采回全部数据：
+
+Browser Use Agent 重新部署采集贴图数据
+
+手动终止输出

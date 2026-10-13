@@ -1,0 +1,26 @@
+{
+  "default": "somme",
+  "maps": [
+    {
+      "id": "somme",
+      "name": "索姆河无人区",
+      "nameEn": "Somme No Man's Land",
+      "desc": "1916 · 战壕与无人区",
+      "file": "/shared/map.json",
+      "scene": null
+    },
+    {
+      "id": "italy",
+      "name": "意大利小镇",
+      "nameEn": "Italy Town",
+      "desc": "地中海小镇 · 街巷近战",
+      "file": "/shared/maps/cs_italy.json",
+      "scene": {
+        "model": "/models/maps/cs_italy.glb",
+        "rotX": 0,
+        "scale": 1.0,
+        "offset": [5.727, -28.75, -33.259]
+      }
+    }
+  ]
+}

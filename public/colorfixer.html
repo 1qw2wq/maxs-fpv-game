@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>颜色修复者 ColorFixer · 堑壕前线</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --panel: #1d222a;
+    --line: #313845;
+    --text: #e8ecf2;
+    --dim: #97a0af;
+    --green: #4be08a;
+    --red: #ff5b52;
+    --yellow: #f5c542;
+    --blue: #5aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    display: flex; justify-content: center;
+  }
+  .wrap { width: 760px; max-width: 96vw; padding: 28px 0 48px; }
+  h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: 2px; }
+  h1 small { font-size: 13px; color: var(--dim); letter-spacing: 1px; font-weight: normal; }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 14px;
+  }
+  .env { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; font-size: 13px; }
+  .env b { color: var(--dim); font-weight: normal; }
+  .env .warn { color: var(--yellow); }
+  .env .bad { color: var(--red); }
+  .env .ok { color: var(--green); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button {
+    font: inherit; cursor: pointer; border: 0; border-radius: 8px; padding: 11px 22px;
+    background: linear-gradient(180deg, #5fe396, #35c46f); color: #0c1410; font-weight: bold;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: normal; }
+  label.chk { color: var(--dim); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .progress { height: 6px; background: #11141a; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--green); transition: width .25s; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: normal; }
+  .chip { display: inline-block; padding: 1px 9px; border-radius: 20px; font-size: 12px; }
+  .chip.ok { background: rgba(75,224,138,.15); color: var(--green); }
+  .chip.fix { background: rgba(245,197,66,.15); color: var(--yellow); }
+  .chip.bad { background: rgba(255,91,82,.15); color: var(--red); }
+  .chip.wait { background: rgba(151,160,175,.15); color: var(--dim); }
+  #log {
+    height: 170px; overflow: auto; background: #101319; border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; font: 12px/1.7 Consolas, monospace;
+    white-space: pre-wrap; color: #b9c2d0;
+  }
+  .verdict { font-size: 17px; font-weight: bold; margin: 0 0 8px; }
+  .verdict.ok { color: var(--green); }
+  .verdict.bad { color: var(--red); }
+  .hint2 { color: var(--dim); font-size: 13px; margin: 6px 0 0; }
+  a { color: var(--blue); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>颜色修复者 <small>ColorFixer</small></h1>
+  <p class="sub">角色出现白块 / 黑块（头发、帽子、衣服、鞋子等部位变色）时运行本工具：它会绕过浏览器缓存重新下载模型，
+    逐张贴图重新解码并上传到显卡校验，发现纯黑贴图会自动重建重传，最后引导你进入游戏。</p>
+
+  <!-- Shown by default WITHOUT JavaScript: when the file is opened directly
+       (file://), module scripts are blocked by the browser and this banner is
+       the only thing that can guide the player. The script hides it on http(s). -->
+  <div class="panel" id="filewarn" style="border-color:var(--red);background:#2a1d1f">
+    <h2 style="color:var(--red);margin:0 0 8px;font-size:18px">不能直接双击打开本文件</h2>
+    <p style="margin:6px 0">直接打开时浏览器会禁止本页面读取模型文件，表现为一直停在“检测中”。请通过游戏服务器地址打开：</p>
+    <p style="margin:6px 0">① 先用「启动服务器.bat」启动游戏并保持黑窗口开着<br>
+       ② 点击下方按钮，或在浏览器地址栏输入 <b>http://127.0.0.1:8080/colorfixer.html</b></p>
+    <div class="row" style="margin-top:10px">
+      <button id="btn-go-server" type="button">自动在服务器地址打开</button>
+      <a href="http://127.0.0.1:8080/colorfixer.html"
+         style="padding:11px 16px;border:1px solid var(--line);border-radius:8px;text-decoration:none">手动打开 127.0.0.1:8080</a>
+    </div>
+    <p id="probe-note" class="hint2" style="margin-top:8px"></p>
+  </div>
+
+  <div class="panel">
+    <div class="env" id="env"><b>环境</b><span>检测中…</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button id="btn-run" type="button">开始检测并修复</button>
+      <button id="btn-enter" class="ghost" type="button" disabled>进入游戏</button>
+      <label class="chk"><input type="checkbox" id="opt-map"> 同时校验小镇地图（多花约 10 秒）</label>
+    </div>
+    <div class="progress"><i id="bar"></i></div>
+  </div>
+
+  <div class="panel">
+    <table>
+      <thead><tr><th>模型</th><th style="width:90px">贴图</th><th style="width:110px">状态</th><th>说明</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <p class="verdict" id="verdict"></p>
+    <p class="hint2" id="advice"></p>
+  </div>
+
+  <div class="panel">
+    <div id="log"></div>
+  </div>
+
+  <p class="sub">提示：修复完成后请让游戏页面<strong>硬刷新</strong>（Ctrl + F5）再进入战场；
+    如果所有模型都反复失败，请联系房主确认服务器上的模型文件已更新。<a href="/">返回游戏首页</a></p>
+</div>
+
+<!-- The exact workaround used by the game: drop createImageBitmap before any
+     module evaluates, so GLTFLoader takes the classic HTMLImageElement path. -->
+<script>window.createImageBitmap = undefined;</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
+import { BUILTIN_SKINS } from './js/rig.js';
+
+// Reference sizes of the downscaled (fixed) asset set. A fetched file far from
+// these values means the server is still serving the old heavy GLBs.
+const EXPECTED_BYTES = {
+  'builtin-furina': 4835976,
+  'builtin-charlotte': 3274608,
+  'builtin-clorinde': 2914616,
+  'builtin-navia': 3009816,
+  '__map_cs_italy': 5389436,
+};
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+function log(msg) {
+  logEl.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+// requestAnimationFrame is throttled to a full stop when the tab is hidden or
+// occluded in Chromium, which used to freeze the whole check forever. Race a
+// plain timer so a background tab can still make (slow) progress.
+const rafOnce = () => new Promise((r) => requestAnimationFrame(() => r()));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const frame = () => Promise.race([rafOnce(), wait(150)]);
+
+// Opened by double-clicking the file (file://)? Module imports/fetch are then
+// blocked by the browser and the run would stall on "检测中" forever.
+const IS_FILE = location.protocol === 'file:';
+async function probeLocalServer() {
+  const note = $('probe-note');
+  note.textContent = '正在查找本机游戏服务器…';
+  for (const p of [8080, 8000, 5500, 3000, 5000]) {
+    const base = `http://127.0.0.1:${p}`;
+    try {
+      await Promise.race([
+        fetch(base + '/colorfixer.html', { mode: 'no-cors', cache: 'no-store' }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500)),
+      ]);
+      note.textContent = `找到了（端口 ${p}），正在跳转…`;
+      location.replace(base + '/colorfixer.html');
+      return;
+    } catch { /* port not serving, try next */ }
+  }
+  note.textContent = '没有找到运行中的游戏服务器。请先双击「启动服务器.bat」，等黑窗口提示后再点本按钮。';
+}
+if (IS_FILE) {
+  $('btn-go-server').addEventListener('click', probeLocalServer);
+  $('btn-run').disabled = true;
+  $('btn-run').textContent = '请先按上方红字提示打开';
+} else {
+  $('filewarn').style.display = 'none';
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) log('⚠ 本页面被切到了后台，检测会变慢，请保持页面在前台直到完成。');
+});
+
+// ---------------------------------------------------------------- environment
+function renderEnv() {
+  const rows = [];
+  let ok = true;
+  try {
+    const probe = document.createElement('canvas');
+    const gl = probe.getContext('webgl') || probe.getContext('experimental-webgl');
+    if (!gl) throw new Error('no-webgl');
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);;
+    const soft = /swiftshader|software|basic render/i.test(renderer);
+    if (soft) ok = false;
+    rows.push(['显卡', `<span class="${soft ? 'warn' : 'ok'}">${renderer}${soft ? '（软件渲染：可能极慢或异常）' : ''}</span>`]);
+    const cib = typeof createImageBitmap === 'undefined';
+    rows.push(['解码路径', cib
+      ? '<span class="ok">经典 <img> 路径（已绕开老核显出问题的 ImageBitmap）</span>'
+      : '<span class="warn">ImageBitmap 仍可用（浏览器不允许禁用时不影响检测）</span>']);
+    rows.push(['WebGL', '<span class="ok">硬件加速可用</span>']);
+  } catch (e) {
+    ok = false;
+    rows.push(['WebGL', '<span class="bad">当前浏览器不支持 WebGL，无法运行游戏</span>']);
+  }
+  $('env').innerHTML = rows.map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join('');
+  return ok;
+}
+
+// Drop any Cache Storage copies of model assets (the HTTP disk cache itself is
+// refreshed below via no-store fetches with a one-off query token).
+async function clearModelCaches() {
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => /model|glb|tf|trench/i.test(k)).map((k) => caches.delete(k)));
+    if (keys.length) log(`已清理浏览器缓存区：${keys.join(', ')}`);
+  } catch { /* private mode / unsupported: nothing stored anyway */ }
+}
+
+// ------------------------------------------------------------- GPU readback
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setSize(64, 64);
+const RT = new THREE.WebGLRenderTarget(32, 32, {
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false,
+});
+const quadScene = new THREE.Scene();
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 10);
+quadCam.position.z = 5;
+const quadMat = new THREE.MeshBasicMaterial();
+quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMat));
+
+/** Render a texture to a tiny target and read pixels back. max ~ 0 means the
+ *  GPU really holds a solid-black texture (the HD4600 silent-fail signature). */
+async function gpuSample(tex) {
+  quadMat.map = tex;
+  quadMat.needsUpdate = true;
+  renderer.setRenderTarget(RT);
+  renderer.setClearColor(0xff00ff, 1);
+  renderer.clear(true, false, false);
+  renderer.render(quadScene, quadCam);
+  const buf = new Uint8Array(32 * 32 * 4);
+  renderer.readRenderTargetPixels(RT, 0, 0, 32, 32, buf);
+  renderer.setRenderTarget(null);
+  quadMat.map = null;
+  await frame();
+  let sum = 0, max = 0, n = 0;
+  for (let i = 0; i < buf.length; i += 4) {
+    // magenta clear = texels the texture did not cover (transparent margins)
+    if (buf[i] > 200 && buf[i + 1] < 80 && buf[i + 2] > 200) continue;
+    const l = 0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2];
+    sum += l; max = Math.max(max, l); n++;
+  }
+  return { max: Math.round(max), mean: n ? Math.round(sum / n) : -1 };
+}
+
+/** Rebuild a texture from the SAME decoded image and re-upload it. This is the
+ *  repair action for a first upload that the GPU silently swallowed to black. */
+function rebuildTexture(tex) {
+  const img = tex.image;
+  const fresh = new THREE.Texture(img);
+  fresh.flipY = false;
+  fresh.colorSpace = THREE.SRGBColorSpace;
+  fresh.wrapS = tex.wrapS; fresh.wrapT = tex.wrapT;
+  fresh.minFilter = tex.minFilter; fresh.magFilter = tex.magFilter;
+  fresh.generateMipmaps = tex.generateMipmaps;
+  fresh.needsUpdate = true;
+  tex.dispose();
+  return fresh;
+}
+
+async function fetchFresh(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'cf=' + Date.now() + Math.random(),
+      { cache: 'no-store', signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    return { buf, bytes: res.headers.get('content-length') ? Number(res.headers.get('content-length')) : buf.byteLength };
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('下载超时（60 秒无响应）：游戏服务器是否正在运行？');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function collectMaterials(gltf) {
+  const mats = new Set();
+  gltf.scene.traverse((o) => {
+    if (o.isMesh && o.material) {
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.add(m));
+    }
+  });
+  return [...mats];
+}
+
+function disposeGltf(gltf) {
+  const geos = new Set();
+  const texs = new Set();
+  gltf.scene.traverse((o) => {
+    if (o.geometry) geos.add(o.geometry);
+    if (o.material) {
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+        for (const k of ['map', 'normalMap', 'emissiveMap']) if (m[k]) texs.add(m[k]);
+      }
+    }
+  });
+  geos.forEach((g) => g.dispose());
+  texs.forEach((t) => t.dispose());
+}
+
+// ------------------------------------------------------------------- repair
+const loader = new GLTFLoader();
+
+async function checkOne({ id, name, file, expectedBytes }, onStage) {
+  const result = { name, total: 0, black: 0, missing: 0, repaired: 0, wrongSrc: 0, versionWarn: false, fatal: null };
+  let gltf;
+  try {
+    onStage('重新下载（绕过缓存）…');
+    const { buf, bytes } = await fetchFresh(file);
+    if (expectedBytes && Math.abs(bytes - expectedBytes) / expectedBytes > 0.03) {
+      result.versionWarn = true;
+      log(`⚠ ${name}：文件大小 ${bytes} 与修复版参考值 ${expectedBytes} 相差较大，服务器可能仍是旧模型文件`);
+    }
+    onStage('解码模型…');
+    gltf = await loader.parseAsync(buf, '');
+    const mats = collectMaterials(gltf);
+    for (const m of mats) {
+      if (!m.map) { result.missing++; continue; }
+      result.total++;
+      const img = m.map.image;
+      if (!img) { result.missing++; continue; }
+      if (img.constructor.name !== 'HTMLImageElement') result.wrongSrc++;
+
+      onStage(`显卡校验 ${result.total}/${mats.filter((x) => x.map).length}…`);
+      let g = await gpuSample(m.map);
+      let attempt = 0;
+      while (g.max <= 12 && attempt < 3) {
+        attempt++;
+        log(`⚠ ${name} 第 ${result.total} 张贴图显卡里是纯黑，重建重传（第 ${attempt} 次）`);
+        await frame();
+        m.map = rebuildTexture(m.map);
+        g = await gpuSample(m.map);
+      }
+      if (g.max <= 12) result.black++;
+      else if (attempt > 0) result.repaired++;
+      await frame(); // never let two uploads land in the same frame
+    }
+  } catch (e) {
+    result.fatal = String(e && e.message || e);
+    log(`✗ ${name} 检测失败：${result.fatal}`);
+  } finally {
+    if (gltf) disposeGltf(gltf);
+  }
+  return result;
+}
+
+function chip(status, text) { return `<span class="chip ${status}">${text}</span>`; }
+
+// A single model must finish within this budget; otherwise the row is marked
+// failed instead of the UI hanging on "检测中" forever.
+const MODEL_TIMEOUT_MS = 120000;
+
+async function run(alsoMap) {
+  if (IS_FILE) {
+    log('当前是 file:// 直接打开，已阻止运行：请使用页面顶部红字提示的 http://127.0.0.1:8080 地址。');
+    return;
+  }
+  $('btn-run').disabled = true;
+  $('verdict').textContent = '';
+  $('advice').textContent = '';
+  $('rows').innerHTML = '';
+  logEl.textContent = '';
+  log('颜色修复者启动');
+
+  await clearModelCaches();
+  const jobs = Object.values(BUILTIN_SKINS).map((s) => ({
+    id: s.id, name: s.name, file: s.file, expectedBytes: EXPECTED_BYTES[s.id],
+  }));
+  if (alsoMap) jobs.push({ id: '__map_cs_italy', name: '小镇地图 cs_italy',
+    file: '/models/maps/cs_italy.glb', expectedBytes: EXPECTED_BYTES.__map_cs_italy });
+
+  const trs = jobs.map((j) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${j.name}</td><td data-k="n">-</td><td>${chip('wait', '等待')}</td><td data-k="msg">排队中</td>`;
+    $('rows').appendChild(tr);
+    return { j, tr };
+  });
+
+  let allOk = true;
+  for (let i = 0; i < trs.length; i++) {
+    const { j, tr } = trs[i];
+    tr.querySelector('[data-k=msg]').textContent = '检测中…';
+    tr.children[2].innerHTML = chip('wait', '检测中');
+    log(`— 开始检测 ${j.name}`);
+    let done = false;
+    const work = checkOne(j, (stage) => {
+      if (!done) tr.querySelector('[data-k=msg]').textContent = stage;
+    });
+    let r = await Promise.race([
+      work,
+      wait(MODEL_TIMEOUT_MS).then(() => ({ __timeout: true })),
+    ]);
+    done = true;
+    if (r.__timeout) {
+      r = { total: 0, black: 0, missing: 0, repaired: 0, wrongSrc: 0, versionWarn: false,
+            fatal: '检测超时（120 秒无进展）：页面被切到后台、标签页失活，或服务器已停止响应' };
+      log(`✗ ${j.name}：${r.fatal}`);
+    }
+
+    tr.querySelector('[data-k=n]').textContent = r.total ? `${r.total} 张` : (r.fatal ? '-' : '0');
+    const problems = [];
+    if (r.fatal) problems.push(`模型加载失败：${r.fatal}`);
+    if (r.missing) problems.push(`${r.missing} 张缺失（会显示白块）`);
+    if (r.black) problems.push(`${r.black} 张重传后仍纯黑`);
+    if (r.wrongSrc) problems.push(`${r.wrongSrc} 张未走安全解码路径`);
+    if (r.versionWarn) problems.push('文件大小与修复版不符，可能是旧文件');
+
+    let status, text;
+    if (r.fatal || r.black || r.missing) { status = 'bad'; text = '异常'; allOk = false; }
+    else if (r.repaired || r.wrongSrc || r.versionWarn) { status = 'fix'; text = r.repaired ? '已修复' : '注意'; }
+    else { status = 'ok'; text = '正常'; }
+    tr.children[2].innerHTML = chip(status, text);
+    tr.querySelector('[data-k=msg]').textContent = problems.length
+      ? problems.join('；')
+      : (r.repaired ? `重建重传 ${r.repaired} 张后恢复正常` : '所有贴图颜色正常');
+
+    log(`✓ ${j.name}：${text}${problems.length ? '（' + problems.join('；') + '）' : ''}`);
+    $('bar').style.width = `${((i + 1) / trs.length) * 100}%`;
+  }
+
+  if (allOk) {
+    $('verdict').className = 'verdict ok';
+    $('verdict').textContent = '✔ 全部模型检测通过，可以进入游戏';
+    $('advice').innerHTML = '点击「进入游戏」后，如果游戏页面本来就开着，请在战场页面按 <strong>Ctrl + F5</strong> 硬刷新一次，让游戏加载刚校验过的文件。';
+    $('btn-enter').disabled = false;
+    log('全部通过。');
+  } else {
+    $('verdict').className = 'verdict bad';
+    $('verdict').textContent = '✖ 仍有模型未通过检测';
+    $('advice').innerHTML = '请先<strong>关闭其它占显存的程序</strong>（浏览器其它标签页、视频、游戏启动器）后重跑一次；'
+      + '若提示「旧文件」，请联系房主把修复版模型更新到服务器。重跑后仍失败可再试一次。';
+    $('btn-enter').disabled = false;
+    log('存在未通过项。');
+  }
+  $('btn-run').disabled = false;
+}
+
+$('btn-run').addEventListener('click', () => run($('opt-map').checked));
+$('btn-enter').addEventListener('click', () => { location.href = '/'; });
+renderEnv();
+log('就绪，点击「开始检测并修复」。');
+</script>
+</body>
+</html>

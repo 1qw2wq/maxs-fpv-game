@@ -1,0 +1,208 @@
+{
+  "note": "Shared by the Python server and the JS client. Single source of truth for all gameplay numbers. Distances in meters, times in milliseconds. Damage model: full `dmg` up to `rangeM`, then linear down to `dmg * falloff` at `falloffMaxM`, flat after that. A weapon with `lethalBody` one-shot-kills the torso between `lethalMinM` and `lethalMaxM`. Reload model: magazine guns use `reloadMs` (tactical) and `reloadEmptyMs` (from empty); clip-fed bolt-actions use `clip` instead - `fullMs` when the chamber holds 0-1 rounds, else `(clipMax - mag) * perRoundMs`, fed round by round so firing early keeps whatever is already in.",
+  "combat": {
+    "headMult": 2.0,
+    "torsoMult": 1.0,
+    "limbMult": 1.0,
+    "hitRadius": 0.32,
+    "playerHeight": 1.7,
+    "standEyeHeight": 1.58,
+    "crouchHeight": 0.85,
+    "crouchEyeHeight": 0.75,
+    "tickRate": 30,
+    "stateRate": 20,
+    "interpDelayMs": 120,
+    "historyMs": 1000,
+    "lagCompMaxMs": 220,
+    "respawnMs": 3000,
+    "scoreLimit": 75,
+    "matchMs": 480000,
+    "maxMoveSpeed": 5.7,
+    "gravity": 22.0,
+    "jumpSpeed": 7.0,
+    "throw": {
+      "chargeMs": 900,
+      "minDist": 1.0,
+      "smokeMaxDist": 26.0,
+      "flareMaxDist": 75.0,
+      "flightBaseMs": 420,
+      "flightPerMMs": 26,
+      "apexPerM": 0.26
+    }
+  },
+  "teams": [
+    { "id": 0, "key": "allies", "name": "协约国", "short": "ENTENTE", "color": "#4db8ff", "glow": "#2f9bff", "accent": "#123055" },
+    { "id": 1, "key": "central", "name": "同盟国", "short": "CENTRAL", "color": "#ff7a4d", "glow": "#ff5a2b", "accent": "#552b12" }
+  ],
+  "classes": [
+    {
+      "id": "assault",
+      "name": "突击兵",
+      "nameEn": "Assault",
+      "role": "近距爆发",
+      "tagline": "冲上去，把堑壕撕开",
+      "maxHp": 100,
+      "speedMult": 1.08,
+      "ability": "smoke",
+      "abilityName": "烟雾弹",
+      "abilityDesc": "向前投掷烟雾弹，落地炸开大片烟雾，遮挡视线，并使烟雾中的敌人无法被信号弹透视",
+      "abilityCdMs": 14000,
+      "abilityCharges": 2,
+      "themeColor": "#e8562f",
+      "hairColor": "#f97f4d",
+      "hairStyle": "short",
+      "eyeColor": "#e8562f",
+      "accentColor": "#c9a227"
+    },
+    {
+      "id": "medic",
+      "name": "医疗兵",
+      "nameEn": "Medic",
+      "role": "中距续航",
+      "tagline": "谁都不许死在无人区",
+      "maxHp": 100,
+      "speedMult": 1.0,
+      "ability": "heal",
+      "abilityName": "医疗箱",
+      "abilityDesc": "在身旁放置医疗箱，持续为范围内的自己与队友回血，直到放下下一个",
+      "abilityCdMs": 4000,
+      "themeColor": "#ff7fae",
+      "hairColor": "#ffc2d6",
+      "hairStyle": "long",
+      "eyeColor": "#ff5c8d",
+      "accentColor": "#ffffff"
+    },
+    {
+      "id": "support",
+      "name": "支援兵",
+      "nameEn": "Support",
+      "role": "压制火力",
+      "tagline": "趴下，我给你们开路",
+      "maxHp": 110,
+      "speedMult": 0.94,
+      "ability": "ammo",
+      "abilityName": "弹药箱",
+      "abilityDesc": "在身旁放置弹药箱，持续为范围内的自己与队友补充备弹，直到放下下一个",
+      "abilityCdMs": 5333,
+      "themeColor": "#c9a227",
+      "hairColor": "#c8a05a",
+      "hairStyle": "ponytail",
+      "eyeColor": "#b8860b",
+      "accentColor": "#7a6a3a"
+    },
+    {
+      "id": "scout",
+      "name": "侦察兵",
+      "nameEn": "Scout",
+      "role": "远程狙击",
+      "tagline": "一枪，一个呼吸",
+      "maxHp": 90,
+      "speedMult": 1.02,
+      "ability": "flare",
+      "abilityName": "信号弹",
+      "abilityDesc": "投掷信号弹，范围内敌人头顶标记闪烁并可穿墙看见；离开范围或躲进烟雾即失效",
+      "abilityCdMs": 18000,
+      "abilityCharges": 2,
+      "themeColor": "#7b6bd6",
+      "hairColor": "#c9d4f0",
+      "hairStyle": "straight",
+      "eyeColor": "#6b5bd6",
+      "accentColor": "#4a3f8f"
+    }
+  ],
+  "weapons": [
+    {
+      "id": "mp18", "class": "assault", "name": "MP18 伯格曼", "nameEn": "MP18 Bergmann",
+      "shape": "smg", "wood": "#8a5a2b", "desc": "稳定的冲锋枪，近中距离全能",
+      "dmg": 28, "rpm": 550, "mag": 32, "reserve": 96, "reloadMs": 2100, "reloadEmptyMs": 2960, "spreadDeg": 1.8,
+      "rangeM": 11, "falloffMaxM": 37, "falloff": 0.5357, "zoomFov": 55,
+      "auto": true, "lethalBody": false, "moveMult": 0.75, "model": "mp18"
+    },
+    {
+      "id": "auto1918", "class": "assault", "name": "M1918 自动步枪", "nameEn": "Automatico M1918",
+      "shape": "smg", "wood": "#7a4a22", "desc": "900 发/分的泼水枪，贴脸才能打死人",
+      "dmg": 25, "rpm": 900, "mag": 25, "reserve": 125, "reloadMs": 2100, "reloadEmptyMs": 2800, "spreadDeg": 2.4,
+      "rangeM": 6, "falloffMaxM": 42.16, "falloff": 0.6, "zoomFov": 58,
+      "auto": true, "lethalBody": false, "moveMult": 0.8, "model": "auto1918"
+    },
+    {
+      "id": "hellriegel", "class": "assault", "name": "赫利格尔 M1915", "nameEn": "Hellriegel M1915",
+      "shape": "smg", "wood": "#6a5a3a", "desc": "60 发弹鼓，压制一整条堑壕",
+      "dmg": 26.5, "rpm": 650, "mag": 60, "reserve": 120, "reloadMs": 3750, "reloadEmptyMs": 4500, "spreadDeg": 2.0,
+      "rangeM": 11, "falloffMaxM": 42.66, "falloff": 0.566, "zoomFov": 54,
+      "auto": true, "lethalBody": false, "moveMult": 0.7, "model": "hellriegel"
+    },
+
+    {
+      "id": "cei", "class": "medic", "name": "塞-里戈蒂", "nameEn": "Cei-Rigotti",
+      "shape": "rifle", "wood": "#9a6b38", "desc": "轻快的半自动，跟枪轻松",
+      "dmg": 38, "rpm": 299, "mag": 10, "reserve": 80, "reloadMs": 3750, "reloadEmptyMs": 4767, "spreadDeg": 0.9,
+      "rangeM": 50, "falloffMaxM": 62, "falloff": 0.7368, "zoomFov": 45,
+      "auto": false, "lethalBody": false, "moveMult": 0.8, "model": "cei"
+    },
+    {
+      "id": "rsc1917", "class": "medic", "name": "RSC M1917", "nameEn": "RSC M1917",
+      "shape": "rifle", "wood": "#8a5f30", "desc": "六发大威力半自动，全距离两枪带走",
+      "dmg": 53, "rpm": 299, "mag": 6, "reserve": 54, "reloadMs": 2700, "reloadEmptyMs": 3300, "spreadDeg": 0.8,
+      "rangeM": 50, "falloffMaxM": 100, "falloff": 1.0, "zoomFov": 42,
+      "auto": false, "lethalBody": false, "moveMult": 0.78, "model": "rsc1917"
+    },
+    {
+      "id": "federov", "class": "medic", "name": "费德洛夫自动步枪", "nameEn": "Fedorov Avtomat",
+      "shape": "rifle", "wood": "#a07440", "desc": "26 发弹匣，可半自动 / 全自动切换的中距步枪",
+      "dmg": 28, "rpm": 449, "mag": 26, "reserve": 104, "reloadMs": 2700, "reloadEmptyMs": 3800, "spreadDeg": 0.85,
+      "rangeM": 28, "falloffMaxM": 40, "falloff": 0.6786, "zoomFov": 44,
+      "auto": true, "lethalBody": false, "moveMult": 0.78, "model": "federov"
+    },
+
+    {
+      "id": "lewis", "class": "support", "name": "刘易斯机枪", "nameEn": "Lewis Gun",
+      "shape": "lmg", "wood": "#7a5a34", "desc": "97 发弹盘，架枪后精度优秀，远距离压制",
+      "dmg": 26.5, "rpm": 480, "mag": 97, "reserve": 97, "reloadMs": 2850, "reloadEmptyMs": 4200, "spreadDeg": 1.4,
+      "rangeM": 10, "falloffMaxM": 60, "falloff": 0.7547, "zoomFov": 48,
+      "auto": true, "lethalBody": false, "moveMult": 0.6, "model": "lewis"
+    },
+    {
+      "id": "bar", "class": "support", "name": "BAR M1918", "nameEn": "BAR M1918",
+      "shape": "lmg", "wood": "#8a6438", "desc": "只有 20 发，但伤害衰减小，移动射击友好",
+      "dmg": 28, "rpm": 600, "mag": 20, "reserve": 120, "reloadMs": 2800, "reloadEmptyMs": 3200, "spreadDeg": 1.3,
+      "rangeM": 12, "falloffMaxM": 60, "falloff": 0.8214, "zoomFov": 46,
+      "auto": true, "lethalBody": false, "moveMult": 0.66, "model": "bar"
+    },
+    {
+      "id": "chauchat", "class": "support", "name": "绍沙 M1915", "nameEn": "Chauchat M1915",
+      "shape": "lmg", "wood": "#6a5430", "desc": "20 发弹匣，射速偏低但单发很痛，全距离三枪死",
+      "dmg": 38, "rpm": 359, "mag": 20, "reserve": 120, "reloadMs": 3100, "reloadEmptyMs": 3900, "spreadDeg": 1.6,
+      "rangeM": 12, "falloffMaxM": 35, "falloff": 0.8947, "zoomFov": 50,
+      "auto": true, "lethalBody": false, "moveMult": 0.58, "model": "chauchat"
+    },
+
+    {
+      "id": "smle", "class": "scout", "name": "李-恩菲尔德 SMLE MkIII", "nameEn": "SMLE MkIII",
+      "shape": "bolt", "wood": "#9a7038", "desc": "拉栓最快，10 发弹匣，0-40 米躯干一枪致命",
+      "dmg": 100, "rpm": 66, "mag": 10, "reserve": 20, "reloadMs": 5000, "spreadDeg": 0.12,
+      "clip": { "clipMax": 10, "fullMs": 5000, "perRoundMs": 500 },
+      "rangeM": 20, "falloffMaxM": 80, "falloff": 0.59, "zoomFov": 22,
+      "auto": false, "lethalBody": true, "lethalMinM": 0, "lethalMaxM": 40,
+      "moveMult": 0.5, "model": "smle"
+    },
+    {
+      "id": "m95", "class": "scout", "name": "曼利夏 M95", "nameEn": "Mannlicher M95",
+      "shape": "bolt", "wood": "#7a5c30", "desc": "直拉枪机，开镜状态下也能拉栓；伤害稳定但躯干无法一枪致死",
+      "dmg": 90, "rpm": 64, "mag": 5, "reserve": 20, "reloadMs": 3000, "spreadDeg": 0.08,
+      "clip": { "clipMax": 5, "fullMs": 3000, "perRoundMs": 500 },
+      "rangeM": 20, "falloffMaxM": 125, "falloff": 0.8778, "zoomFov": 18,
+      "auto": false, "lethalBody": false, "moveMult": 0.48,
+      "straightPull": true, "model": "m95"
+    },
+    {
+      "id": "springfield", "class": "scout", "name": "斯普林菲尔德 M1903", "nameEn": "Springfield M1903",
+      "shape": "bolt", "wood": "#8a6838", "desc": "单发伤害最高，40-120 米躯干一枪致命，弹速高下坠小",
+      "dmg": 100, "rpm": 50, "mag": 5, "reserve": 20, "reloadMs": 3500, "spreadDeg": 0.07,
+      "clip": { "clipMax": 5, "fullMs": 3500, "perRoundMs": 500 },
+      "rangeM": 0, "falloffMaxM": 100, "falloff": 0.55, "zoomFov": 16,
+      "auto": false, "lethalBody": true, "lethalMinM": 40, "lethalMaxM": 120,
+      "moveMult": 0.46, "model": "springfield"
+    }
+  ]
+}

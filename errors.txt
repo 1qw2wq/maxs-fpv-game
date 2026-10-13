@@ -1,0 +1,26 @@
+Failed to load resource: the server responded with a status of 404 (Not Found)
+GLTFLoader.js:3329 THREE.GLTFLoader: Couldn't load texture blob:http://127.0.0.1:8080/be2f90f7-b4d9-4983-855d-feebceb98029
+(匿名) @ GLTFLoader.js:3329
+GLTFLoader.js:3329 THREE.GLTFLoader: Couldn't load texture blob:http://127.0.0.1:8080/76f7c536-1f02-4ed6-9fd6-868e923ee906
+(匿名) @ GLTFLoader.js:3329
+GLTFLoader.js:3329 THREE.GLTFLoader: Couldn't load texture blob:http://127.0.0.1:8080/6014b732-0269-4235-ba58-2c3e4e4aa957
+(匿名) @ GLTFLoader.js:3329
+(索引):1 Uncaught (in promise) WrongDocumentError: The root document of this element is not valid for pointer lock.
+
+
+
+
+2026/10/10 16:54
+
+net::ERR_ABORTED http://192.168.11.133:8080/vendor/three.module.js
+
+net::ERR_ABORTED http://192.168.11.133:8080/models/genshin/furina.glb
+
+net::ERR_ABORTED http://192.168.11.133:8080/models/genshin/navia.glb
+
+TypeError: Failed to fetch
+
+at http://192.168.11.133:8080/__probe.html?file=/models/genshin/navia.glb:100:10
+at _onError (http://192.168.11.133:8080/vendor/loaders/GLTFLoader.js:220:4)
+at http://192.168.11.133:8080/vendor/three.module.js:44591:38
+net::ERR_ABORTED http://192.168.11.133:8080/models/genshin/charlotte.glb
