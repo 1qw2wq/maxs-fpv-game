@@ -274,8 +274,14 @@ export class Net {
 
   // --------------------------------------------------------------- outgoing
 
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid) {
-    this.send({ t: 'join', name, cls, weapon, bots, botCount, skin: skin || '', solo: !!solo, map: mapId, sid: sid || '' });
+  /**
+   * @param {string} room  8-digit code to join, or '' to host a new room
+   */
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
+    this.send({
+      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
+      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+    });
   }
 
   setBots(on, n) {

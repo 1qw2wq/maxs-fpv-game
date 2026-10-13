@@ -14,6 +14,7 @@ because the console codepage may be GBK.
 import asyncio
 import ipaddress
 import json
+import re
 import random
 import socket
 import sys
@@ -235,44 +236,65 @@ async def upload_character(request):
     return web.json_response({"ok": True, "meta": entry})
 
 
-class Lobby:
-    def __init__(self):
+# ---------------------------------------------------------------- rooms
+#
+# A room is one match: its own players, bots, scores, map vote and sockets,
+# addressed by an 8-digit code the host hands out. Solo play is simply a room
+# nobody else is told about. Rooms live in memory only and are reclaimed once
+# they have been empty for ROOM_TTL (ROOM_TTL_SOLO for practice rooms), so
+# nothing needs a database.
+
+MAX_ROOMS = 24
+# How long an *empty* room survives. A multiplayer room is kept a couple of
+# minutes so a refresh (or a quick alt-tab reload) lands back in it, but
+# practice rooms are private by construction, so they go almost immediately --
+# otherwise a few abandoned matches would fill MAX_ROOMS and lock everyone else
+# out of hosting at all.
+ROOM_TTL = 120.0
+ROOM_TTL_SOLO = 15.0
+ROOM_MIN_AGE = 5.0         # never reclaim a room younger than this (join in flight)
+ROOM_CODE_RE = re.compile(r"^\d{8}$")
+
+
+class Room:
+    def __init__(self, code):
+        self.code = code
         self.match = Match()
-        self.sockets = {}          # websocket -> player id
-        self.by_pid = {}           # player id -> websocket
-        # Per-tab session id -> websocket. A refresh opens the new socket before
-        # the old one has finished closing, so the lobby briefly holds two
-        # connections from the same tab; this lets the new one evict its ghost.
-        self.sessions = {}
+        self.sockets = {}          # connection (websocket or PollClient) -> player id
+        self.by_pid = {}           # player id -> connection
         self.bots_on = False
         self.bot_target = 6
         # Map voting: one vote per connected human, settled during the gap
         # between rounds. Bots do not vote.
         self.votes = {}            # player id -> map id
         self.map_id = DEFAULT_MAP_ID
+        self.created = time.monotonic()
+        self.empty_since = time.monotonic()
+        self.rounds = 0
+        # A room started without a code by a solo player is private: nobody else
+        # can even reach it, so it is reclaimed as soon as its player is gone.
+        self.private = False
 
     # ------------------------------------------------------------- membership
 
-    def join(self, ws, msg):
-        if ws in self.sockets:
-            return
+    def join(self, client, msg):
+        if client in self.sockets:
+            return None
         if self.match.human_count() >= MAX_PLAYERS:
-            asyncio.ensure_future(ws.send_str(json.dumps({"t": "full"})))
-            return
-        # Evict this tab's stale socket before counting the room. A refresh
-        # connects before the previous connection finishes closing, so without
-        # this the ghost keeps the lobby "occupied" and the fresh pick is quietly
-        # demoted to a between-rounds vote -- which is why reloading to change
-        # the map sometimes had no effect at all. The id lives in sessionStorage:
-        # it survives a refresh yet differs per tab, so two tabs on one machine
-        # still count as two separate players.
-        sid = str(msg.get("sid") or "")[:40]
-        if sid:
-            old = self.sessions.get(sid)
-            if old is not None and old is not ws:
-                self.leave(old)
-                asyncio.ensure_future(_close_ws(old))
-            self.sessions[sid] = ws
+            return {"t": "joinError", "why": "full"}
+        # The map change can only happen between rounds, so a join can never
+        # teleport someone mid-fight. The one exception is the first player in
+        # an empty room, who picks the map outright -- and even that waits its
+        # turn when another room is mid-round (the map is one global in
+        # combat.py; see _apply_map).
+        fresh = not self.sockets
+        want = msg.get("map")
+        if want not in MAP_BY_ID:
+            want = self.map_id
+        if fresh:
+            self._apply_map(want)
+        else:
+            self.map_id = map_meta()["id"]      # follow whatever is actually live
         raw_name = str(msg.get("name", "")).strip()[:16]
         name = raw_name or ("Soldier%02d" % (self.match.next_id,))
         # only ids that exist in the manifest are accepted: the field ends up in
@@ -280,26 +302,18 @@ class Lobby:
         skin = str(msg.get("skin") or "")
         if skin and not known_skin(skin):
             skin = ""
-        # A map change only ever happens between rounds, so a join can never
-        # teleport someone mid-fight. The one exception is the first player in
-        # an empty lobby, who picks the map outright.
-        fresh = not self.sockets
-        want = msg.get("map")
-        if want not in MAP_BY_ID:
-            want = self.map_id
-        # Solo balancing flag; the last join wins and it clears when the lobby
+        # Solo balancing flag; the last join wins and it clears when the room
         # empties, so a normal multi match is never affected.
         self.match.solo = bool(msg.get("solo"))
-        if fresh:
-            self._apply_map(want)
-        p = self.match.add_player(name, ws, cls=str(msg.get("cls", "assault")),
+        p = self.match.add_player(name, client, cls=str(msg.get("cls", "assault")),
                                   weapon=msg.get("weapon"), skin=skin)
         self.votes[p["id"]] = want
-        self.sockets[ws] = p["id"]
-        self.by_pid[p["id"]] = ws
+        self.sockets[client] = p["id"]
+        self.by_pid[p["id"]] = client
+        self.empty_since = None
         if self.match.solo and msg.get("bots"):
             self.bots_on = True
-            self.bot_target = int(msg.get("botCount", 6))
+            self.bot_target = _bot_count(msg.get("botCount", 6))
         else:
             # Bots are a solo-only feature: a multiplayer join clears any AI
             # already in play, so a human match can never field bots.
@@ -309,11 +323,12 @@ class Lobby:
         if self.bots_on:
             self.match.fill_bots(self.bot_target)
         meta = map_meta(self.map_id)
-        log("join  id=%d name=%s team=%d cls=%s skin=%s map=%s players=%d"
-            % (p["id"], name.encode("ascii", "replace").decode(), p["team"], p["cls"],
-               p["skin"] or "-", meta["id"], len(self.match.players)))
+        log("join  room=%s id=%d name=%s team=%d cls=%s skin=%s map=%s players=%d"
+            % (self.code, p["id"], name.encode("ascii", "replace").decode(), p["team"],
+               p["cls"], p["skin"] or "-", meta["id"], len(self.match.players)))
         return {
             "t": "welcome", "id": p["id"], "team": p["team"], "name": name,
+            "room": self.code,
             "mapId": meta["id"], "map": meta["file"], "mapName": meta["name"],
             "scene": meta["scene"], "cfg": COMBAT, "tickRate": COMBAT["tickRate"],
             "spawn": [round(v, 2) for v in p["pos"]], "yaw": p["yaw"],
@@ -323,13 +338,10 @@ class Lobby:
             "fx": self.match.standing_crates(),
         }
 
-    def leave(self, ws):
-        pid = self.sockets.pop(ws, None)
+    def leave(self, client):
+        pid = self.sockets.pop(client, None)
         if pid is None:
             return
-        for sid, sock in list(self.sessions.items()):
-            if sock is ws:
-                self.sessions.pop(sid, None)
         self.by_pid.pop(pid, None)
         self.votes.pop(pid, None)
         self.match.remove_player(pid)
@@ -338,14 +350,64 @@ class Lobby:
             self.bots_on = False
             self.match.solo = False
             self.votes.clear()
-        log("leave id=%d players=%d" % (pid, len(self.match.players)))
+            self.empty_since = time.monotonic()
+        log("leave room=%s id=%d players=%d" % (self.code, pid, len(self.match.players)))
+
+    # ------------------------------------------------------- message handling
+
+    async def handle(self, client, data):
+        if client not in self.sockets:
+            return
+        kind = data.get("t")
+        if kind == "ping":
+            await self._send(client, {"t": "pong", "c": data.get("c", 0)})
+            pid = self.sockets.get(client)
+            p = self.match.players.get(pid) if pid is not None else None
+            if p is not None:
+                try:
+                    rtt = float(data.get("rtt") or 0.0)
+                except (TypeError, ValueError):
+                    rtt = 0.0
+                # Clamped hard: an inflated self-reported ping would widen the
+                # lag-compensation rewind window in the sender's favour.
+                p["ping"] = max(0.0, min(240.0, rtt))
+            return
+        if kind == "bots":
+            # Solo-only, same rule as join: never let a multiplayer room spawn
+            # bots through this path either.
+            if not self.match.solo:
+                return
+            self.bots_on = bool(data.get("on"))
+            self.bot_target = _bot_count(data.get("n", self.bot_target))
+            if self.bots_on:
+                self.match.fill_bots(self.bot_target)
+            else:
+                self.match.drop_bots()
+            return
+        pid = self.sockets[client]
+        for ev in self.match.handle(pid, data):
+            await self.deliver(ev)
 
     # ------------------------------------------------------------- map voting
 
     def _apply_map(self, map_id):
-        """Swap the live map; caller decides who needs respawning."""
+        """Swap the live map when it is safe; otherwise stay where everyone is.
+
+        combat.py holds exactly one live map for the whole process (collision,
+        spawns and navmesh all read it), so a room may only move it while no
+        other room is mid-round -- a change would otherwise rebuild the floor
+        under someone else's firefight.
+        """
+        if not self._may_change_map():
+            self.map_id = map_meta()["id"]
+            log("map   room=%s wants %s but another room is live -> staying on %s"
+                % (self.code, map_id, self.map_id))
+            return
         mid, _meta = set_map(map_id)
         self.map_id = mid
+
+    def _may_change_map(self):
+        return not any(r is not self and r.match.phase == "live" for r in ROOMS.values())
 
     def _resolve_vote(self):
         """Highest-vote map; ties broken at random. Current map on no votes."""
@@ -358,27 +420,31 @@ class Lobby:
 
     def on_new_round(self):
         """Settle the vote as a round ends. Returns the events to deliver."""
+        self.rounds += 1
         pick = self._resolve_vote()
         if pick == self.map_id:
             return []
         self._apply_map(pick)
+        if pick != self.map_id:
+            # Another room was live: keep playing where we are, re-vote next gap.
+            return []
         self.match.effects = []
         meta = map_meta(self.map_id)
         out = [{"to": None, "msg": {
             "t": "map", "id": meta["id"], "name": meta["name"],
             "map": meta["file"], "mapName": meta["name"], "scene": meta["scene"],
-            "mapId": meta["id"],
+            "mapId": meta["id"], "room": self.code,
         }}]
         for p in self.match.players.values():
             out.extend(self.match._spawn(p))
-        log("map   round over -> %s (%s)" % (meta["id"], meta["nameEn"]))
+        log("map   room=%s round over -> %s (%s)" % (self.code, meta["id"], meta["nameEn"]))
         return out
 
     # ------------------------------------------------------------- transport
 
-    async def _send(self, ws, payload):
+    async def _send(self, client, payload):
         try:
-            await ws.send_str(json.dumps(payload, separators=(",", ":")))
+            await client.send_str(json.dumps(payload, separators=(",", ":")))
         except (ConnectionResetError, RuntimeError, asyncio.CancelledError):
             pass
 
@@ -389,32 +455,145 @@ class Lobby:
             return
         if to is None:
             text = json.dumps(msg, separators=(",", ":"))
-            for ws in list(self.sockets.keys()):
+            for client in list(self.sockets.keys()):
                 try:
-                    await ws.send_str(text)
+                    await client.send_str(text)
                 except (ConnectionResetError, RuntimeError):
                     pass
             return
-        ws = self.by_pid.get(to)
-        if ws is not None:
-            await self._send(ws, msg)
+        client = self.by_pid.get(to)
+        if client is not None:
+            await self._send(client, msg)
 
     async def broadcast_state(self):
+        if not self.sockets:
+            return
         base = self.match.status()
         base["ps"] = self.match.players_payload()
+        base["room"] = self.code
         text = json.dumps(base, separators=(",", ":"))
-        for ws, pid in list(self.sockets.items()):
+        for client, pid in list(self.sockets.items()):
             try:
-                await ws.send_str(text)
+                await client.send_str(text)
                 p = self.match.players.get(pid)
                 if p is not None:
-                    await ws.send_str(json.dumps(self.match.me_payload(p),
-                                                 separators=(",", ":")))
+                    await client.send_str(json.dumps(self.match.me_payload(p),
+                                                     separators=(",", ":")))
             except (ConnectionResetError, RuntimeError):
                 pass
 
+    def as_meta(self):
+        """Public view of the room, for the menu's room list."""
+        return {
+            "code": self.code,
+            "players": sum(1 for p in self.match.players.values() if not p.get("bot")),
+            "max": MAX_PLAYERS,
+            "phase": self.match.phase,
+            "mapId": self.map_id,
+            "bots": self.bots_on,
+        }
 
-LOBBY = Lobby()
+
+ROOMS = {}                 # code -> Room
+CLIENT_ROOM = {}           # connection -> Room (websocket or PollClient)
+SESSIONS = {}              # per-tab id -> (Room, connection), for reload eviction
+
+
+def _bot_count(raw):
+    try:
+        return max(0, min(16, int(raw)))
+    except (TypeError, ValueError):
+        return 6
+
+
+def normalize_room_code(raw):
+    """'1234 5678' / '1234-5678' / 12345678 -> '12345678', otherwise ''."""
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        raw = "%08d" % int(raw)
+    if not isinstance(raw, str):
+        return ""
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) != 8:
+        return ""
+    return digits if ROOM_CODE_RE.match(digits) else ""
+
+
+def _new_room_code():
+    for _ in range(400):
+        code = "%08d" % random.randint(10000000, 99999999)
+        if code not in ROOMS:
+            return code
+    return ""
+
+
+def _reclaim_one_idle():
+    """Free the most idle empty room. False if every room is occupied.
+
+    Hitting the cap must not mean "come back later" while a dozen rooms sit
+    empty for two minutes: the oldest empty one is worth less than the player
+    standing in the menu right now.
+    """
+    idle = [r for r in ROOMS.values() if not r.sockets]
+    if not idle:
+        return False
+    victim = min(idle, key=lambda r: r.empty_since if r.empty_since is not None else r.created)
+    ROOMS.pop(victim.code, None)
+    log("room  reclaimed idle %s for a new room (rooms=%d)" % (victim.code, len(ROOMS)))
+    return True
+
+
+def resolve_room(msg):
+    """(room, error) for an incoming join: an existing code or a fresh room."""
+    code = normalize_room_code(msg.get("room"))
+    if not code:
+        # No code: the host (or a solo player) is starting a room of their own.
+        if len(ROOMS) >= MAX_ROOMS and not _reclaim_one_idle():
+            return None, "toomany"
+        code = _new_room_code()
+        if not code:
+            return None, "toomany"
+        room = ROOMS[code] = Room(code)
+        room.private = bool(msg.get("solo"))
+        log("room  created %s%s (rooms=%d)"
+            % (code, " private" if room.private else "", len(ROOMS)))
+        return room, None
+    room = ROOMS.get(code)
+    if room is None:
+        log("room  join refused, unknown code %s" % code)
+        return None, "notfound"
+    return room, None
+
+
+def _evict_session(sid, keep):
+    """Drop whatever connection this tab id still holds, in any room.
+
+    A refresh opens its replacement socket before the old one has finished
+    closing, so the lobby briefly holds two connections from the same tab. The
+    id lives in sessionStorage: it survives a refresh yet differs per tab, so
+    two tabs on one machine still count as two separate players.
+    """
+    if not sid:
+        return
+    prev = SESSIONS.get(sid)
+    if prev is None:
+        return
+    room, client = prev
+    if client is keep:
+        return
+    room.leave(client)
+    CLIENT_ROOM.pop(client, None)
+    asyncio.ensure_future(_close_ws(client))
+
+
+async def leave_everywhere(client):
+    """Disconnect a connection, wherever it joined (used by the reaper)."""
+    room = CLIENT_ROOM.pop(client, None)
+    if room is None:
+        return
+    room.leave(client)
+    for sid, (_r, c) in list(SESSIONS.items()):
+        if c is client:
+            SESSIONS.pop(sid, None)
 
 
 async def handle_client_message(client, data):
@@ -422,49 +601,41 @@ async def handle_client_message(client, data):
 
     Shared by the WebSocket handler and the HTTP long-poll fallback so both
     transports are the same game: join, ping, bot flaps and every gameplay
-    action take the identical path.
+    action take the identical path. A connection is routed to its room here and
+    nowhere else, which is what lets one process host several matches.
     """
     if not isinstance(data, dict):
         return
     kind = data.get("t")
     if kind == "join":
-        welcome = LOBBY.join(client, data)
-        if welcome:
-            await LOBBY._send(client, welcome)
-        return
-    if kind == "ping":
-        await LOBBY._send(client, {"t": "pong", "c": data.get("c", 0)})
-        pid = LOBBY.sockets.get(client)
-        p = LOBBY.match.players.get(pid) if pid is not None else None
-        if p is not None:
-            try:
-                rtt = float(data.get("rtt") or 0.0)
-            except (TypeError, ValueError):
-                rtt = 0.0
-            # Clamped hard: an inflated self-reported ping would widen the
-            # lag-compensation rewind window in the sender's favour.
-            p["ping"] = max(0.0, min(240.0, rtt))
-        return
-    if client not in LOBBY.sockets:
-        return
-    if kind == "bots":
-        # Solo-only, same rule as join: never let a multiplayer lobby spawn
-        # bots through this path either.
-        if not LOBBY.match.solo:
+        _evict_session(str(data.get("sid") or "")[:40], client)
+        room, why = resolve_room(data)
+        if room is None:
+            await _send_direct(client, {"t": "joinError", "why": why})
             return
-        LOBBY.bots_on = bool(data.get("on"))
-        try:
-            LOBBY.bot_target = int(data.get("n", LOBBY.bot_target))
-        except (TypeError, ValueError):
-            pass
-        if LOBBY.bots_on:
-            LOBBY.match.fill_bots(LOBBY.bot_target)
-        else:
-            LOBBY.match.drop_bots()
+        welcome = room.join(client, data)
+        if welcome is None:
+            return
+        if welcome.get("t") == "joinError":
+            await _send_direct(client, welcome)
+            return
+        CLIENT_ROOM[client] = room
+        sid = str(data.get("sid") or "")[:40]
+        if sid:
+            SESSIONS[sid] = (room, client)
+        await room._send(client, welcome)
         return
-    pid = LOBBY.sockets[client]
-    for ev in LOBBY.match.handle(pid, data):
-        await LOBBY.deliver(ev)
+    room = CLIENT_ROOM.get(client)
+    if room is not None:
+        await room.handle(client, data)
+
+
+async def _send_direct(client, payload):
+    """Answer a connection that is not (or not yet) in a room."""
+    try:
+        await client.send_str(json.dumps(payload, separators=(",", ":")))
+    except (ConnectionResetError, RuntimeError, asyncio.CancelledError):
+        pass
 
 
 async def ws_handler(request):
@@ -481,7 +652,8 @@ async def ws_handler(request):
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
-        LOBBY.leave(ws)
+        await leave_everywhere(ws)
+        _forget_client(ws)
     return ws
 
 
@@ -571,6 +743,32 @@ async def poll(request):
     return web.json_response({"ok": True, "msgs": batch})
 
 
+def _forget_client(client):
+    CLIENT_ROOM.pop(client, None)
+    for sid, (_room, c) in list(SESSIONS.items()):
+        if c is client:
+            SESSIONS.pop(sid, None)
+
+
+async def room_reaper():
+    """Reclaim rooms that have been empty for a while, and log the census."""
+    while True:
+        await asyncio.sleep(10.0)
+        now = time.monotonic()
+        for code, room in list(ROOMS.items()):
+            if now - room.created < ROOM_MIN_AGE:
+                continue
+            if room.sockets:
+                room.empty_since = None
+                continue
+            if room.empty_since is None:
+                room.empty_since = now
+            ttl = ROOM_TTL_SOLO if room.private else ROOM_TTL
+            if now - room.empty_since > ttl:
+                ROOMS.pop(code, None)
+                log("room  reclaimed %s (rooms=%d)" % (code, len(ROOMS)))
+
+
 async def poll_reaper():
     """Drop poll clients that stopped asking (closed tab, lost network)."""
     while True:
@@ -579,8 +777,15 @@ async def poll_reaper():
         for sid, client in list(POLL_CLIENTS.items()):
             if now - client.seen > POLL_IDLE:
                 POLL_CLIENTS.pop(sid, None)
-                LOBBY.leave(client)
+                await leave_everywhere(client)
+                _forget_client(client)
                 log("poll  dropped stale sid=%s" % sid)
+
+
+async def list_rooms(request):
+    """Open rooms, so the menu can show what is running without a database."""
+    rooms = sorted((r.as_meta() for r in ROOMS.values()), key=lambda m: (-m["players"], m["code"]))
+    return web.json_response({"rooms": rooms, "max": MAX_ROOMS})
 
 
 async def index(request):
@@ -615,6 +820,7 @@ def create_app():
     # /ws must be registered before the static catch-all.
     app.router.add_get("/ws", ws_handler)
     app.router.add_post("/api/poll", poll)
+    app.router.add_get("/api/rooms", list_rooms)
     app.router.add_get("/api/characters", list_characters)
     app.router.add_post("/api/character", upload_character)
     app.router.add_static("/shared/", SHARED, show_index=False)
@@ -636,18 +842,24 @@ async def game_loop():
         else:
             nxt = time.monotonic()
         last = time.monotonic()
-        phase_before = LOBBY.match.phase
-        LOBBY.match.tick(tick_ms)
+        # Every room gets its own authoritative tick; the sockets, scores, bots
+        # and map votes are all room-scoped, so matches cannot bleed into each
+        # other. Empty rooms cost one dictionary lookup.
+        for room in list(ROOMS.values()):
+            phase_before = room.match.phase
+            room.match.tick(tick_ms)
+            for ev in room.match.drain():
+                await room.deliver(ev)
+            # The gap between rounds is the only moment the map may change:
+            # players are already being respawned, so a swap is never felt
+            # mid-fight (and _apply_map refuses while another room is live).
+            if phase_before == "ended" and room.match.phase == "live":
+                for ev in room.on_new_round():
+                    await room.deliver(ev)
         n += 1
-        for ev in LOBBY.match.drain():
-            await LOBBY.deliver(ev)
-        # The gap between rounds is the only moment the map may change: players
-        # are already being respawned, so a swap is never felt mid-fight.
-        if phase_before == "ended" and LOBBY.match.phase == "live":
-            for ev in LOBBY.on_new_round():
-                await LOBBY.deliver(ev)
         if n % state_every == 0:
-            await LOBBY.broadcast_state()
+            for room in list(ROOMS.values()):
+                await room.broadcast_state()
         spent = (time.monotonic() - last) * 1000.0
         if spent > tick_ms * 4:
             log("WARN tick took %.1fms" % spent)
@@ -687,6 +899,7 @@ async def main():
 
     asyncio.ensure_future(game_loop())
     asyncio.ensure_future(poll_reaper())
+    asyncio.ensure_future(room_reaper())
     log("ready -> http://127.0.0.1:%d" % port)
     ips = lan_ips()
     for ip in ips:

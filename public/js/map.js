@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { part, toonMat, flatMat, concreteTexture, sandbagTexture, mudTexture, plankTexture, wireTexture, shift } from './toon.js';
+import { sceneStyle, applyEnvironment, fixImportedMaterials } from './lighting.js';
 
 const PLAYER_RADIUS = 0.35;
 const STEP_UP_MAX = 0.65;
@@ -31,10 +32,12 @@ function rampHeight(b, x, z) {
 }
 
 export class World {
-  constructor(scene, map, combat) {
+  constructor(scene, map, combat, renderer = null) {
     this.scene = scene;
     this.map = map;
     this.combat = combat;
+    this.renderer = renderer;
+    this.style = sceneStyle(map.style);
     this.solid = map.boxes.filter((b) => b.t !== 'ground');
     this.grid = this._buildGrid();
     this.ground = map.boxes.find((b) => b.t === 'ground');
@@ -51,8 +54,8 @@ export class World {
   }
 
   /** Collision is usable immediately; rendering is awaited separately. */
-  static async create(scene, map, combat) {
-    const w = new World(scene, map, combat);
+  static async create(scene, map, combat, renderer = null) {
+    const w = new World(scene, map, combat, renderer);
     await w.init();
     return w;
   }
@@ -174,7 +177,11 @@ export class World {
   // ------------------------------------------------------------- rendering
 
   _lights() {
-    const s = this.map.style;
+    const s = this.style;
+
+    // Imported glTF is PBR: without an environment map every metallic surface
+    // reflects nothing and renders black, no matter how many lights there are.
+    applyEnvironment(this.renderer, this.scene, s);
 
     this.scene.fog = new THREE.Fog(new THREE.Color(s.fog), s.fogNear, s.fogFar);
     // three.js only draws a Color / Texture / CubeTexture set as scene.background;
@@ -211,11 +218,12 @@ export class World {
     root.scale.setScalar(s.scale ?? 1);
     const o = s.offset || [0, 0, 0];
     root.position.set(o[0], o[1], o[2]);
+    fixImportedMaterials(root);
     this.group.add(root);
   }
 
   _boxes() {
-    const s = this.map.style;
+    const s = this.style;
     const mats = {
       ground: toonMat(s.mud, { map: mudTexture(s.mud) }),
       wall: toonMat('#7f7566', { map: concreteTexture() }),
@@ -319,11 +327,11 @@ export class World {
     for (const d of this.map.decor) {
       if (d.type === 'crater') {
         const g = new THREE.CircleGeometry(d.r, 18);
-        const m = new THREE.Mesh(g, toonMat(shift(this.map.style.mud, -0.35)));
+        const m = new THREE.Mesh(g, toonMat(shift(this.style.mud, -0.35)));
         m.rotation.x = -Math.PI / 2;
         m.position.set(d.x, this.groundY + 0.02, d.z);
         this.group.add(m);
-        const rim = new THREE.Mesh(new THREE.RingGeometry(d.r * 0.92, d.r * 1.12, 18), toonMat(shift(this.map.style.mud, 0.16)));
+        const rim = new THREE.Mesh(new THREE.RingGeometry(d.r * 0.92, d.r * 1.12, 18), toonMat(shift(this.style.mud, 0.16)));
         rim.rotation.x = -Math.PI / 2;
         rim.position.set(d.x, this.groundY + 0.03, d.z);
         this.group.add(rim);
@@ -336,9 +344,9 @@ export class World {
         m.position.set(d.x, this.groundY + 0.035, d.z);
         this.group.add(m);
       } else if (d.type === 'plank') {
-        const geo = new THREE.BoxGeometry(d.w, 0.12, d.d);
-        const m = part(this.group, geo, { color: 0xffffff, outline: false });
-        m.material = toonMat('#8a6a44', { map: plankTexture() });
+        const m = new THREE.Mesh(new THREE.BoxGeometry(d.w, 0.12, d.d),
+          toonMat('#8a6a44', { map: plankTexture() }));
+        this.group.add(m);
         m.position.set(d.x, this.groundY + 0.07, d.z);
       }
     }

@@ -11,10 +11,15 @@ export class Hud {
       menu: $('screen-menu'), select: $('screen-select'), settings: $('screen-settings'),
       hud: $('screen-hud'), boot: $('boot'),
       name: $('input-name'), server: $('input-server'),
+      roomCreate: $('btn-room-create'), roomJoin: $('btn-room-join'),
+      roomInput: $('input-room'), roomNote: $('room-note'), roomHistory: $('room-history'),
+      roomListNote: $('room-list-note'),
+      roomChip: $('room-chip'), roomCode: $('room-code'), roomCopy: $('room-copy'),
       botRow: $('bot-row'), botCount: $('bot-count'),
       botsLockHint: $('bots-lock-hint'), skinNote: $('skin-note'),
       mapRow: $('map-row'), mapNote: $('map-note'), tbMap: $('tb-map'), mapLoad: $('map-load'),
       modeMulti: $('btn-mode-multi'), modeSolo: $('btn-mode-solo'), modeSettings: $('btn-mode-settings'),
+      modeTutorial: $('btn-mode-tutorial'),
       menuError: $('menu-error'),
 
       classRow: $('class-row'), weaponRow: $('weapon-row'), weaponTitle: $('weapon-title'),
@@ -66,11 +71,25 @@ export class Hud {
 
   // ------------------------------------------------------------ menu screen
 
-  bindMenu({ onMulti, onSolo, onSettings, onBotCount, onMap }) {
+  bindMenu({ onMulti, onSolo, onSettings, onBotCount, onMap, onRoomMode, onRoomCode, onTutorial }) {
     this.el.modeMulti.addEventListener('click', onMulti);
     this.el.modeSolo.addEventListener('click', onSolo);
     this.el.modeSettings.addEventListener('click', onSettings);
+    this.el.modeTutorial.addEventListener('click', onTutorial);
     this.el.name.addEventListener('keydown', (e) => { if (e.key === 'Enter') onMulti(); });
+    this.el.roomCreate.addEventListener('click', () => onRoomMode?.('create'));
+    this.el.roomJoin.addEventListener('click', () => {
+      onRoomMode?.('join');
+      this.el.roomInput.focus();
+    });
+    // Digits only, and it accepts a pasted "1234 5678": the field shows what was
+    // typed, the value is normalised when it is read.
+    this.el.roomInput.addEventListener('input', () => {
+      const digits = this.el.roomInput.value.replace(/\D/g, '').slice(0, 8);
+      this.el.roomInput.value = digits.length > 4 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
+      onRoomCode?.(digits);
+    });
+    this.el.roomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') onMulti(); });
     this.el.mapRow.addEventListener('click', (e) => {
       const b = e.target.closest('.map-btn');
       if (!b || b.classList.contains('on')) return;
@@ -97,6 +116,88 @@ export class Hud {
     this.el.server.value = v || '';
   }
 
+  // ------------------------------------------------------------ 联机房间
+
+  /** 'create' shows no field; 'join' reveals the 8-digit box and focuses it. */
+  setRoomMode(mode, code = '') {
+    const join = mode === 'join';
+    this.el.roomCreate.classList.toggle('on', !join);
+    this.el.roomJoin.classList.toggle('on', join);
+    this.el.roomInput.classList.toggle('hidden', !join);
+    if (join) this.el.roomInput.value = formatRoomCode(code);
+    this.el.roomNote.textContent = join
+      ? '输入房主给你的 8 位房号即可加入同一局；房号错一位都会进不去'
+      : '创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）';
+  }
+
+  /** Digits the player typed/selected, no spaces. */
+  get joinCode() {
+    return this.el.roomInput.value.replace(/\D/g, '').slice(0, 8);
+  }
+
+  /** Previously used codes, offered as autocomplete on the join field. */
+  setRoomHistory(codes) {
+    this.el.roomHistory.innerHTML = '';
+    for (const c of codes || []) {
+      const opt = document.createElement('option');
+      opt.value = formatRoomCode(c);
+      this.el.roomHistory.appendChild(opt);
+    }
+  }
+
+  /** "2 个房间在线" line under the menu, from /api/rooms. */
+  setRoomList(rooms) {
+    const list = (rooms || []).filter((r) => r.players > 0);
+    if (!list.length) {
+      this.el.roomListNote.textContent = '当前没有别人开的房间：点「创建房间」你就是房主';
+      return;
+    }
+    const busy = list.filter((r) => r.players < (r.max || 32));
+    this.el.roomListNote.textContent = `在线房间 ${list.length} 个 · 可加入 ${busy.length} 个`
+      + '（用房号加入，房号请向房主要）';
+  }
+
+  /** The chip in the HUD: the code to read out to friends. */
+  setRoomCode(code) {
+    this._roomCode = code || '';
+    const show = !!code;
+    this.el.roomChip.classList.toggle('hidden', !show);
+    if (show) this.el.roomCode.textContent = formatRoomCode(code);
+  }
+
+  onRoomChipClick(handler) {
+    this.el.roomChip.addEventListener('click', async () => {
+      const text = this._roomCode || '';
+      if (!text) return;
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } catch {
+        // Clipboard API needs a secure context / permission; fall back to a
+        // throwaway selection so the code is at least copyable by hand.
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          ok = document.execCommand('copy');
+          ta.remove();
+        } catch { ok = false; }
+      }
+      this.el.roomChip.classList.toggle('copied', ok);
+      this.el.roomCopy.textContent = ok ? '已复制' : '复制失败';
+      clearTimeout(this._roomCopyTimer);
+      this._roomCopyTimer = setTimeout(() => {
+        this.el.roomChip.classList.remove('copied');
+        this.el.roomCopy.textContent = '复制';
+      }, 1600);
+      handler?.(text, ok);
+    });
+  }
+
   /** Bot controls only ever apply to solo: multiplayer is humans only. */
   setBotsVisible(visible) {
     this.el.botRow.classList.toggle('hidden', !visible);
@@ -105,6 +206,15 @@ export class Hud {
 
   setSkinNote(text) {
     this.el.skinNote.textContent = text || '';
+  }
+
+  /** First visit: point at the walkthrough instead of letting them guess. */
+  setTutorialHint() {
+    const btn = this.el.modeTutorial;
+    if (!btn) return;
+    btn.classList.add('suggested');
+    const span = btn.querySelector('span');
+    if (span) span.textContent = '第一次玩？从这里开始 · 60 秒学会操作与联机房号';
   }
 
   // ------------------------------------------------------------ map picker
@@ -643,4 +753,10 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+/** 12345678 -> "1234 5678": a code people can read out loud. */
+export function formatRoomCode(code) {
+  const d = String(code || '').replace(/\D/g, '').slice(0, 8);
+  return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 }

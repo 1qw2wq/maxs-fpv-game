@@ -13,6 +13,7 @@ import { buildFactionOverlay } from './character.js';
 import { buildWeapon } from './viewmodel.js';
 import { ensureMotions, RUN_SECTORS } from './motion.js';
 import { store } from './storage.js';
+import { fixImportedMaterials } from './lighting.js';
 
 /** Joint keys the game understands, in the order the settings UI shows them. */
 export const JOINTS = [
@@ -166,7 +167,13 @@ export function loadGltfFromFile(file) {
 
 /** Parse a model that already lives on the server. */
 export function loadGltfFromUrl(url) {
-  return new GLTFLoader().loadAsync(url);
+  return new GLTFLoader().loadAsync(url).then((gltf) => {
+    // Uploaded rigs are usually unlit (anime rips) but a standard-material one
+    // would otherwise inherit the same "metal with nothing to reflect" problem
+    // the guns had; the pass is a no-op for unlit files.
+    if (gltf.scene) fixImportedMaterials(gltf.scene);
+    return gltf;
+  });
 }
 
 /** Bone names of a model, in hierarchy order (parents before children). */

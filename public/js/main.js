@@ -17,6 +17,8 @@ import { Net } from './net.js';
 import { drawPortrait } from './face.js';
 import { flatMat } from './toon.js';
 import { store, session } from './storage.js';
+import * as profile from './profile.js';
+import { Tutorial } from './tutorial.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
   BUILTIN_SKINS, DEFAULT_CLASS_SKIN } from './rig.js';
 
@@ -96,6 +98,11 @@ const app = {
   // address is detected and reconnects instead of silently reusing the old link
   netUrl: null,
 };
+
+// A handle for the browser console and the automated tests: everything the game
+// knows, without having to guess at closures. Nothing inside the game reads it,
+// so poking at it can only affect that one session.
+if (typeof window !== 'undefined') window.__trench = { app, profile };
 
 // One id per browser tab, kept in sessionStorage: it survives a refresh but is
 // never shared with another tab. The server uses it to evict the stale socket a
@@ -180,6 +187,7 @@ async function boot() {
     },
   });
   await refreshCharLibrary();
+  setupLocalPanel();
   for (const skin of Object.values(BUILTIN_SKINS)) app.charMeta.set(skin.id, skin);
 
   // Warm every built-in rig while the player is still on the menu. Textures
@@ -189,6 +197,7 @@ async function boot() {
   for (const skin of Object.values(BUILTIN_SKINS)) ensureTemplate(skin.id, skin);
 
   setupMenu();
+  setupTutorial();
   wireControls();
   app.hud.screen('menu');
   requestAnimationFrame(loop);
@@ -297,13 +306,101 @@ function makeRemoteGirl(cls, team, skinId) {
 
 // --------------------------------------------------------------------- menu
 
+/**
+ * Settings screen: show the player exactly what this browser stores, let them
+ * export it, and let them wipe it. The game keeps no server-side profile, so
+ * this panel is the whole story of "my data".
+ */
+function setupLocalPanel() {
+  const note = document.getElementById('local-note');
+  const exportBtn = document.getElementById('local-export');
+  const resetBtn = document.getElementById('local-reset');
+  if (!note) return;
+  const render = () => {
+    const sum = profile.summary();
+    const st = sum.stats;
+    const lines = [
+      `名字：${sum.name || '（未设置）'}`,
+      `最近房号：${sum.room || '（还没进过房间）'}`,
+      `战绩：${st.matches} 局 · ${st.kills} 击杀 · ${st.deaths} 阵亡 · 胜 ${st.wins}`,
+      `新手指引：${sum.tutorialDone ? '已完成' : '未完成'}`,
+      sum.persistent
+        ? '存储位置：本机 localStorage（不会上传到服务器，也没有账号系统）'
+        : '注意：这个环境禁止了本地存储，本次数据只在内存里，刷新即失效',
+    ];
+    note.innerHTML = lines.join('<br>');
+  };
+  render();
+
+  exportBtn?.addEventListener('click', () => {
+    const data = { exportedAt: new Date().toISOString(), profile: profile.load() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'trench-front-profile.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    app.hud.toast('存档已导出到下载文件夹', 2200);
+  });
+
+  resetBtn?.addEventListener('click', () => {
+    if (!window.confirm('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？')) return;
+    profile.reset();
+    for (const key of ['tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig']) store.remove(key);
+    app.hud.setRoomMode('create', '');
+    app.hud.setRoomHistory([]);
+    app.hud.setServerAddress('');
+    app.hud.el.name.value = '';
+    app.hud.toast('本机数据已清空', 2200);
+    render();
+  });
+}
+
+/**
+ * The beginner walkthrough. Starting it deploys a private solo match with no
+ * bots, so the steps happen in the real game without anyone shooting back. The
+ * deploy path is the ordinary one: only `bots: false` and a marker make it the
+ * practice round.
+ */
+function setupTutorial() {
+  app.tut = new Tutorial({
+    hud: app.hud,
+    onStart: () => {
+      app.hud.screen('select');
+      app.hud.setBotsVisible(false);
+      app.hud.selectClass(app.loadout.cls, 0);
+      app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+    },
+    onFinish: (completed) => {
+      profile.save({ tutorialDone: true });
+      app.hud.menuError('');
+      app.hud.toast(completed ? '新手指引完成，祝你玩得开心' : '随时可以在主菜单重新打开新手指引', 2600);
+    },
+  });
+  // First visit: offer the walkthrough instead of leaving the player to guess.
+  if (!profile.load().tutorialDone) {
+    app.hud.setTutorialHint?.();
+  }
+}
+
 function setupMenu() {
-  let botCount = 6;
+  // Everything personal lives in this browser only (see profile.js): the name,
+  // the loadout, the room codes and the local stats. No database anywhere.
+  const saved = profile.load();
+  let botCount = saved.soloBots;
   let mode = 'multi';
+  app.roomMode = saved.roomMode;
+  app.roomCode = saved.room;
 
   // Server address: remembered per browser. Empty means "wherever this page
   // came from", which is already correct when everyone opens the host's URL.
   app.hud.setServerAddress(store.get('tf.server') || '');
+  app.hud.setRoomMode(app.roomMode, app.roomCode);
+  app.hud.setRoomHistory(saved.recentRooms);
+  app.hud.onRoomChipClick((code, ok) => {
+    app.hud.toast(ok ? `房号 ${code} 已复制，发给朋友吧` : `房号：${code}`, 2400);
+  });
+  refreshRoomList();
 
   const enterSelect = (which) => {
     mode = which;
@@ -312,17 +409,47 @@ function setupMenu() {
     app.hud.setBotsVisible(which === 'solo');
     app.hud.screen('select');
     app.hud.selectClass(app.loadout.cls, 0);
-    app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon);
+    app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+  };
+
+  // Multiplayer is entered through a room code: creating one makes you the
+  // host, joining one requires the code the host handed out. Solo never asks.
+  const multiNeedsCode = () => app.roomMode === 'join';
+  const roomProblem = () => {
+    if (!multiNeedsCode()) return '';
+    const code = app.hud.joinCode;
+    if (code.length !== 8) return '请输入房主给你的 8 位房号（例如 1234 5678）';
+    return '';
+  };
+  const enterMulti = () => {
+    const problem = roomProblem();
+    if (problem) {
+      app.hud.menuError(problem);
+      app.hud.setRoomMode('join', app.hud.joinCode);
+      return;
+    }
+    app.hud.menuError('');
+    enterSelect('multi');
   };
 
   app.hud.bindMenu({
-    onMulti: () => enterSelect('multi'),
+    onMulti: enterMulti,
     onSolo: () => enterSelect('solo'),
     onSettings: () => {
       app.sfx.resume();
       app.settings.open();
     },
-    onBotCount: (n) => { botCount = n; },
+    onBotCount: (n) => { botCount = n; profile.save({ soloBots: n }); },
+    onRoomMode: (m) => {
+      app.roomMode = m;
+      app.hud.menuError('');
+      app.hud.setRoomMode(m, app.roomCode);
+    },
+    onRoomCode: () => app.hud.menuError(''),
+    onTutorial: () => {
+      app.hud.menuError('');
+      app.tut?.open();
+    },
     onMap: (id) => {
       app.sfx.ui();
       app.mapPick = id;
@@ -331,6 +458,7 @@ function setupMenu() {
     },
   });
   app.hud.buildMaps(app.data.maps, app.mapPick);
+  if (saved.name) app.hud.el.name.value = saved.name;
 
   app.hud.buildSelect(
     (clsId) => {
@@ -341,14 +469,19 @@ function setupMenu() {
     () => {
       const sel = app.hud.selected || { cls: app.loadout.cls, weapon: app.data.weaponsByClass[app.loadout.cls][0].id };
       app.loadout = { ...app.loadout, ...sel };
+      const practice = !!app.tut?.active;
       deploy({
         name: app.hud.playerName,
         cls: sel.cls,
         weapon: sel.weapon,
-        bots: mode === 'solo',
+        // The walkthrough is a solo match with nobody shooting at the player.
+        bots: practice ? false : mode === 'solo',
         botCount: mode === 'solo' ? botCount : 0,
         skin: app.loadout.skin || '',
-        solo: mode === 'solo',
+        solo: practice || mode === 'solo',
+        // Solo is its own private room; multiplayer either hosts (no code) or
+        // joins the code the player typed.
+        room: mode === 'multi' && multiNeedsCode() ? app.hud.joinCode : '',
       });
     },
     () => {
@@ -383,6 +516,17 @@ function normalizeServer(raw) {
   const bare = url.hostname.replace(/^\[|\]$/g, '');
   const host = bare.includes(':') ? `[${bare}]` : bare;
   return `${host}:${url.port || location.port || '8080'}`;
+}
+
+/** How many rooms are running right now, for the menu's hint line. */
+async function refreshRoomList() {
+  try {
+    const res = await fetch('/api/rooms', { cache: 'no-store' });
+    const data = await res.json();
+    app.hud.setRoomList(data.rooms || []);
+  } catch {
+    app.hud.setRoomList(null);
+  }
 }
 
 /**
@@ -477,8 +621,16 @@ async function deploy(opts) {
     app.hud.menuError(`无法连接服务器（${candidates.join(' / ')}）`);
     return;
   }
+  // Remember the loadout locally before the handshake, so the menu comes back
+  // exactly as the player left it even if the join fails.
+  profile.save({
+    name: opts.name, cls: opts.cls, weapon: opts.weapon, skin: opts.skin || '',
+    roomMode: opts.solo ? app.roomMode : (opts.room ? 'join' : 'create'),
+    mapId: opts.map || app.mapPick,
+  });
+  app.deployRoom = opts.room || '';
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
-    opts.solo, opts.map || app.mapPick, tabSessionId());
+    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '');
 }
 
 // ----------------------------------------------------------------- map swap
@@ -502,7 +654,7 @@ async function setMap(mapId) {
       app.mapData.set(meta.id, map);
     }
     const old = app.world;
-    const next = await World.create(app.scene, map, app.data.combat);
+    const next = await World.create(app.scene, map, app.data.combat, app.renderer);
     app.world = next;
     app.controls.world = next;
     old?.dispose();
@@ -544,6 +696,12 @@ async function onWelcome(m) {
   app.vmWeapon = firstWeapon.id;
   app.hud.setTeamColors(m.team);
   app.hud.setLoadout(m.cls, m.weapon);
+  app.hud.setRoomCode(m.room || '');
+  if (m.room) {
+    profile.rememberRoom(m.room, app.deployRoom ? 'join' : 'create');
+    app.hud.toast(app.deployRoom ? `已加入房间 ${formatCode(m.room)}` : `房间已创建 · 房号 ${formatCode(m.room)}`, 4200);
+    app.hud.setRoomHistory(profile.load().recentRooms);
+  }
   app.hud.screen('game');
   // Steering mode needs no prompt: the mouse already turns the view.
   app.hud.setLockHint(!app.controls.canLook);
@@ -558,10 +716,32 @@ async function onWelcome(m) {
   for (const fx of m.fx || []) spawnEffect(fx);
 
   app.playing = true;
+  app.matchStartedAt = performance.now();
+  app.tut?.onDeploy();
   app.last = performance.now();
   app.sfx.resume();
   if (m.botsOn) app.hud.toast('AI 机器人已加入战场', 2600);
   else app.hud.toast(`阵营：${app.data.teamById[m.team].name}`, 2600);
+}
+
+/**
+ * One local stats line per finished match, on this player's machine only.
+ * `me` carries the authoritative kills/deaths the server counted, so the numbers
+ * here are the same ones the scoreboard showed.
+ */
+let _lastRecorded = -1;
+function recordMatchResult(st) {
+  if (st.tick === _lastRecorded) return;
+  _lastRecorded = st.tick;
+  const me = (st.ps || []).find((p) => p.i === app.myId);
+  const won = st.winner === app.myTeam ? 1 : 0;
+  const played = app.matchStartedAt ? performance.now() - app.matchStartedAt : 0;
+  app.matchStartedAt = 0;
+  const stats = profile.bumpStats({
+    matches: 1, wins: won, kills: me ? me.k : 0, deaths: me ? me.d : 0,
+    playMs: Math.max(0, Math.round(played)),
+  }).stats;
+  console.info('[profile] local stats', JSON.stringify(stats));
 }
 
 function resetRemoteWorld() {
@@ -577,13 +757,14 @@ function resetRemoteWorld() {
 function wireControls() {
   const c = app.controls;
   c.onFireDown = () => { app.clickPending = true; c.requestLock(); };
-  c.onReload = () => { app.net?.reload(); };
+  c.onReload = () => { app.net?.reload(); app.tut?.notify('reload'); };
   c.onAbilityDown = () => {
     if (!app.net || !app.playing) return;
     const me = app.net.lastMe;
     if (!me || !me.alive) return;
     const kind = app.data.classById[me.c].ability;
     // The lobbed abilities are charged on hold; the crates drop where you stand.
+    app.tut?.notify('ability');
     if (kind === 'smoke' || kind === 'flare') beginCharge();
     else { app.sfx.ability(kind); app.net.ability(c.aim()); }
   };
@@ -591,6 +772,7 @@ function wireControls() {
   c.onAbilityCancel = () => cancelCharge();
   c.onScoreboard = (show) => {
     if (!app.playing) return;
+    if (show) app.tut?.notify('score');
     app._sbOpen = show;
     const st = app.net?.lastState;
     if (!st) return;
@@ -602,6 +784,7 @@ function wireControls() {
   };
   c.onViewToggle = () => {
     if (!app.playing) return;
+    app.tut?.notify('view');
     app.cameraMode = app.cameraMode === 'fp' ? 'tp' : 'fp';
     app.sfx.ui();
     app.hud.toast(app.cameraMode === 'tp' ? '第三人称视角' : '第一人称视角', 1200);
@@ -623,6 +806,12 @@ function wireControls() {
     if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
   });
 }
+
+/** 12345678 -> "1234 5678" (mirrors hud.formatRoomCode for the toast text). */
+const formatCode = (code) => {
+  const d = String(code || '').replace(/\D/g, '').slice(0, 8);
+  return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
+};
 
 const STEER_HINT = '把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；'
   + '按住鼠标拖动可精确瞄准，方向键也能转身。在新标签页打开本页可恢复鼠标锁定。';
@@ -657,6 +846,7 @@ function onState(st) {
   if (st.phase === 'ended') {
     if (!app.resultShown) {
       app.resultShown = true;
+      recordMatchResult(st);
       app.hud.result(st, st.ps, app.myId);
       app.hud.scoreboard(false, [], st, app.myId, app.myTeam);
       app.controls.releaseLock();
@@ -783,6 +973,20 @@ async function onMessage(m) {
     case 'chat':
       app.hud.chatLine(m.n, m.tm, m.m);
       break;
+    case 'joinError': {
+      // The room code was wrong (or the room is full): stay on the menu and say
+      // exactly what happened instead of leaving the player on a dead screen.
+      const why = {
+        notfound: '房号不存在：请向房主要正确房号（8 位数字），或自己创建房间',
+        full: '该房间已满员，换一个房间或自己创建',
+        toomany: '服务器上房间太多了，稍后再试',
+      }[m.why] || '无法加入该房间';
+      app.hud.screen('menu');
+      app.hud.menuError(why);
+      app.hud.setRoomMode('join', app.hud.joinCode);
+      app.playing = false;
+      break;
+    }
     case 'map': {
       // Broadcast between rounds: rebuild the scene, then let the spawn messages
       // that follow (one per player) place everyone on the new ground.
@@ -1442,6 +1646,13 @@ function tick(dt, now) {
 
   updateCrosshair(w, suppressed);
   updateLockHint(alive);
+  app.tut?.update(dt, {
+    speed: app.controls.moveSpeed,
+    yaw: app.controls.yaw,
+    ads: app.controls.ads,
+    crouch: app.controls.crouch,
+    airborne: !app.controls.grounded,
+  });
 }
 
 function aimFov(me) {
@@ -1452,6 +1663,7 @@ function aimFov(me) {
 
 function fireOnce(w, eye, dir) {
   app.net.fire(eye, dir);
+  app.tut?.notify('fire');
   app.fireAt = performance.now();
   const kick = w.shape === 'bolt' ? 1.35 : w.shape === 'lmg' ? 0.7 : 0.85;
   app.vm.kick(kick);

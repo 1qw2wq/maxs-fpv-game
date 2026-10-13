@@ -39,6 +39,19 @@
       </label>
       <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p>
 
+      <div class="room-field">
+        <span class="room-label">联机房间</span>
+        <div class="room-row">
+          <button id="btn-room-create" class="room-btn on" type="button">创建房间</button>
+          <button id="btn-room-join" class="room-btn" type="button">输入房号加入</button>
+        </div>
+        <input id="input-room" class="hidden" type="text" inputmode="numeric" maxlength="9"
+               placeholder="8 位房号，例如 1234 5678" autocomplete="off" list="room-history">
+        <datalist id="room-history"></datalist>
+      </div>
+      <p id="room-note" class="hint dim">创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）</p>
+      <p id="room-list-note" class="hint dim"></p>
+
       <div class="bot-row hidden" id="bot-row">
         <span>AI 数量</span>
         <div class="seg" id="bot-count">
@@ -65,6 +78,9 @@
         </button>
         <button id="btn-mode-settings" class="mode-btn" type="button">
           <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
+        </button>
+        <button id="btn-mode-tutorial" class="mode-btn" type="button">
+          <b>新手指引</b><span>60 秒学会移动 / 射击 / 联机房号</span>
         </button>
       </div>
 
@@ -156,6 +172,15 @@
       <div id="rig-shared" class="rig-shared"></div>
     </div>
 
+    <div class="rig-shared-block">
+      <h3 class="rig-h3">本地存档（只存在这台电脑上）</h3>
+      <p id="local-note" class="hint dim"></p>
+      <div class="local-actions">
+        <button id="local-export" class="ghost-btn" type="button">导出存档</button>
+        <button id="local-reset" class="ghost-btn" type="button">清空本机数据</button>
+      </div>
+    </div>
+
     <footer class="select-foot">
       <button id="rig-back" class="ghost-btn" type="button">返回主页</button>
       <button id="rig-reset" class="ghost-btn" type="button">重置</button>
@@ -182,6 +207,11 @@
       <span class="tb-num" id="tb-score-1">0</span>
       <span class="tb-name" id="tb-name-1">同盟国</span>
     </div>
+  </div>
+
+  <div id="room-chip" class="hidden" title="点击复制房号">
+    <span class="rc-label">房号</span><b id="room-code">--------</b>
+    <span id="room-copy" class="rc-copy">复制</span>
   </div>
 
   <div id="crosshair">

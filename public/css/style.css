@@ -576,6 +576,109 @@ body { user-select: none; }
   text-shadow: 0 3px 0 rgba(0, 0, 0, .6);
 }
 
+.mode-btn.suggested {
+  border-color: rgba(255, 207, 92, .55);
+  background: rgba(255, 207, 92, .09);
+  animation: tut-pulse 2.4s ease-in-out infinite;
+}
+@keyframes tut-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 207, 92, .0); }
+  50% { box-shadow: 0 0 0 3px rgba(255, 207, 92, .16); }
+}
+
+.local-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+/* ------------------------------------------------------------ 新手指引 */
+#tutorial {
+  position: fixed; inset: 0; z-index: 30;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 92px 16px 16px;
+  pointer-events: none;           /* the game stays playable underneath */
+}
+/* In a match the panel moves out of the way: top-right corner, narrow, so the
+   crosshair and the middle of the screen stay clear while the player shoots. */
+#tutorial.in-game {
+  align-items: flex-start; justify-content: flex-end;
+  padding: 96px 18px 16px;
+}
+#tutorial .tut-panel {
+  pointer-events: auto;
+  width: min(560px, 94vw); max-height: 78vh; overflow: auto;
+  padding: 16px 18px; border-radius: 14px;
+  background: rgba(8, 11, 18, .93);
+  border: 1px solid rgba(255, 207, 92, .35);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .6);
+  color: rgba(244, 241, 234, .92);
+}
+#tutorial.in-game .tut-panel {
+  width: min(330px, 46vw); max-height: 56vh; padding: 11px 13px;
+  background: rgba(8, 11, 18, .84);
+}
+#tutorial.in-game .tut-list { margin: 9px 0 6px; gap: 5px; }
+#tutorial.in-game .tut-list li { padding: 5px 8px; font-size: 12px; }
+#tutorial.in-game .tut-tip { display: none; }
+#tutorial header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+#tutorial header b { font-size: 16px; letter-spacing: .16em; color: #ffcf5c; }
+.tut-count { font-size: 12px; letter-spacing: .16em; color: rgba(244, 241, 234, .55); }
+.tut-count.all { color: #7ee08a; }
+#tutorial .tut-list { list-style: none; margin: 12px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+#tutorial .tut-list li {
+  display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: baseline;
+  padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, .04);
+  border: 1px solid transparent; font-size: 13px; line-height: 1.5;
+}
+#tutorial .tut-list li.now { background: rgba(255, 207, 92, .12); border-color: rgba(255, 207, 92, .45); }
+#tutorial .tut-list li.done { opacity: .55; }
+#tutorial .tut-list li.done b::after { content: ' ✔'; color: #7ee08a; }
+#tutorial .tut-list b { white-space: nowrap; }
+#tutorial .key {
+  font: 700 11.5px/1.6 var(--mono, monospace); letter-spacing: .06em;
+  padding: 0 6px; border-radius: 5px; color: #ffcf5c; background: rgba(255, 207, 92, .12);
+}
+#tutorial .txt { color: rgba(244, 241, 234, .78); }
+.tut-tip {
+  margin: 0 0 12px; padding: 9px 11px; border-radius: 9px; font-size: 12.5px; line-height: 1.6;
+  background: rgba(120, 200, 255, .08); border: 1px solid rgba(120, 200, 255, .22);
+  color: rgba(220, 235, 255, .85);
+}
+#tutorial footer { display: flex; gap: 8px; justify-content: flex-end; }
+#tutorial .ghost-btn, #tutorial .big-btn { font-size: 13px; }
+
+/* ------------------------------------------------------- 联机房间（房号） */
+.room-field {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(12, 16, 24, .55);
+  border: 1px solid rgba(255, 255, 255, .09);
+}
+.room-label { font-size: 12.5px; letter-spacing: .16em; color: rgba(244, 241, 234, .62); }
+.room-row { display: flex; gap: 8px; }
+.room-btn {
+  flex: 1; padding: 9px 10px; border-radius: 9px; cursor: pointer;
+  font: 700 14px/1 var(--font); color: rgba(244, 241, 234, .72);
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .12);
+}
+.room-btn:hover { background: rgba(255, 255, 255, .1); }
+.room-btn.on { color: #12151c; background: #ffcf5c; border-color: #ffcf5c; }
+#input-room {
+  padding: 10px 12px; border-radius: 9px; letter-spacing: .3em; text-align: center;
+  font: 700 17px/1 var(--mono, monospace); color: #fff;
+  background: rgba(8, 11, 18, .9); border: 2px solid rgba(255, 207, 92, .55);
+  outline: none;
+}
+#input-room:focus { border-color: #ffcf5c; }
+
+#room-chip {
+  position: absolute; top: 74px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  background: rgba(8, 11, 18, .72); border: 1px solid rgba(255, 207, 92, .45);
+  font-size: 13px; letter-spacing: .12em; color: rgba(244, 241, 234, .8);
+}
+#room-chip b { font-size: 15px; letter-spacing: .22em; color: #ffcf5c; }
+.rc-copy { font-size: 11.5px; color: rgba(244, 241, 234, .5); }
+#room-chip.copied .rc-copy { color: #7ee08a; }
+
 #lockslot {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
