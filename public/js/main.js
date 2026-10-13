@@ -629,6 +629,9 @@ async function deploy(opts) {
     mapId: opts.map || app.mapPick,
   });
   app.deployRoom = opts.room || '';
+  // What the player asked for, so the welcome can explain a server that had to
+  // keep running another room's map instead.
+  app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
     opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '');
 }
@@ -722,6 +725,14 @@ async function onWelcome(m) {
   app.sfx.resume();
   if (m.botsOn) app.hud.toast('AI 机器人已加入战场', 2600);
   else app.hud.toast(`阵营：${app.data.teamById[m.team].name}`, 2600);
+  // One match runs at a time on the server (see combat.py), so a map pick
+  // cannot always be honoured. Say which map this round is on and why, rather
+  // than silently loading something else.
+  if (app.deployPick && m.mapId && app.deployPick !== m.mapId) {
+    const want = app.data.mapById[app.deployPick];
+    const got = app.data.mapById[m.mapId];
+    if (want && got) app.hud.toast(`「${want.name}」正被其他房间占用，本局是「${got.name}」`, 5200);
+  }
 }
 
 /**
