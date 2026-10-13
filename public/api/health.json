@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "static": true,
+  "engine": "local",
+  "rooms": 1,
+  "maxRooms": 1,
+  "players": 0,
+  "waiters": 0,
+  "note": "Static upload (Vercel): there is no game server on this origin. /api/health, /api/rooms and /api/characters are answered from these files, and the match itself is run by the page -- public/engine/*.py under Pyodide, driven by public/js/local.js."
+}

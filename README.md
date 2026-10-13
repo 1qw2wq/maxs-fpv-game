@@ -4,6 +4,8 @@
 每个兵种 3 把武器，全部可操纵角色为**二次元风格美少女**（半写实比例，约 5.7 头身）。
 
 无构建步骤：前端是原生 ES Module + import map，后端是单个 Python 进程同时提供静态文件与 WebSocket。
+**也可以完全没有后端**：纯静态托管（Vercel / 任何静态服务器）时，浏览器的内嵌 Python（Pyodide）
+会跑起同一份服务端代码，单机 + 机器人对局照常进行——见「部署 → Vercel」。
 
 ---
 
@@ -49,7 +51,7 @@ python server/server.py --open
   房号不存在会直接提示「房号不存在」，不会被塞进别人的房间。
 - 主菜单会记住最近进过的房号，一键重进；页面上还列着当前**公开的房间**（人数 / 地图 / 阶段）。
 - 同一房号里的玩家才会互相看见、互相打；不同房号的比赛完全隔离，比分和计分板也各自独立。
-- 服务器同一时间只跑一张地图（`server/combat.py` 只有一份世界状态）。如果别的房间正在另一张图上对局，
+- 服务器同一时间只跑一张地图（`public/engine/combat.py` 只有一份世界状态）。如果别的房间正在另一张图上对局，
   你选的地图这一局会先让位——这时画面顶部会直接说明「「意大利小镇」正被其他房间占用，本局是「索姆河无人区」」，
   而不是默默换图。两个房间都停下后，下一局就会用上你选的地图。
 - 房主离开、房间空掉之后，多人房号保留 2 分钟（够刷新页面重新进），单人练习房 15 秒就回收；
@@ -208,7 +210,7 @@ python server/server.py --open
 ### 每把枪的开火表现
 
 十二把枪不只是数值不同：枪口焰、枪声、后坐、抛壳、曳光弹都各有一套，全部写在
-`shared/weapons.json` 的 `fx` 块里（**只影响画面与声音，服务端永不读取**，手改坏了也会被
+`public/shared/weapons.json` 的 `fx` 块里（**只影响画面与声音，服务端永不读取**，手改坏了也会被
 `gunfx.js` 夹回合法范围，不会让对局出错）。
 
 | 枪 | 枪口焰 | 后坐（枪 + 镜头） | 曳光弹 | 枪声 |
@@ -264,31 +266,32 @@ Blueprint 即可（免费档会休眠，唤醒后第一次进入要等几秒）�
 **Heroku / Railway / Koyeb**：`Procfile` 已就位（`web: python server/server.py`），它们注入的
 `PORT` 会被自动采用。
 
-**Vercel（只放前端，仓库里已配好 `vercel.json`）**
+**Vercel（不需要任何后端，推荐）**
 
-Vercel 的函数是「请求进、响应出」：没有 WebSocket，也没有常驻的 30 Hz 对局循环，所以
-**游戏服务端跑不了 Vercel**——但**前端可以**，仓库已经配好，导入即用：
+Vercel 的函数是「请求进、响应出」：没有 WebSocket，也没有常驻的 30 Hz 对局循环，所以游戏服务端跑不了
+Vercel。但**对局本身也不需要服务端**——`public/engine/*.py` 就是服务端那同一份代码，页面用
+**Pyodide**（WebAssembly 版 Python，随仓库一起部署在 `public/vendor/pyodide/`）把它拉进浏览器里跑，
+`public/js/local.js` 负责驱动它。所以纯静态托管也是**能直接开打**的：单机 + 机器人，和自建服务端
+玩起来是同一套规则、同一套弹道、同一套机器人 AI。
 
-1. 在 Vercel 里 Import 这个仓库，Framework Preset 选 **Other**，Build Command / Output
-   Directory 都留空，直接 Deploy。`vercel.json` 负责重写：`/`（仓库根目录没有 index.html，
-   页面在 `public/`）以及 `/js` `/css` `/models` `/motions` `/sounds` `/vendor` `/img`；
-   `/shared/weapons.json`、`/shared/maps.json` 本来就在仓库根目录，直接可读；
-   `.vercelignore` 会上传时去掉 `server/`、`tools/`、`new motion/` 等用不上的东西。
-   → 打开网址，**菜单、模型、光照、设置、本机存档、新手指引面板都正常**，只是点「进入战场」
-   时会提示连不上（因为那里没有服务端）。
-2. 服务端另找一台机器跑（上面的 Render / Docker 任选，Render 免费档够用）。然后在**主菜单的
-   「服务器地址」**里填它的地址，或者直接给网址加参数：
-   `https://你的项目.vercel.app/?server=your-app.onrender.com`
-   （会记在本机，下次自动带上；也可以写成 `your-app.onrender.com:8080` 或 `https://your-app.onrender.com`。）
-3. 想让分享出去的网址自带后端，也可以在 `vercel.json` 的 `rewrites` 里加一条把 HTTP 接口转发过去
-   （`/ws` 无法被 Vercel 代理，客户端第一次进战场会多等几秒探测，然后自动改用 GET/POST 长轮询，
-   对局照常；`/api/poll` 这类 POST 也会被转发）：
-   ```json
-   { "source": "/api/:path*", "destination": "https://your-app.onrender.com/api/:path*" }
-   ```
+1. 在 Vercel 里 Import 这个仓库，Framework Preset 选 **Other**，Build Command / Output Directory
+   都留空。
+2. **把 Root Directory 设成 `public`**（Settings → Build and Deployment → Root Directory）。
+   项目配置就在 `public/vercel.json`：`/api/*` 的三条接口重写到静态垫片文件，`/vendor/pyodide/*`
+   带长缓存与正确的 MIME。仓库根目录那份 `vercel.json` 是给「Root Directory 留空」的老用法准备的，
+   两套都留着，用的是哪套由 Root Directory 决定。
+3. Deploy。打开网址 → 主菜单 → 单机/多人都可点「部署」：
+   - 单机：浏览器内嵌引擎开局（浏览器里会显示「静态托管：对局由浏览器内嵌引擎运行」）。
+   - 多人：需要一台真正的服务端（下面的 Render / Docker 任选）。在菜单的**「服务器地址」**
+     里填它，或给网址加 `?server=your-app.onrender.com`，此时对局走网络，内嵌引擎只是兜底。
+
+静态托管上的接口由 `public/api/*.json` 垫片回答（`/api/health` 返回 `{"ok":true,"engine":"local"}`，
+客户端据此知道「这个源没有服务端，改用页内引擎」）：菜单能开、房间列表为空、内置角色都在，
+角色上传需要真服务端（垫片会说明）。首次进入要下载约 12 MB 的 Python 运行时（之后走缓存），
+只是第一次比平时慢几秒。
 
 两个坑：**https 页面只能连 https 后端**（浏览器禁止 https 页面开 `ws://`），所以后端也要 https；
-GitHub Pages 那种「放在子路径下」的托管不行——页面里的资源是绝对路径 `/js/...`，只在域名根目录下成立。
+GitHub Pages 那种「放在子路径下」的托管需要注意——页面资源是绝对路径 `/js/...`，只在域名根目录下成立。
 
 平台相关的行为：
 
@@ -299,9 +302,11 @@ GitHub Pages 那种「放在子路径下」的托管不行——页面里的资�
   自动降级为 HTTP 长轮询，所以放在只允许普通 HTTP 的网关后面也能玩。
 - **只能单实例**：房间、比分、地图都在内存里，而且服务器同一时刻只跑一张地图（`combat.py` 只有
   一份世界状态），所以不要开多副本 / 自动扩缩容，也不要开 sticky session——一个进程就是全部。
-- 上传的共享角色模型写在 `shared/characters/`，容器重启即消失；要长期保存请挂载该目录。
+- 上传的共享角色模型写在 `public/shared/characters/`，容器重启即消失；要长期保存请挂载该目录。
 - 静态资源分两档：模型/音效/`vendor`（合计 40 MB 左右）带 `Cache-Control: max-age=600` +
   ETag，第二次进图只发 304；`js`/`css`/`html`/`json` 仍然是 `no-store`，改完刷新即生效。
+- 静态托管（Vercel）与自建服务端的区别只有一处：`/api/health` 的答复里带不带 `"engine":"local"`。
+  带 → 页面用内嵌引擎（`public/js/local.js` + Pyodide）；不带 → 一切照旧走网络。
 - 前后端可以分开部署：`public/js/api.js` 记住「`/api/...` 该问谁」。玩家在菜单里填了服务器
   地址（或网址带 `?server=`）之后，房间列表、共享角色库、角色上传都跟着那台服务器走；只有
   模型 / 音效 / `/shared/*.json` 还是从打开页面的地方加载。
@@ -310,21 +315,29 @@ GitHub Pages 那种「放在子路径下」的托管不行——页面里的资�
 
 ```
 FPS web game demo/
-├── shared/                    # Python 与 JS 共用的唯一数据源（服务端当静态路由暴露）
-│   ├── weapons.json           # 12 把武器数值 + 4 兵种属性 + 全局战斗参数
-│   ├── map.json               # 地图 AABB 碰撞盒 / 掩体 / 出生点 / 导航点
-│   └── characters/            # 上传共享的角色模型（index.json 为清单）
-├── requirements.txt           # 唯一依赖 aiohttp
-├── vercel.json / .vercelignore # Vercel 静态前端：重写规则 + 上传白名单
+├── requirements.txt           # 唯一依赖 aiohttp（纯静态部署连它都不需要）
+├── vercel.json / .vercelignore # Root Directory 留空时用的重写规则 + 上传白名单
 ├── Dockerfile                 # 部署镜像（python:3.12-slim + HEALTHCHECK）
 ├── render.yaml / Procfile     # Render / Heroku 系平台的一键配置
 ├── server/
-│   ├── server.py              # aiohttp：静态托管 + /ws + /api/poll + 房号 / 角色上传 API + 30Hz 主循环
-│   ├── game.py                # 比赛状态机：队伍、计分、复活、胜负、命中判定
-│   ├── combat.py              # 纯数学：ray-capsule、射程衰减、部位倍率、移动碰撞
-│   └── bots.py                # 机器人 AI（导航点推进 + 瞄准容差）
-└── public/
+│   └── server.py              # aiohttp：静态托管 + /ws + /api/poll + 房号 / 角色上传 API + 30Hz 主循环
+└── public/                    # 静态托管的根目录（Vercel 的 Root Directory）
     ├── index.html             # 主菜单三模式 / 兵种武器选择 / 设置模式 / HUD / 记分板 / 结算
+    ├── engine/                # 游戏服务端本体：两个宿主（aiohttp / Pyodide）跑同一份代码
+    │   ├── game.py            # 比赛状态机：队伍、计分、复活、胜负、命中判定
+    │   ├── combat.py          # 纯数学：ray-capsule、射程衰减、部位倍率、移动碰撞
+    │   ├── bots.py            # 机器人 AI（导航点推进 + 瞄准容差）
+    │   ├── room.py            # 一个房间：玩家、比分、地图投票、消息分发（不含任何 socket）
+    │   └── host.py            # 页内宿主：把 room 的输出收集成 JSON 交给 js/local.js
+    ├── shared/                # Python 与 JS 共用的唯一数据源
+    │   ├── weapons.json       # 12 把武器数值 + 4 兵种属性 + 全局战斗参数
+    │   ├── map.json           # 地图 AABB 碰撞盒 / 掩体 / 出生点 / 导航点
+    │   ├── maps.json          # 地图清单（默认地图、每张图的场景参数）
+    │   ├── maps/cs_italy.json # 第二张地图
+    │   └── characters/        # 上传共享的角色模型（index.json 为清单）
+    ├── api/                   # 静态托管的 /api/* 垫片（Vercel 重写到这里）
+    ├── vercel.json            # Root Directory = public 时的项目配置
+    ├── vendor/pyodide/        # 内嵌引擎的运行时（13 MB，随仓库部署）
     ├── css/style.css
     ├── img/classes/           # 兵种选择卡片的角色立绘（4 张，已裁成 3:3.4 卡片比例）
     ├── models/
@@ -336,6 +349,7 @@ FPS web game demo/
     │   └── utils/BufferGeometryUtils.js # GLTFLoader 的同目录依赖
     └── js/
         ├── config.js          # 加载 /shared/*.json
+        ├── local.js           # 页内引擎宿主：拉起 Pyodide、驱动 host.py、把帧喂给 main.js
         ├── guns.js            # 导入枪械模型：朝向 / 缩放 / 热替换程序化枪
         ├── toon.js            # 卡通材质、描边、程序化贴图
         ├── gunfx.js           # 每把枪的枪口焰 / 硝烟 / 抛壳 / 镜头后坐（读 weapons.json 的 fx）
@@ -359,8 +373,12 @@ FPS web game demo/
 
 ## 技术要点
 
-- **单一数据源**：所有数值都在 `shared/*.json`，服务端与客户端读同一份，不可能漂移。
-  `python server/combat.py` 可随时校验这份数据是否自洽。
+- **单一数据源**：所有数值都在 `public/shared/*.json`，服务端与客户端读同一份，不可能漂移。
+  `python public/engine/combat.py` 可随时校验这份数据是否自洽。
+- **一份服务端，两个宿主**：`room.py` / `game.py` / `combat.py` / `bots.py` 里没有任何 socket 代码，
+  aiohttp 宿主（`server/server.py`）与页内宿主（`engine/host.py`，跑在 Pyodide 里）驱动的是同一个
+  `Room`。所以「静态托管上的单机对局」不是另写一套简化版：弹道、伤害衰减、部位倍率、机器人 AI、
+  地图投票、计分全部是同一份实现，网页上的表现和自建服完全一致。
 - **出生点必有出路**：出生点在地图数据里本来就已经验证过「平地 + 头顶无遮挡」，但地图完全可能
   把一个碉堡摆在出生点正前方两米——出生即面壁，按住 W 寸步难行。现在 `random_spawn` 会把
   「面前 5 米可走」当作首选条件，被迫用的墙角出生点也会自动转向开阔方向，因此三个出生点仍然轮流使用，

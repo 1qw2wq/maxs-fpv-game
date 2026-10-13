@@ -6,7 +6,7 @@ Y-up metre space, so the world matrices are applied verbatim -- no extra axis
 fix-up. The street plane is found automatically (the height at which most
 walls start), everything is translated so that plane sits at y = 0, and every
 surface is voxelised into axis-aligned boxes and written to
-shared/maps/<id>.json in exactly the shape of shared/map.json.
+public/shared/maps/<id>.json in exactly the shape of public/shared/map.json.
 
 Triangles are sorted into three roles by their normal:
 
@@ -37,7 +37,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IN = ROOT / "new map" / "cs_italy_with_real_light.glb"
-DEFAULT_OUT = ROOT / "shared" / "maps" / "cs_italy.json"
+DEFAULT_OUT = ROOT / "public" / "shared" / "maps" / "cs_italy.json"
 
 GROUND_Y = 0.0          # after the shift the street plane sits here
 STEP_UP_MAX = 0.65      # a surface this far above the feet is still reachable (matches combat.STEP_UP_MAX)

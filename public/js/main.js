@@ -15,6 +15,7 @@ import { Controls } from './controls.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
+import { LocalNet } from './local.js';
 import { drawPortrait } from './face.js';
 import { flatMat } from './toon.js';
 import { store, session } from './storage.js';
@@ -105,6 +106,12 @@ const app = {
   // the host:port the live socket is actually attached to, so a changed server
   // address is detected and reconnects instead of silently reusing the old link
   netUrl: null,
+  // What this origin turned out to be, filled in by the health probe in
+  // setupServerAddress(): `backendHere` is a real game server behind /api/*,
+  // `localEngine` is a static upload that answers /api/health from a file --
+  // there the match is run by the page itself (see local.js).
+  backendHere: null,
+  localEngine: false,
 };
 
 // A handle for the browser console and the automated tests: everything the game
@@ -575,17 +582,36 @@ function setupServerAddress() {
   app.backendHere = null;
   fetch(apiUrl('/api/health'), { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
-    .then((j) => { app.backendHere = !!(j && j.ok === true); })
+    .then((j) => {
+      app.backendHere = !!(j && j.ok === true);
+      // A static upload carries shim /api/health, /api/rooms and
+      // /api/characters files (see public/api/) and marks itself: there is no
+      // socket to open, the engine runs in this tab instead. A real server
+      // never sets this, so a hosted match keeps using the network.
+      app.localEngine = !!(j && j.engine === 'local');
+    })
     .catch(() => { app.backendHere = false; })
     .then(showStaticHint);
 }
 
-/** The one-line nudge a static deployment shows until a server is configured. */
-const STATIC_HINT = '当前是静态托管，没有游戏服务端：请在下方「服务器地址」填入后端地址'
-  + '（例如 your-app.onrender.com），或按 README「部署」用 Render / Docker 整体部署';
+/**
+ * The one-line nudge a copy of the page with no game server behind it shows.
+ * That copy still plays -- the engine boots inside the tab (see local.js) -- so
+ * the line is an offer, not a complaint: type an address to play on a hosted
+ * server instead, with other people.
+ */
+const STATIC_HINT = '当前是静态托管：对局将由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）。'
+  + '想联机就在下方「服务器地址」填入后端地址（例如 your-app.onrender.com），'
+  + '或按 README「部署」用 Render / Docker 整体部署';
 
 function showStaticHint() {
   const configured = !!(app.hud.serverAddress || app.serverPick);
+  // A page that runs the engine itself needs no nudge at all: the menu's
+  // deploy button already works.
+  if (app.localEngine) {
+    if (app.hud.el.menuError.textContent === STATIC_HINT) app.hud.menuError('');
+    return;
+  }
   if (!configured && app.backendHere === false) {
     app.hud.menuError(STATIC_HINT);
   } else if (configured && app.hud.el.menuError.textContent === STATIC_HINT) {
@@ -613,6 +639,27 @@ async function refreshRoomList() {
  * Open (or reuse) the socket for one address. Throws when the handshake fails,
  * leaving app.net empty for the next candidate.
  */
+/** The handlers a match needs, whichever transport ends up carrying it. */
+function netHandlers(label) {
+  return {
+    onWelcome: onWelcome,
+    onState: onState,
+    onMe: onMe,
+    onMessage: onMessage,
+    // Boot progress for the in-page engine, and nothing else: a network
+    // connect has its own, faster feedback in the menu.
+    onNote: (text) => app.hud.menuError(text),
+    onClose: () => {
+      if (!app.playing) return;
+      app.playing = false;
+      app.controls.releaseLock();
+      app.hud.screen('menu');
+      app.hud.menuError('与服务器断开连接');
+    },
+    onError: () => app.hud.menuError(`无法连接服务器（${label}）`),
+  };
+}
+
 async function connectNet(server) {
   const proto = server.secure ? 'wss:' : 'ws:';
   const host = server.host;
@@ -627,31 +674,47 @@ async function connectNet(server) {
     app.netUrl = null;
   }
   if (!app.net) {
-    app.net = new Net({
-      onWelcome: onWelcome,
-      onState: onState,
-      onMe: onMe,
-      onMessage: onMessage,
-      onClose: () => {
-        if (!app.playing) return;
-        app.playing = false;
-        app.controls.releaseLock();
-        app.hud.screen('menu');
-        app.hud.menuError('与服务器断开连接');
-      },
-      onError: () => app.hud.menuError(`无法连接服务器（${host}）`),
-    });
+    app.net = new Net(netHandlers(host));
     app.netUrl = url;
     try {
-      // The polling fallback gets its own throwaway id, and the tab id travels
-      // inside the join message instead: that is what makes a reload evict the
-      // page it replaced rather than sit on top of it.
-      await app.net.connect(url);
+      // A page that already knows it is a static upload has no socket to wait
+      // for: the long-poll POST is answered by nothing, and the engine in this
+      // tab is the way in. Nothing is decided until /api/health has answered,
+      // so the full handshake timeout stays for a real server.
+      await app.net.connect(url, { timeoutMs: app.localEngine ? 1500 : undefined });
       if (app.net.mode === 'poll') {
         // Only happens where the WebSocket upgrade is refused (strict proxy,
         // some preview panes). Not an error: the match rides on POSTs instead.
         console.warn('[trench] WebSocket unavailable, using the HTTP long-poll transport');
       }
+    } catch (err) {
+      app.net.close();
+      app.net = null;
+      app.netUrl = null;
+      throw err;
+    }
+  }
+  return url;
+}
+
+/**
+ * The last candidate on a static deployment: the game server's own code, run by
+ * this page (local.js). Nothing to reach, nothing to configure -- and the same
+ * match logic, so the room, the bots and the ballistics behave exactly like the
+ * ones a hosted server would run.
+ */
+async function connectLocal() {
+  const url = 'local://engine';
+  if (app.net && (!app.net.connected || app.netUrl !== url)) {
+    app.net.close();
+    app.net = null;
+    app.netUrl = null;
+  }
+  if (!app.net) {
+    app.net = new LocalNet(netHandlers('浏览器内引擎'));
+    app.netUrl = url;
+    try {
+      await app.net.connect('');
     } catch (err) {
       app.net.close();
       app.net = null;
@@ -674,23 +737,33 @@ async function deploy(opts) {
   }
   store.set('tf.server', app.hud.serverAddress);
 
-  // This page's own server is always a candidate, and the one that actually
-  // serves the game usually wins: the address box is normally left empty, and a
-  // remembered entry can go stale (the host changed network, the page was
-  // opened from a different machine). Trying the page itself second turns a
-  // dead-end "cannot connect" into a working match.
+  // Where the match can come from, in the order it is tried:
+  //   1. the address the player typed (only when there is one),
+  //   2. this page's own server -- the address box is normally left empty, and a
+  //      remembered entry can go stale (the host changed network, the page was
+  //      opened from a different machine), so trying the page itself second
+  //      turns a dead-end "cannot connect" into a working match,
+  //   3. the engine inside this tab, which is the only one of the three a static
+  //      upload (Vercel and friends) can offer.
   const here = { host: location.host, secure: location.protocol === 'https:' };
-  const candidates = [primary];
-  if (here.host && here.host !== primary.host) candidates.push(here);
+  const typed = !!(app.hud.serverAddress || '').trim();
+  const candidates = [];
+  if (typed) candidates.push(primary);
+  // A static origin cannot also be a game server, so it is skipped rather than
+  // waited on: the health probe has already said what this origin is.
+  if (!app.localEngine) candidates.push(here);
+  candidates.push({ host: '浏览器内引擎', local: true });
 
   let url = null;
   let reached = null;
   for (const server of candidates) {
     try {
-      url = await connectNet(server);
+      url = server.local ? await connectLocal() : await connectNet(server);
       reached = server;
       const notes = [];
-      if (server !== primary) {
+      if (server.local) {
+        notes.push('静态托管：对局由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）');
+      } else if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
         notes.push(`连不上 ${primary.host}，已改用本页面的服务器（${server.host}）`);
       }
@@ -711,7 +784,7 @@ async function deploy(opts) {
   // The room list, the character library and the upload endpoint now follow the
   // server that actually answered -- on a static deployment that is not this
   // origin, so the absolute form matters.
-  setApiBase(reached.host === here.host ? '' : serverHttpBase(reached));
+  setApiBase(reached.local || reached.host === here.host ? '' : serverHttpBase(reached));
   // Remember the loadout locally before the handshake, so the menu comes back
   // exactly as the player left it even if the join fails.
   profile.save({

@@ -68,7 +68,9 @@ export class Net {
 
   /**
    * @param {string} url  ws:// or wss:// address of /ws
-   * @param {{sid?: string, transport?: 'ws'|'poll'}} [opts]
+   * @param {{sid?: string, transport?: 'ws'|'poll', timeoutMs?: number}} [opts]
+   *   `timeoutMs` shortens the handshake wait: a page deciding whether it is a
+   *   static deployment can afford 1.5 s, not the 6 s a real match gets.
    * @returns {Promise<'ws'|'poll'>} the transport that ended up carrying the game
    */
   async connect(url, opts = {}) {
@@ -84,7 +86,7 @@ export class Net {
       return 'poll';
     }
     try {
-      await this._connectWs(url);
+      await this._connectWs(url, opts.timeoutMs);
       this.mode = 'ws';
       return 'ws';
     } catch (err) {
@@ -95,7 +97,7 @@ export class Net {
     }
   }
 
-  _connectWs(url) {
+  _connectWs(url, timeoutMs) {
     return new Promise((resolve, reject) => {
       let ws;
       try {
@@ -112,7 +114,7 @@ export class Net {
       // A proxy that accepts the request but never upgrades leaves this hanging,
       // so the fallback must not wait forever for an answer that never comes.
       clearTimeout(this._wsTimer);
-      this._wsTimer = setTimeout(() => fail(new Error('WebSocket 超时')), WS_TIMEOUT_MS);
+      this._wsTimer = setTimeout(() => fail(new Error('WebSocket 超时')), timeoutMs || WS_TIMEOUT_MS);
 
       ws.onopen = () => {
         if (settled || this._closed) return;

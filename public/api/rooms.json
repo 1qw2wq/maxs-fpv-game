@@ -1,0 +1,5 @@
+{
+  "rooms": [],
+  "max": 1,
+  "note": "Static upload (Vercel): no networked rooms exist here. Deploying from this page starts a match in the browser's own engine (see health.json); type a server address to play on a hosted one."
+}

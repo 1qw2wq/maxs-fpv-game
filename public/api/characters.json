@@ -1,0 +1,4 @@
+{
+  "characters": [],
+  "note": "Static upload (Vercel): the built-in rigs are part of the page (public/models), and uploading a character needs a game server to store it on. Run server/server.py (or deploy it via Render/Docker) to share uploaded rigs."
+}
