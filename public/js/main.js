@@ -20,6 +20,7 @@ import { flatMat } from './toon.js';
 import { store, session } from './storage.js';
 import * as profile from './profile.js';
 import { Tutorial } from './tutorial.js';
+import { setApiBase, apiUrl } from './api.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
   BUILTIN_SKINS, DEFAULT_CLASS_SKIN } from './rig.js';
 
@@ -194,6 +195,7 @@ async function boot() {
       app.hud.setSkinNote(skin ? `当前角色：${skin.name || skin.id}` : '');
     },
   });
+  setupServerAddress();
   await refreshCharLibrary();
   setupLocalPanel();
   for (const skin of Object.values(BUILTIN_SKINS)) app.charMeta.set(skin.id, skin);
@@ -238,7 +240,7 @@ function bootFail(message, hint) {
 /** Shared characters uploaded by anyone; keyed by server id. */
 async function refreshCharLibrary() {
   try {
-    const res = await fetch('/api/characters');
+    const res = await fetch(apiUrl('/api/characters'));
     const list = (await res.json()).characters || [];
     for (const m of list) app.charMeta.set(m.id, m);
   } catch { /* offline: only the built-in characters are available */ }
@@ -402,13 +404,14 @@ function setupMenu() {
 
   // Server address: remembered per browser. Empty means "wherever this page
   // came from", which is already correct when everyone opens the host's URL.
-  app.hud.setServerAddress(store.get('tf.server') || '');
+  app.hud.setServerAddress(app.serverPick || store.get('tf.server') || '');
   app.hud.setRoomMode(app.roomMode, app.roomCode);
   app.hud.setRoomHistory(saved.recentRooms);
   app.hud.onRoomChipClick((code, ok) => {
     app.hud.toast(ok ? `房号 ${code} 已复制，发给朋友吧` : `房号：${code}`, 2400);
   });
   refreshRoomList();
+  showStaticHint();
 
   const enterSelect = (which) => {
     mode = which;
@@ -512,24 +515,93 @@ function setupMenu() {
  */
 function normalizeServer(raw) {
   const text = (raw || '').trim();
-  if (!text) return location.host;
+  const pageSecure = location.protocol === 'https:';
+  if (!text) return { host: location.host, secure: pageSecure };
+  const explicit = /^[a-z][a-z0-9+.-]*:\/\//i.test(text);
   let url;
   try {
-    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
+    url = new URL(explicit ? text : `http://${text}`);
   } catch {
     throw new Error(`服务器地址无效：${text}`);
   }
+  // A typed full URL knows better than this page does: on an https deployment the
+  // game server has to be https too (the browser blocks a ws:// socket from a
+  // secure page), and its port comes from the scheme rather than from whatever
+  // port this page happens to be served on. A bare address keeps following the
+  // page -- that is what LAN play and the local menu expect.
+  const secure = explicit ? (url.protocol === 'https:' || url.protocol === 'wss:') : pageSecure;
   // URL.hostname keeps IPv6 brackets in some engines and drops them in others,
   // so normalise here rather than assuming either.
   const bare = url.hostname.replace(/^\[|\]$/g, '');
   const host = bare.includes(':') ? `[${bare}]` : bare;
-  return `${host}:${url.port || location.port || '8080'}`;
+  const port = url.port || (explicit ? (secure ? '443' : '80') : (location.port || '8080'));
+  return { host: `${host}:${port}`, secure };
 }
 
-/** How many rooms are running right now, for the menu's hint line. */
+/** `{host, secure}` -> the http(s) origin the /api/... endpoints live on. */
+function serverHttpBase(server) {
+  return `${server.secure ? 'https' : 'http'}://${server.host}`;
+}
+
+/**
+ * Where the game server is, before anything has connected. A static deployment
+ * (Vercel and friends -- see api.js) has no server of its own, so the address
+ * has to come from the player: `?server=host:port` on the URL wins over the one
+ * remembered from last time, because it is the one that was just pasted in.
+ */
+function setupServerAddress() {
+  let picked = '';
+  let raw = '';
+  try {
+    const q = new URLSearchParams(location.search);
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    raw = (q.get('server') || h.get('server') || '').trim();
+  } catch { /* no URL API: nothing to read */ }
+  if (raw) {
+    try {
+      picked = normalizeServer(raw).host;
+      store.set('tf.server', raw);
+      setApiBase(serverHttpBase(normalizeServer(raw)));
+    } catch (err) {
+      // A typo in the URL must not stop the menu from opening.
+      console.warn('[trench] 忽略无效的 ?server=：', err.message);
+    }
+  }
+  app.serverPick = picked;
+
+  // Is there a game server behind this very origin? Plain static hosting says no,
+  // and then the player deserves to be told that instead of a bare connection
+  // error -- and told what to put in the address box.
+  app.backendHere = null;
+  fetch(apiUrl('/api/health'), { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => { app.backendHere = !!(j && j.ok === true); })
+    .catch(() => { app.backendHere = false; })
+    .then(showStaticHint);
+}
+
+/** The one-line nudge a static deployment shows until a server is configured. */
+const STATIC_HINT = '当前是静态托管，没有游戏服务端：请在下方「服务器地址」填入后端地址'
+  + '（例如 your-app.onrender.com），或按 README「部署」用 Render / Docker 整体部署';
+
+function showStaticHint() {
+  const configured = !!(app.hud.serverAddress || app.serverPick);
+  if (!configured && app.backendHere === false) {
+    app.hud.menuError(STATIC_HINT);
+  } else if (configured && app.hud.el.menuError.textContent === STATIC_HINT) {
+    // A server address turned up (remembered, or ?server=): the nudge is stale.
+    app.hud.menuError('');
+  }
+}
+
+/**
+ * How many rooms are running right now, for the menu's hint line. On a static
+ * deployment this has to ask the configured backend: /api/rooms on this origin
+ * is just a 404.
+ */
 async function refreshRoomList() {
   try {
-    const res = await fetch('/api/rooms', { cache: 'no-store' });
+    const res = await fetch(apiUrl('/api/rooms'), { cache: 'no-store' });
     const data = await res.json();
     app.hud.setRoomList(data.rooms || []);
   } catch {
@@ -541,8 +613,9 @@ async function refreshRoomList() {
  * Open (or reuse) the socket for one address. Throws when the handshake fails,
  * leaving app.net empty for the next candidate.
  */
-async function connectNet(host) {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+async function connectNet(server) {
+  const proto = server.secure ? 'wss:' : 'ws:';
+  const host = server.host;
   const url = `${proto}//${host}/ws`;
 
   // A socket already bound to a different address is useless once the menu
@@ -606,17 +679,20 @@ async function deploy(opts) {
   // remembered entry can go stale (the host changed network, the page was
   // opened from a different machine). Trying the page itself second turns a
   // dead-end "cannot connect" into a working match.
+  const here = { host: location.host, secure: location.protocol === 'https:' };
   const candidates = [primary];
-  if (location.host && location.host !== primary) candidates.push(location.host);
+  if (here.host && here.host !== primary.host) candidates.push(here);
 
   let url = null;
-  for (const host of candidates) {
+  let reached = null;
+  for (const server of candidates) {
     try {
-      url = await connectNet(host);
+      url = await connectNet(server);
+      reached = server;
       const notes = [];
-      if (host !== primary) {
+      if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
-        notes.push(`连不上 ${primary}，已改用本页面的服务器（${host}）`);
+        notes.push(`连不上 ${primary.host}，已改用本页面的服务器（${server.host}）`);
       }
       if (app.net.mode === 'poll') {
         notes.push('本环境不支持 WebSocket，已改用 HTTP 轮询传输（对局照常）');
@@ -626,9 +702,16 @@ async function deploy(opts) {
     } catch { /* try the next candidate */ }
   }
   if (!url) {
-    app.hud.menuError(`无法连接服务器（${candidates.join(' / ')}）`);
+    const failed = candidates.map((c) => c.host).join(' / ');
+    app.hud.menuError(app.backendHere === false
+      ? `无法连接服务器（${failed}）· ${STATIC_HINT}`
+      : `无法连接服务器（${failed}）`);
     return;
   }
+  // The room list, the character library and the upload endpoint now follow the
+  // server that actually answered -- on a static deployment that is not this
+  // origin, so the absolute form matters.
+  setApiBase(reached.host === here.host ? '' : serverHttpBase(reached));
   // Remember the loadout locally before the handshake, so the menu comes back
   // exactly as the player left it even if the join fails.
   profile.save({

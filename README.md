@@ -259,9 +259,35 @@ docker run -p 8080:8080 trench-front
 
 **Render**：仓库根目录的 `render.yaml` 就是一份可直接用的 Blueprint——连接仓库、选择
 Blueprint 即可（免费档会休眠，唤醒后第一次进入要等几秒）。健康检查路径 `/api/health`。
+**这是最省事的「一键就能玩」方式**：它同时托管前端和游戏服务端。
 
 **Heroku / Railway / Koyeb**：`Procfile` 已就位（`web: python server/server.py`），它们注入的
 `PORT` 会被自动采用。
+
+**Vercel（只放前端，仓库里已配好 `vercel.json`）**
+
+Vercel 的函数是「请求进、响应出」：没有 WebSocket，也没有常驻的 30 Hz 对局循环，所以
+**游戏服务端跑不了 Vercel**——但**前端可以**，仓库已经配好，导入即用：
+
+1. 在 Vercel 里 Import 这个仓库，Framework Preset 选 **Other**，Build Command / Output
+   Directory 都留空，直接 Deploy。`vercel.json` 负责重写：`/`（仓库根目录没有 index.html，
+   页面在 `public/`）以及 `/js` `/css` `/models` `/motions` `/sounds` `/vendor` `/img`；
+   `/shared/weapons.json`、`/shared/maps.json` 本来就在仓库根目录，直接可读；
+   `.vercelignore` 会上传时去掉 `server/`、`tools/`、`new motion/` 等用不上的东西。
+   → 打开网址，**菜单、模型、光照、设置、本机存档、新手指引面板都正常**，只是点「进入战场」
+   时会提示连不上（因为那里没有服务端）。
+2. 服务端另找一台机器跑（上面的 Render / Docker 任选，Render 免费档够用）。然后在**主菜单的
+   「服务器地址」**里填它的地址，或者直接给网址加参数：
+   `https://你的项目.vercel.app/?server=your-app.onrender.com`
+   （会记在本机，下次自动带上；也可以写成 `your-app.onrender.com:8080` 或 `https://your-app.onrender.com`。）
+3. 想让分享出去的网址自带后端，也可以在 `vercel.json` 的 `rewrites` 里加一条把 HTTP 接口转发过去
+   （`/ws` 无法被 Vercel 代理，客户端会自动改用 GET/POST 长轮询，对局照常）：
+   ```json
+   { "source": "/api/:path*", "destination": "https://your-app.onrender.com/api/:path*" }
+   ```
+
+两个坑：**https 页面只能连 https 后端**（浏览器禁止 https 页面开 `ws://`），所以后端也要 https；
+GitHub Pages 那种「放在子路径下」的托管不行——页面里的资源是绝对路径 `/js/...`，只在域名根目录下成立。
 
 平台相关的行为：
 
@@ -275,6 +301,9 @@ Blueprint 即可（免费档会休眠，唤醒后第一次进入要等几秒）�
 - 上传的共享角色模型写在 `shared/characters/`，容器重启即消失；要长期保存请挂载该目录。
 - 静态资源分两档：模型/音效/`vendor`（合计 40 MB 左右）带 `Cache-Control: max-age=600` +
   ETag，第二次进图只发 304；`js`/`css`/`html`/`json` 仍然是 `no-store`，改完刷新即生效。
+- 前后端可以分开部署：`public/js/api.js` 记住「`/api/...` 该问谁」。玩家在菜单里填了服务器
+  地址（或网址带 `?server=`）之后，房间列表、共享角色库、角色上传都跟着那台服务器走；只有
+  模型 / 音效 / `/shared/*.json` 还是从打开页面的地方加载。
 
 ## 目录结构
 
@@ -285,6 +314,7 @@ FPS web game demo/
 │   ├── map.json               # 地图 AABB 碰撞盒 / 掩体 / 出生点 / 导航点
 │   └── characters/            # 上传共享的角色模型（index.json 为清单）
 ├── requirements.txt           # 唯一依赖 aiohttp
+├── vercel.json / .vercelignore # Vercel 静态前端：重写规则 + 上传白名单
 ├── Dockerfile                 # 部署镜像（python:3.12-slim + HEALTHCHECK）
 ├── render.yaml / Procfile     # Render / Heroku 系平台的一键配置
 ├── server/

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/", "destination": "/public/index.html" },
+    { "source": "/index.html", "destination": "/public/index.html" },
+    { "source": "/colorfixer.html", "destination": "/public/colorfixer.html" },
+    { "source": "/anim-lab.html", "destination": "/public/anim-lab.html" },
+    { "source": "/css/:path*", "destination": "/public/css/:path*" },
+    { "source": "/img/:path*", "destination": "/public/img/:path*" },
+    { "source": "/js/:path*", "destination": "/public/js/:path*" },
+    { "source": "/models/:path*", "destination": "/public/models/:path*" },
+    { "source": "/motions/:path*", "destination": "/public/motions/:path*" },
+    { "source": "/sounds/:path*", "destination": "/public/sounds/:path*" },
+    { "source": "/vendor/:path*", "destination": "/public/vendor/:path*" }
+  ]
+}

@@ -14,6 +14,7 @@ import { buildWeapon } from './viewmodel.js';
 import { ensureMotions, RUN_SECTORS } from './motion.js';
 import { store } from './storage.js';
 import { fixImportedMaterials } from './lighting.js';
+import { apiUrl } from './api.js';
 
 /** Joint keys the game understands, in the order the settings UI shows them. */
 export const JOINTS = [
@@ -1454,7 +1455,7 @@ export function createSettings({ data, hud, onUse }) {
     el.shared.innerHTML = '';
     let list = [];
     try {
-      const res = await fetch('/api/characters');
+      const res = await fetch(apiUrl('/api/characters'));
       list = (await res.json()).characters || [];
     } catch {
       el.shared.innerHTML = '<span class="hint dim">无法连接服务器，暂时看不到共享角色</span>';
@@ -1571,7 +1572,7 @@ export function createSettings({ data, hud, onUse }) {
     fd.append('model', state.file, state.file.name);
     setStatus('正在上传…');
     try {
-      const res = await fetch('/api/character', { method: 'POST', body: fd });
+      const res = await fetch(apiUrl('/api/character'), { method: 'POST', body: fd });
       const json = await res.json();
       if (!json.ok) {
         setStatus(`上传失败：${json.error || res.status}`, true);

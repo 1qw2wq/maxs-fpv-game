@@ -1,0 +1,27 @@
+# What Vercel is asked to upload. The deployment there is the *browser* half of
+# the game: the page, its JS, models, sounds and the /shared JSON. The Python
+# game server cannot run on Vercel (its functions are request/response -- no
+# WebSocket, no 30 Hz game loop, no shared memory between requests), so that half
+# is deployed elsewhere; see README「部署」 for the two supported topologies.
+
+# The server itself, and the tooling around it.
+server/
+tools/
+Dockerfile
+Procfile
+render.yaml
+requirements.txt
+启动服务器.bat
+
+# Source material that only the local dev tools use (Mixamo FBX originals and the
+# old standalone demo). public/motions/ -- what the game actually loads -- ships.
+new motion/
+FPS father demo/
+.trae/
+
+# Loose notes kept in the repo on purpose.
+chrome gpu.txt
+edge gpu.txt
+edge gpu 2.txt
+errors.txt
+history.txt
