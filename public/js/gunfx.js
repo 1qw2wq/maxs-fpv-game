@@ -141,7 +141,10 @@ export class GunFx {
     // Lifetime counters: the pooled pieces are invisible between shots, so this
     // is what "did that gun actually fire" means from the outside (and what the
     // headless test asserts on).
-    this.stats = { flashes: 0, smoke: 0, brass: 0, peakLight: 0, peakPunch: 0 };
+    // `remote` counts the flashes drawn for somebody else's shot, so a
+    // profiler (or a test) can tell the local trigger's effects apart from the
+    // ones a firefight next to it threw into the same pools.
+    this.stats = { flashes: 0, smoke: 0, brass: 0, remote: 0, peakLight: 0, peakPunch: 0 };
     this._smokeMat = flatMat(0x9d9a92, { transparent: true, opacity: 0.3, depthWrite: false });
     this._casingMat = flatMat(0xc9a24a);
     this._lights = [];
@@ -176,6 +179,7 @@ export class GunFx {
   /** Someone else's shot: same flame, no brass, no punch, smaller light. */
   remote(weapon, from, dir) {
     const style = gunStyle(weapon);
+    this.stats.remote++;
     this._flash(style, from, dir, false);
     this._smoke(style, from, dir);
     return style;

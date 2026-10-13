@@ -281,7 +281,8 @@ Vercel 的函数是「请求进、响应出」：没有 WebSocket，也没有常
    `https://你的项目.vercel.app/?server=your-app.onrender.com`
    （会记在本机，下次自动带上；也可以写成 `your-app.onrender.com:8080` 或 `https://your-app.onrender.com`。）
 3. 想让分享出去的网址自带后端，也可以在 `vercel.json` 的 `rewrites` 里加一条把 HTTP 接口转发过去
-   （`/ws` 无法被 Vercel 代理，客户端会自动改用 GET/POST 长轮询，对局照常）：
+   （`/ws` 无法被 Vercel 代理，客户端第一次进战场会多等几秒探测，然后自动改用 GET/POST 长轮询，
+   对局照常；`/api/poll` 这类 POST 也会被转发）：
    ```json
    { "source": "/api/:path*", "destination": "https://your-app.onrender.com/api/:path*" }
    ```
