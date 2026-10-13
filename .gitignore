@@ -1,0 +1,7 @@
+# Python bytecode / caches (the server writes these next to its sources)
+__pycache__/
+*.py[cod]
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db

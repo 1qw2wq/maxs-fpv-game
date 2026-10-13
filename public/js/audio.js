@@ -216,14 +216,23 @@ export class Sfx {
     return this._playBuf(this._samples[name], opts);
   }
 
-  /** Fire sound. Prefers this weapon's own sample; shape only trims the level. */
-  shot(weapon) {
+  /**
+   * Fire sound. Prefers this weapon's own sample and then trims it with the
+   * weapon's own `fx.sound` (gain, playback rate = pitch, low-pass), so two guns
+   * that share a shape still do not sound alike; the shape only sets the floor.
+   * `style` is optional: without it the weapon's own id still picks the sample.
+   */
+  shot(weapon, style) {
     const shape = weapon?.shape || 'rifle';
     const base = { smg: 0.7, rifle: 0.85, lmg: 0.95, bolt: 1.0 }[shape] ?? 0.85;
-    const gain = base * (WEAPON_GAIN[weapon?.id] ?? 1);
-    if (this._playBuf(this._guns[weapon?.id], { gain })) return;
-    if (this._sample('shot', { gain })) return;
+    const snd = style?.sound || {};
+    const gain = base * (WEAPON_GAIN[weapon?.id] ?? 1) * (snd.gain ?? 1);
+    const rate = snd.rate ?? 1;
+    const lpf = snd.lpf || 0;
+    if (this._playBuf(this._guns[weapon?.id], { gain, rate, lpf })) return;
+    if (this._sample('shot', { gain, rate, lpf })) return;
 
+    const tone = snd.tone ?? 1;
     const p = {
       smg: { dur: 0.11, g: 0.42, f: 1750, q: 0.9, td: 0.07, tg: 0.3, tf: 190, te: 60 },
       rifle: { dur: 0.17, g: 0.5, f: 1350, q: 1.0, td: 0.1, tg: 0.34, tf: 165, te: 52 },
@@ -231,18 +240,29 @@ export class Sfx {
       bolt: { dur: 0.3, g: 0.62, f: 1150, q: 1.1, td: 0.16, tg: 0.44, tf: 150, te: 40 },
     }[shape] || { dur: 0.15, g: 0.45, f: 1400, q: 1, td: 0.1, tg: 0.3, tf: 160, te: 50 };
 
-    this._noise(p.dur, p.g, p.f, p.q);
-    this._noise(p.dur * 1.9, p.g * 0.16, p.f * 0.34, 0.7, 'lowpass');
-    this._thump(p.td, p.tg, p.tf, p.te);
+    this._noise(p.dur, p.g * gain, p.f * tone, p.q);
+    this._noise(p.dur * 1.9, p.g * gain * 0.16, p.f * tone * 0.34, 0.7, 'lowpass');
+    this._thump(p.td, p.tg * gain, p.tf * tone, p.te * tone);
   }
 
-  /** Distant gunfire: quieter and duller, for other players' shots. */
-  shotFar(weapon) {
-    if (this._sample('shot', { gain: 0.3, lpf: 900 })) return;
+  /**
+   * Somebody else's gunfire. Same per-weapon character as the shot (so you can
+   * tell a Lewis from an SMLE across the trench) but dulled by distance, which
+   * also sets the level: near guns crack, far ones only thump.
+   */
+  shotFar(weapon, style, dist = 30) {
+    const snd = style?.sound || {};
+    const far = Math.min(1, Math.max(0, dist / 120));
+    const gain = 0.5 * (snd.gain ?? 1) * (1 - far * 0.9);
+    if (gain < 0.02) return;
+    const rate = (snd.rate ?? 1) * (1 - far * 0.12);
+    const lpf = 700 + 1800 * (1 - far);
+    if (this._sample('shot', { gain, rate, lpf })) return;
     const shape = weapon?.shape || 'rifle';
-    const f = shape === 'bolt' ? 520 : shape === 'lmg' ? 430 : 700;
-    this._noise(0.26, 0.16, f, 0.6, 'lowpass');
-    this._thump(0.12, 0.11, 110, 42);
+    const tone = snd.tone ?? 1;
+    const f = (shape === 'bolt' ? 520 : shape === 'lmg' ? 430 : 700) * tone * (1 - far * 0.35);
+    this._noise(0.26, 0.16 * gain * 2, f, 0.6, 'lowpass');
+    this._thump(0.12, 0.11 * gain * 2, 110 * tone, 42 * tone);
   }
 
   reload() {

@@ -10,6 +10,7 @@ import { loadConfig } from './config.js';
 import { World } from './map.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
+import { GunFx, gunStyle, tracerRound } from './gunfx.js';
 import { Controls } from './controls.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
@@ -60,6 +61,12 @@ const app = {
   fireAt: 0,
   throwAt: 0,
   tracers: [],
+  // Rounds fired per weapon, this session: per-gun tracer cadence needs a count
+  // ("every third round"), and it is also what keeps the count off the HUD.
+  shotRounds: {},
+  // How many tracers actually left a barrel (a tracer only shows every `every`
+  // rounds), which is what the per-gun cadence is judged on.
+  tracerStats: { spawned: 0 },
   effects: [],
   // {t0} while Q is held on a thrown ability; null otherwise
   charge: null,
@@ -171,6 +178,7 @@ async function boot() {
 
   app.fxGroup = new THREE.Group();
   app.scene.add(app.fxGroup);
+  app.gunfx = new GunFx({ group: app.fxGroup, scene: app.scene });
 
   addEventListener('resize', () => {
     app.renderer.setSize(innerWidth, innerHeight);
@@ -665,6 +673,7 @@ async function setMap(mapId) {
     // Effects were placed against the old terrain; they mean nothing on the new.
     cancelCharge();
     clearEffects();
+    app.gunfx?.clear();
     // The saved atmosphere belonged to the old map's scene setup.
     app.smokeBase = null;
     app.smokeOn = false;
@@ -714,6 +723,7 @@ async function onWelcome(m) {
   app.controls.reset(m.spawn, m.yaw);
   app.controls.pos.set(m.spawn[0], m.spawn[1], m.spawn[2]);
   resetRemoteWorld();
+  app.gunfx?.clear();
   // Crates that were already standing when we joined arrive with the welcome,
   // so joining mid-round does not miss the medic's and support's boxes.
   for (const fx of m.fx || []) spawnEffect(fx);
@@ -1493,17 +1503,20 @@ function updateThrowAim(now) {
 const tracerGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 5, 1, true);
 tracerGeo.rotateX(Math.PI / 2);
 
-function spawnTracer(from, to, color) {
+function spawnTracer(from, to, style) {
   const dir = new THREE.Vector3().subVectors(to, from);
   const len = dir.length();
   if (len < 0.4) return;
-  const mat = flatMat(color, { transparent: true, opacity: 0.85, depthWrite: false });
+  const mat = flatMat(style.tracer.color, { transparent: true, opacity: 0.85, depthWrite: false });
   const mesh = new THREE.Mesh(tracerGeo, mat);
   mesh.position.copy(from).addScaledVector(dir, 0.5);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
-  mesh.scale.set(1, 1, len);
+  // The streak keeps the thick/quick character of its gun: a bolt-action traces
+  // a fat, slow line, an SMG a thin one every few rounds.
+  mesh.scale.set(style.tracer.width, style.tracer.width, len);
   app.fxGroup.add(mesh);
-  app.tracers.push({ mesh, start: performance.now(), dur: 70 });
+  app.tracerStats.spawned++;
+  app.tracers.push({ mesh, start: performance.now(), dur: style.tracer.ms });
 }
 
 function updateTracers(now) {
@@ -1556,6 +1569,8 @@ function loop(now) {
   app.last = now;
   if (app.playing) tick(dt, now);
   updateTracers(now);
+  // Muzzle flashes, smoke, brass and the punch decay all ride one clock.
+  app.gunfx?.update(dt);
   updateThrowAim(now);
   updateEffects(now);
   updateSmokeVision();
@@ -1593,6 +1608,16 @@ function tick(dt, now) {
   } else {
     app.camera.position.copy(eye);
     app.camera.lookAt(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z);
+  }
+  // Per-gun camera punch: applied to the rendered camera *after* it has been
+  // aimed, so the aim ray the crosshair and the server share is untouched -- a
+  // Springfield throws the picture around, an MP18 barely moves it.
+  const punch = app.gunfx;
+  if (punch && (punch.punchPitch || punch.punchYaw || punch.punchRoll)) {
+    const D = Math.PI / 180;
+    app.camera.rotateX(punch.punchPitch * D);
+    app.camera.rotateY(punch.punchYaw * D);
+    app.camera.rotateZ(punch.punchRoll * D);
   }
   // in third person the character body replaces the viewmodel
   app.vm.root.visible = !tp;
@@ -1676,10 +1701,13 @@ function fireOnce(w, eye, dir) {
   app.net.fire(eye, dir);
   app.tut?.notify('fire');
   app.fireAt = performance.now();
-  const kick = w.shape === 'bolt' ? 1.35 : w.shape === 'lmg' ? 0.7 : 0.85;
-  app.vm.kick(kick);
+  // Everything about the shot that the player can see or hear comes from the
+  // weapon's own fx block (gunfx.js): recoil, flash, smoke, brass, punch and the
+  // sound's own trim. Two guns of the same shape are meant to feel different.
+  const style = gunStyle(w);
+  app.vm.kick(style.kick.vm);
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
-  app.sfx.shot(w);
+  app.sfx.shot(w, style);
   if (w.shape === 'bolt' && !w.straightPull) {
     // The bolt is worked a beat after the shot -- or, while scoped, exactly when
     // the player drops out of the sights, which is when the cycle really happens.
@@ -1704,7 +1732,9 @@ function fireOnce(w, eye, dir) {
     else muzzle.copy(eye);
     from.copy(muzzle.distanceTo(eye) < 3 ? muzzle : eye);
   }
-  spawnTracer(from, end, 0xffe6a0);
+  app.gunfx.fire(w, from, dir);
+  const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
+  if (tracerRound(style, rounds)) spawnTracer(from, end, style);
 }
 
 function updateCrosshair(w, suppressed) {
@@ -1835,9 +1865,23 @@ function syncFpArms() {
   if (app.vm.armMeshes) app.vm.armMeshes.visible = !ok;
 }
 
+const _shotFrom = new THREE.Vector3();
+const _shotDir = new THREE.Vector3();
+
+/** Server angle convention (yaw 0 = +X, pitch up positive) -> unit vector. */
+function aimFromAngles(out, yawDeg, pitchDeg) {
+  const y = (yawDeg * Math.PI) / 180;
+  const p = (pitchDeg * Math.PI) / 180;
+  const cp = Math.cos(p);
+  return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
+}
+
 function updateRemotePlayers(dt, me) {
   const poses = app.net.sample();
   const seen = new Set();
+  // Distant gunfire is capped per frame: twelve bots firing together must not
+  // turn into a wall of noise.
+  app.remoteShots = 3;
 
   for (const [id, p] of poses) {
     if (id === app.myId) continue;
@@ -1862,8 +1906,29 @@ function updateRemotePlayers(dt, me) {
       app.scene.add(girl.root);
       app.remotes.set(id, girl);
     }
-    girl.setWeapon(app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0]);
+    const rw = app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0];
+    girl.setWeapon(rw);
     girl.setAlive(!!p.alive);
+    // Bit 3 of the state's flag byte is set while this player's trigger is down
+    // (see game.py). It stays set between shots, so the rhythm here is the
+    // weapon's own rate of fire -- a Lewis chatters, a Springfield does not.
+    if (p.alive && (p.flags & 8)) {
+      const now = performance.now();
+      // muzzleWorld exists on both characters (built-in and imported rig); the
+      // guard keeps a future rig without one from spamming the console.
+      if (now >= (girl.nextShot || 0) && girl.muzzleWorld && girl.muzzleWorld(_shotFrom)) {
+        aimFromAngles(_shotDir, p.yaw, p.pitch);
+        app.gunfx?.remote(rw, _shotFrom, _shotDir);
+        const dist = _shotFrom.distanceTo(app.camera.position);
+        if (dist < 90 && app.remoteShots > 0) {
+          app.remoteShots--;
+          app.sfx.shotFar(rw, gunStyle(rw), dist);
+        }
+        girl.nextShot = now + (60000 / (rw?.rpm || 500)) * 0.94;
+      }
+    } else {
+      girl.nextShot = 0;
+    }
     girl.marker.visible = true;
     girl.marker.material.color.set(p.team === app.myTeam ? 0x3ddc6a : 0xff3b30);
 

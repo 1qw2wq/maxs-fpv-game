@@ -1,0 +1,22 @@
+# Keep the build context to what the game actually serves.
+.git
+.gitignore
+.dockerignore
+Dockerfile
+
+# Python caches and virtualenvs
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local notes and design files that ship nothing at runtime
+*.txt
+tools/
+FPS father demo/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

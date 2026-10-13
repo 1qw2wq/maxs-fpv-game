@@ -38,9 +38,21 @@ from game import Match  # noqa: E402
 
 # All interfaces: the host machine is reachable on 127.0.0.1 *and* on its LAN
 # address, so other people on the same network can simply open the URL printed
-# at startup.
-HOST = "0.0.0.0"
-START_PORT = 8080
+# at startup. A hosting platform overrides both with environment variables
+# (PORT is what Render/Railway/Fly/Heroku all inject); HOST stays 0.0.0.0 by
+# default because a container that binds 127.0.0.1 is unreachable from outside.
+import os
+
+HOST = os.environ.get("TRENCH_HOST") or os.environ.get("HOST") or "0.0.0.0"
+# An explicit port (env or --port) is honoured exactly and never probed: a
+# platform routes one public port to it, so silently moving would be a 502.
+_ENV_PORT = os.environ.get("PORT")
+try:
+    ENV_PORT = int(_ENV_PORT) if _ENV_PORT else None
+except ValueError:
+    ENV_PORT = None
+START_PORT = ENV_PORT or 8080
+PORT_SPAN = 1 if ENV_PORT else 20      # local dev still walks 8080, 8081, ...
 MAX_PLAYERS = 32
 MAX_MSG = 8192
 CHAR_MAX_BYTES = 24 * 1024 * 1024
@@ -782,6 +794,23 @@ async def poll_reaper():
                 log("poll  dropped stale sid=%s" % sid)
 
 
+async def health(request):
+    """Liveness for a hosting platform: proves the match loop is actually up.
+
+    Deliberately cheap and dependency-free -- it is polled every few seconds by
+    the platform's own health checker.
+    """
+    return web.json_response({
+        "ok": True,
+        "rooms": len(ROOMS),
+        "maxRooms": MAX_ROOMS,
+        "players": sum(r.match.human_count() for r in ROOMS.values()),
+        "maps": len(MAP_BY_ID),
+        "tickRate": COMBAT["tickRate"],
+        "waiters": len(POLL_CLIENTS),
+    })
+
+
 async def list_rooms(request):
     """Open rooms, so the menu can show what is running without a database."""
     rooms = sorted((r.as_meta() for r in ROOMS.values()), key=lambda m: (-m["players"], m["code"]))
@@ -790,6 +819,16 @@ async def list_rooms(request):
 
 async def index(request):
     return web.FileResponse(PUBLIC / "index.html")
+
+
+# Content that is stable for a session: the 33 MB of models, the sounds and the
+# vendored three.js. Served with a short max-age (and aiohttp's ETag, so the
+# revalidation after it is a 304) because re-downloading all of it on every visit
+# is what makes a hosted deployment feel slow. Code, JSON and HTML keep the
+# no-store treatment above: they are small, and editing them must be visible on
+# the very next reload.
+CACHEABLE_PREFIXES = ("/models/", "/sounds/", "/vendor/", "/img/", "/motions/")
+CACHE_MAX_AGE = 600
 
 
 @web.middleware
@@ -801,8 +840,11 @@ async def no_store(request, handler):
     else:
         resp = await handler(request)
     if not isinstance(resp, web.WebSocketResponse):
-        resp.headers["Cache-Control"] = "no-store, must-revalidate"
-        resp.headers["Pragma"] = "no-cache"
+        if resp.status == 200 and request.path.startswith(CACHEABLE_PREFIXES):
+            resp.headers["Cache-Control"] = "public, max-age=%d" % CACHE_MAX_AGE
+        else:
+            resp.headers["Cache-Control"] = "no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
         # The game can be opened from a preview pane whose page has an opaque
         # origin (sandboxed iframe). Without this header that frame refuses to
         # run its own module scripts or read its own JSON files, so nothing
@@ -821,6 +863,7 @@ def create_app():
     app.router.add_get("/ws", ws_handler)
     app.router.add_post("/api/poll", poll)
     app.router.add_get("/api/rooms", list_rooms)
+    app.router.add_get("/api/health", health)
     app.router.add_get("/api/characters", list_characters)
     app.router.add_post("/api/character", upload_character)
     app.router.add_static("/shared/", SHARED, show_index=False)
@@ -865,7 +908,28 @@ async def game_loop():
             log("WARN tick took %.1fms" % spent)
 
 
+def _flag_value(name):
+    """`--port 9000` / `--port=9000` from argv, or None."""
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return None
+
+
 async def main():
+    global START_PORT, PORT_SPAN
+    cli_port = _flag_value("--port")
+    if cli_port:
+        try:
+            START_PORT = int(cli_port)
+            PORT_SPAN = 1          # explicit: never silently move
+        except ValueError:
+            log("ERROR --port needs a number, got %r" % cli_port)
+            raise SystemExit(2)
+
     problems = validate_shared_data()
     if problems:
         for p in problems:
@@ -885,7 +949,7 @@ async def main():
 
     site = None
     port = None
-    for candidate in range(START_PORT, START_PORT + 20):
+    for candidate in range(START_PORT, START_PORT + PORT_SPAN):
         try:
             site = web.TCPSite(runner, HOST, candidate)
             await site.start()
@@ -894,20 +958,25 @@ async def main():
         except OSError:
             continue
     if site is None:
-        log("ERROR no free port in range %d-%d" % (START_PORT, START_PORT + 19))
+        log("ERROR no free port in range %d-%d" % (START_PORT, START_PORT + PORT_SPAN - 1))
         raise SystemExit(1)
 
     asyncio.ensure_future(game_loop())
     asyncio.ensure_future(poll_reaper())
     asyncio.ensure_future(room_reaper())
     log("ready -> http://127.0.0.1:%d" % port)
-    ips = lan_ips()
-    for ip in ips:
-        log("LAN   -> http://%s:%d" % (ip, port))
-    if not ips:
-        log("LAN   -> no non-loopback IPv4 found; check ipconfig")
-    log("share the LAN url above; allow python through the firewall if asked")
-    log("open two browser tabs on that URL for a real match; enable bots for solo play")
+    if ENV_PORT:
+        # Deployed: the platform terminates TLS and proxies to this port, so a
+        # LAN address would only confuse the log.
+        log("deployed on port %d (PORT env); health at /api/health" % port)
+    else:
+        ips = lan_ips()
+        for ip in ips:
+            log("LAN   -> http://%s:%d" % (ip, port))
+        if not ips:
+            log("LAN   -> no non-loopback IPv4 found; check ipconfig")
+        log("share the LAN url above; allow python through the firewall if asked")
+        log("open two browser tabs on that URL for a real match; enable bots for solo play")
     print("Serving on http://127.0.0.1:%d  (Ctrl+C to stop)" % port)
     sys.stdout.flush()
 

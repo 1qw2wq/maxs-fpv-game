@@ -431,6 +431,16 @@ export function createGirl(cls, team, data) {
       built.group.position.set(0.04, -0.03, 0.06);
       weaponMount.add(built.group);
       built.group.traverse((o) => { o.frustumCulled = false; });
+      // Kept so this girl's own muzzle flash leaves the right barrel: main.js
+      // asks for the world point when her trigger pulls (see gunfx.js).
+      st.muzzle = built.muzzle;
+    },
+
+    /** World position of this character's muzzle; false when she has no gun. */
+    muzzleWorld(out) {
+      if (!st.muzzle) return false;
+      st.muzzle.getWorldPosition(out);
+      return true;
     },
 
     setAlive(alive) {

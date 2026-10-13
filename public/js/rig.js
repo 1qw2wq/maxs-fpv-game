@@ -1072,6 +1072,15 @@ export function createExternalGirl({ template, meta, data, team }) {
       built.group.position.set(0.04, -0.03, 0.06);
       weaponMount.add(built.group);
       built.group.traverse((o) => { o.frustumCulled = false; });
+      // Same contract as the built-in girl: this is where her shots flash from.
+      st.muzzle = built.muzzle;
+    },
+
+    /** World position of this character's muzzle; false when she has no gun. */
+    muzzleWorld(out) {
+      if (!st.muzzle) return false;
+      st.muzzle.getWorldPosition(out);
+      return true;
     },
 
     setAlive(alive) {

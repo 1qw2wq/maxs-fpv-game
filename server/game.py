@@ -801,6 +801,12 @@ class Match:
                 f |= 2
             if p["flags"].get("move"):
                 f |= 4
+            # Bit 3 marks a shot inside the last tick-and-a-bit. Clients use it to
+            # put a muzzle flash on somebody else's gun and to play that weapon's
+            # own report from a distance; it is presentation only, and the bit is
+            # simply absent from older clients' reading of the field.
+            if p.get("last_shot") and now - p["last_shot"] < 120.0:
+                f |= 8
             out.append({
                 "i": p["id"], "n": p["name"], "tm": p["team"], "c": p["cls"], "w": p["weapon"],
                 "hp": int(max(0, p["hp"])), "al": 1 if p["alive"] else 0,
