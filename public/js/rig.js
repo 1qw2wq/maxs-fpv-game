@@ -1573,7 +1573,16 @@ export function createSettings({ data, hud, onUse }) {
     setStatus('正在上传…');
     try {
       const res = await fetch(apiUrl('/api/character'), { method: 'POST', body: fd });
-      const json = await res.json();
+      // A static upload (Vercel) has no endpoint to receive this: the answer is
+      // an HTML 404/405, so say what is missing instead of failing to parse it.
+      let json = null;
+      try { json = await res.json(); } catch { /* not a server that stores rigs */ }
+      if (!json) {
+        setStatus(`上传失败：HTTP ${res.status} —— 这台托管只提供静态文件。`
+          + '共享角色需要一台带服务端的部署（Render / Docker 跑 server/server.py），'
+          + '或在菜单里填上那台服务器的地址。', true);
+        return;
+      }
       if (!json.ok) {
         setStatus(`上传失败：${json.error || res.status}`, true);
         return;
