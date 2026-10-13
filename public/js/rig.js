@@ -12,6 +12,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { buildFactionOverlay } from './character.js';
 import { buildWeapon } from './viewmodel.js';
 import { ensureMotions, RUN_SECTORS } from './motion.js';
+import { store } from './storage.js';
 
 /** Joint keys the game understands, in the order the settings UI shows them. */
 export const JOINTS = [
@@ -1471,8 +1472,8 @@ export function createSettings({ data, hud, onUse }) {
 
   function selectShared(m) {
     state.using = m.id;
-    localStorage.setItem(SKIN_ID_KEY, m.id);
-    localStorage.setItem(SKIN_NAME_KEY, m.name || '');
+    store.set(SKIN_ID_KEY, m.id);
+    store.set(SKIN_NAME_KEY, m.name || '');
     onUse?.({ id: m.id, name: m.name });
     refreshShared();
     setStatus(`已选用「${m.name || m.id}」。对局中其他玩家会看到这个模型；想再改就先导入同一个文件。`);
@@ -1510,7 +1511,7 @@ export function createSettings({ data, hud, onUse }) {
   // -------------------------------------------------------------- persistence
 
   function saveLocal() {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify({
+    store.set(LOCAL_KEY, JSON.stringify({
       name: state.name, map: state.map, offsets: state.offsets,
       scale: state.scale, rotY: state.rotY,
     }));
@@ -1519,7 +1520,7 @@ export function createSettings({ data, hud, onUse }) {
 
   function loadLocal() {
     try {
-      const raw = localStorage.getItem(LOCAL_KEY);
+      const raw = store.get(LOCAL_KEY);
       if (raw) {
         const s = JSON.parse(raw);
         if (s.map) state.map = s.map;
@@ -1529,7 +1530,7 @@ export function createSettings({ data, hud, onUse }) {
         if (typeof s.rotY === 'number') state.rotY = s.rotY;
       }
     } catch { /* corrupt entry: start clean */ }
-    state.using = localStorage.getItem(SKIN_ID_KEY) || '';
+    state.using = store.get(SKIN_ID_KEY) || '';
     el.scale.value = String(state.scale);
     el.rotY.value = String(state.rotY);
     syncTransformReadouts();
@@ -1585,7 +1586,7 @@ export function createSettings({ data, hud, onUse }) {
     el.bones.innerHTML = '';
     el.offsets.innerHTML = '';
     el.offsetTarget.textContent = JOINT_LABEL[state.active];
-    localStorage.removeItem(LOCAL_KEY);
+    store.remove(LOCAL_KEY);
     syncTransformReadouts();
     scheduleRebuild();
     setStatus('已重置。请重新导入模型。');

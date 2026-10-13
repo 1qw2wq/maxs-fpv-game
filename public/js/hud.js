@@ -404,11 +404,22 @@ export class Hud {
     this._toastTimer = setTimeout(() => t.classList.add('hidden'), ms);
   }
 
-  setLockHint(show) {
-    if (this._cache.lock !== show) {
-      this._cache.lock = show;
-      this.el.lock.classList.toggle('hidden', !show);
-    }
+  /**
+   * The "click the screen to take the mouse" prompt. With `note` it turns into
+   * the small top-of-screen hint used instead when pointer lock is refused and
+   * the controls are steering the view from the cursor (see controls.js).
+   */
+  setLockHint(show, note = '') {
+    const soft = !!note;
+    if (this._cache.lock === show && this._cache.lockNote === note) return;
+    this._cache.lock = show;
+    this._cache.lockNote = note;
+    this.el.lock.classList.toggle('hidden', !show);
+    this.el.lock.classList.toggle('soft', soft);
+    const title = this.el.lock.querySelector('.lock-title');
+    const sub = this.el.lock.querySelector('.lock-sub');
+    if (title) title.textContent = soft ? '光标转向模式' : '点击画面继续战斗';
+    if (sub) sub.textContent = soft ? note : '鼠标将被锁定 · 按 Esc 释放';
   }
 
   // -------------------------------------------------------------- kill feed
@@ -455,10 +466,18 @@ export class Hud {
     this._chatInput = inp;
     document.exitPointerLock?.();
     inp.focus();
+    // Runs exactly once: removing the focused box fires a blur, and blur is
+    // also a close path, so without this guard the second call removed an
+    // already-detached node -- that threw NotFoundError *before* onSend(), so
+    // pressing Enter wiped the box and silently dropped the message instead of
+    // sending it.
+    let closed = false;
     const done = (send) => {
+      if (closed) return;
+      closed = true;
       const v = inp.value.trim();
-      inp.remove();
       this._chatInput = null;
+      inp.remove();
       if (send && v) onSend(v);
     };
     inp.addEventListener('keydown', (e) => {

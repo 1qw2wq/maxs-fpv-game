@@ -16,6 +16,7 @@ import { Sfx } from './audio.js';
 import { Net } from './net.js';
 import { drawPortrait } from './face.js';
 import { flatMat } from './toon.js';
+import { store, session } from './storage.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
   BUILTIN_SKINS, DEFAULT_CLASS_SKIN } from './rig.js';
 
@@ -101,19 +102,14 @@ const app = {
 // reload leaves behind, otherwise that ghost keeps the room occupied and the
 // fresh map pick is downgraded to a between-rounds vote (i.e. ignored).
 function tabSessionId() {
-  let sid = null;
-  try {
-    sid = sessionStorage.getItem('tf.sid');
-  } catch (e) {
-    sid = null;
-  }
+  let sid = session.get('tf.sid');
   if (!sid) {
     sid = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
       : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2);
-    try {
-      sessionStorage.setItem('tf.sid', sid);
-    } catch (e) { /* private mode: fall back to a per-connection id */ }
+    // Denied storage (blocked site data / opaque origin) just means the id is
+    // per-connection instead of per-tab: see storage.js.
+    session.set('tf.sid', sid);
   }
   return sid;
 }
@@ -124,24 +120,40 @@ async function boot() {
   try {
     app.data = await loadConfig();
   } catch (err) {
-    document.querySelector('.boot-text').textContent = `战场数据载入失败：${err.message}`;
+    bootFail(`战场数据载入失败：${err.message}`,
+      '请确认服务端已启动，并且这个页面是从服务端地址打开的（http://…，不是直接双击 html 文件）。');
     return;
   }
 
   const canvas = document.getElementById('game');
   app.canvas = canvas;
-  app.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // A browser with WebGL switched off (or a GPU-blocklisted driver) throws
+  // right here. Without this catch that throw escaped boot() as an unhandled
+  // rejection: the loading screen stayed up forever with no clue why.
+  try {
+    app.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  } catch (err) {
+    bootFail(`无法创建 3D 画面（WebGL）：${err.message}`,
+      '请在浏览器设置里打开「使用硬件加速」「使用图形加速」后重开页面；若仍不行，换 Chrome / Edge / Firefox 试试。');
+    return;
+  }
   app.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   app.renderer.setSize(innerWidth, innerHeight);
   app.renderer.outputColorSpace = THREE.SRGBColorSpace;
   app.renderer.toneMapping = THREE.NoToneMapping;
+
+  // A driver reset (tab suspended for a long time, GPU driver restart) leaves a
+  // black screen but the game keeps running. Say so instead of looking frozen.
+  canvas.addEventListener('webglcontextlost', () => {
+    app.hud?.toast('显卡上下文丢失，正在尝试恢复…', 4000);
+  });
 
   app.scene = new THREE.Scene();
   app.camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 600);
 
   // The world is built by setMap() on deploy: a model map is 92 MB and has no
   // business delaying a menu the player may never leave.
-  const savedMap = localStorage.getItem('tf.mapId');
+  const savedMap = store.get('tf.mapId');
   app.mapPick = app.data.mapById[savedMap] ? savedMap : app.data.defaultMapId;
   app.hud = new Hud(app.data);
   app.sfx = new Sfx();
@@ -182,6 +194,28 @@ async function boot() {
   requestAnimationFrame(loop);
 }
 
+/**
+ * The loading screen doubles as the failure screen: it is the only thing on
+ * screen that early, so a message printed here is the difference between
+ * "broken game" and "the browser needs hardware acceleration on".
+ */
+function bootFail(message, hint) {
+  const box = document.querySelector('.boot-text');
+  if (box) box.textContent = message;
+  if (hint) {
+    const p = document.createElement('p');
+    p.className = 'boot-text dim';
+    p.style.marginTop = '14px';
+    p.style.maxWidth = 'min(680px, 86vw)';
+    p.style.lineHeight = '1.7';
+    p.style.textAlign = 'center';
+    p.textContent = hint;
+    box?.parentElement?.appendChild(p);
+  }
+  // Also leave a trace for the console, where the raw error is easier to read.
+  console.error('[trench]', message, hint || '');
+}
+
 // ------------------------------------------------------------ character library
 
 /** Shared characters uploaded by anyone; keyed by server id. */
@@ -192,7 +226,7 @@ async function refreshCharLibrary() {
     for (const m of list) app.charMeta.set(m.id, m);
   } catch { /* offline: only the built-in characters are available */ }
 
-  const saved = localStorage.getItem('tf.skinId') || '';
+  const saved = store.get('tf.skinId') || '';
   const meta = app.charMeta.get(saved);
   app.loadout.skin = meta ? meta.id : '';
   app.hud.setSkinNote(meta ? `当前角色：${meta.name || meta.id}` : '');
@@ -269,7 +303,7 @@ function setupMenu() {
 
   // Server address: remembered per browser. Empty means "wherever this page
   // came from", which is already correct when everyone opens the host's URL.
-  app.hud.setServerAddress(localStorage.getItem('tf.server') || '');
+  app.hud.setServerAddress(store.get('tf.server') || '');
 
   const enterSelect = (which) => {
     mode = which;
@@ -293,7 +327,7 @@ function setupMenu() {
       app.sfx.ui();
       app.mapPick = id;
       app.hud.setMapPick(id);
-      localStorage.setItem('tf.mapId', id);
+      store.set('tf.mapId', id);
     },
   });
   app.hud.buildMaps(app.data.maps, app.mapPick);
@@ -351,34 +385,13 @@ function normalizeServer(raw) {
   return `${host}:${url.port || location.port || '8080'}`;
 }
 
-async function deploy(opts) {
-  app.hud.menuError('');
-
-  let host;
-  try {
-    host = normalizeServer(app.hud.serverAddress);
-  } catch (err) {
-    app.hud.menuError(err.message);
-    return;
-  }
+/**
+ * Open (or reuse) the socket for one address. Throws when the handshake fails,
+ * leaving app.net empty for the next candidate.
+ */
+async function connectNet(host) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${proto}//${host}/ws`;
-  localStorage.setItem('tf.server', app.hud.serverAddress);
-
-  const makeNet = () => new Net({
-    onWelcome: onWelcome,
-    onState: onState,
-    onMe: onMe,
-    onMessage: onMessage,
-    onClose: () => {
-      if (!app.playing) return;
-      app.playing = false;
-      app.controls.releaseLock();
-      app.hud.screen('menu');
-      app.hud.menuError('与服务器断开连接');
-    },
-    onError: () => app.hud.menuError(`无法连接服务器（${host}）`),
-  });
 
   // A socket already bound to a different address is useless once the menu
   // address changes, so drop it and build a fresh client -- otherwise editing
@@ -389,17 +402,80 @@ async function deploy(opts) {
     app.netUrl = null;
   }
   if (!app.net) {
-    app.net = makeNet();
+    app.net = new Net({
+      onWelcome: onWelcome,
+      onState: onState,
+      onMe: onMe,
+      onMessage: onMessage,
+      onClose: () => {
+        if (!app.playing) return;
+        app.playing = false;
+        app.controls.releaseLock();
+        app.hud.screen('menu');
+        app.hud.menuError('与服务器断开连接');
+      },
+      onError: () => app.hud.menuError(`无法连接服务器（${host}）`),
+    });
     app.netUrl = url;
     try {
+      // The polling fallback gets its own throwaway id, and the tab id travels
+      // inside the join message instead: that is what makes a reload evict the
+      // page it replaced rather than sit on top of it.
       await app.net.connect(url);
+      if (app.net.mode === 'poll') {
+        // Only happens where the WebSocket upgrade is refused (strict proxy,
+        // some preview panes). Not an error: the match rides on POSTs instead.
+        console.warn('[trench] WebSocket unavailable, using the HTTP long-poll transport');
+      }
     } catch (err) {
       app.net.close();
       app.net = null;
       app.netUrl = null;
-      app.hud.menuError(`无法连接服务器（${host}）`);
-      return;
+      throw err;
     }
+  }
+  return url;
+}
+
+async function deploy(opts) {
+  app.hud.menuError('');
+
+  let primary;
+  try {
+    primary = normalizeServer(app.hud.serverAddress);
+  } catch (err) {
+    app.hud.menuError(err.message);
+    return;
+  }
+  store.set('tf.server', app.hud.serverAddress);
+
+  // This page's own server is always a candidate, and the one that actually
+  // serves the game usually wins: the address box is normally left empty, and a
+  // remembered entry can go stale (the host changed network, the page was
+  // opened from a different machine). Trying the page itself second turns a
+  // dead-end "cannot connect" into a working match.
+  const candidates = [primary];
+  if (location.host && location.host !== primary) candidates.push(location.host);
+
+  let url = null;
+  for (const host of candidates) {
+    try {
+      url = await connectNet(host);
+      const notes = [];
+      if (host !== primary) {
+        // Keep what the player typed, but say which server we really reached.
+        notes.push(`连不上 ${primary}，已改用本页面的服务器（${host}）`);
+      }
+      if (app.net.mode === 'poll') {
+        notes.push('本环境不支持 WebSocket，已改用 HTTP 轮询传输（对局照常）');
+      }
+      app.hud.menuError(notes.join(' · '));
+      break;
+    } catch { /* try the next candidate */ }
+  }
+  if (!url) {
+    app.hud.menuError(`无法连接服务器（${candidates.join(' / ')}）`);
+    return;
   }
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
     opts.solo, opts.map || app.mapPick, tabSessionId());
@@ -469,7 +545,8 @@ async function onWelcome(m) {
   app.hud.setTeamColors(m.team);
   app.hud.setLoadout(m.cls, m.weapon);
   app.hud.screen('game');
-  app.hud.setLockHint(true);
+  // Steering mode needs no prompt: the mouse already turns the view.
+  app.hud.setLockHint(!app.controls.canLook);
   // every match starts in first person
   app.cameraMode = 'fp';
 
@@ -531,12 +608,40 @@ function wireControls() {
   };
   // Crouching and standing both click, matching the view toggle's feedback.
   c.onStance = () => app.sfx.ui();
-  c.onLockChange = (locked) => {
-    app.hud.setLockHint(app.playing && !locked);
+  c.onLockChange = () => updateLockHint();
+  // Pointer lock refused (embedded preview pane, iframe without the permission):
+  // the controls switch to cursor steering, so explain the new controls once
+  // instead of leaving the player with a mouse that seems dead.
+  c.onLookMode = (mode) => {
+    if (mode !== 'steer') return;
+    // The hint is held for a few seconds by updateLockHint (which runs every
+    // frame), so this needs no timer of its own.
+    app._steerHintUntil = performance.now() + STEER_HINT_MS;
+    app.hud.toast('当前环境无法锁定鼠标：已切换为「光标转向」', 4200);
   };
   document.getElementById('game').addEventListener('click', () => {
     if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
   });
+}
+
+const STEER_HINT = '把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；'
+  + '按住鼠标拖动可精确瞄准，方向键也能转身。在新标签页打开本页可恢复鼠标锁定。';
+const STEER_HINT_MS = 15000;
+
+/**
+ * Drives the one prompt slot every frame:
+ *  - pointer lock available and not held -> the big "click the screen" prompt;
+ *  - pointer lock refused -> the steering hint, for a few seconds after the
+ *    switch and then nothing, because by then the player is already playing.
+ */
+function updateLockHint(alive = true) {
+  const c = app.controls;
+  const live = app.playing && alive && !app.deathShown;
+  if (c.steer && live && performance.now() < app._steerHintUntil) {
+    app.hud.setLockHint(true, STEER_HINT);
+    return;
+  }
+  app.hud.setLockHint(live && !c.canLook);
 }
 
 // ---------------------------------------------------------------- net events
@@ -1308,7 +1413,7 @@ function tick(dt, now) {
   }
 
   const wantShot = w.auto ? app.controls.mouse.left : (app.clickPending && app.controls.mouse.left);
-  if (alive && wantShot && !app.boltWait && app.controls.locked && now >= app.nextShot) {
+  if (alive && wantShot && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
       if (me.reserve > 0) app.net.reload();
@@ -1336,7 +1441,7 @@ function tick(dt, now) {
   syncFpArms();
 
   updateCrosshair(w, suppressed);
-  app.hud.setLockHint(app.playing && !app.controls.locked && alive && !app.deathShown);
+  updateLockHint(alive);
 }
 
 function aimFov(me) {

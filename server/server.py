@@ -19,7 +19,7 @@ import socket
 import sys
 import time
 import webbrowser
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -417,6 +417,56 @@ class Lobby:
 LOBBY = Lobby()
 
 
+async def handle_client_message(client, data):
+    """One decoded message from a player, whatever carried it here.
+
+    Shared by the WebSocket handler and the HTTP long-poll fallback so both
+    transports are the same game: join, ping, bot flaps and every gameplay
+    action take the identical path.
+    """
+    if not isinstance(data, dict):
+        return
+    kind = data.get("t")
+    if kind == "join":
+        welcome = LOBBY.join(client, data)
+        if welcome:
+            await LOBBY._send(client, welcome)
+        return
+    if kind == "ping":
+        await LOBBY._send(client, {"t": "pong", "c": data.get("c", 0)})
+        pid = LOBBY.sockets.get(client)
+        p = LOBBY.match.players.get(pid) if pid is not None else None
+        if p is not None:
+            try:
+                rtt = float(data.get("rtt") or 0.0)
+            except (TypeError, ValueError):
+                rtt = 0.0
+            # Clamped hard: an inflated self-reported ping would widen the
+            # lag-compensation rewind window in the sender's favour.
+            p["ping"] = max(0.0, min(240.0, rtt))
+        return
+    if client not in LOBBY.sockets:
+        return
+    if kind == "bots":
+        # Solo-only, same rule as join: never let a multiplayer lobby spawn
+        # bots through this path either.
+        if not LOBBY.match.solo:
+            return
+        LOBBY.bots_on = bool(data.get("on"))
+        try:
+            LOBBY.bot_target = int(data.get("n", LOBBY.bot_target))
+        except (TypeError, ValueError):
+            pass
+        if LOBBY.bots_on:
+            LOBBY.match.fill_bots(LOBBY.bot_target)
+        else:
+            LOBBY.match.drop_bots()
+        return
+    pid = LOBBY.sockets[client]
+    for ev in LOBBY.match.handle(pid, data):
+        await LOBBY.deliver(ev)
+
+
 async def ws_handler(request):
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=MAX_MSG)
     await ws.prepare(request)
@@ -427,50 +477,110 @@ async def ws_handler(request):
                     data = json.loads(msg.data)
                 except ValueError:
                     continue
-                if not isinstance(data, dict):
-                    continue
-                kind = data.get("t")
-                if kind == "join":
-                    welcome = LOBBY.join(ws, data)
-                    if welcome:
-                        await LOBBY._send(ws, welcome)
-                    continue
-                if kind == "ping":
-                    await LOBBY._send(ws, {"t": "pong", "c": data.get("c", 0)})
-                    pid = LOBBY.sockets.get(ws)
-                    p = LOBBY.match.players.get(pid) if pid is not None else None
-                    if p is not None:
-                        try:
-                            rtt = float(data.get("rtt") or 0.0)
-                        except (TypeError, ValueError):
-                            rtt = 0.0
-                        # Clamped hard: an inflated self-reported ping would
-                        # widen the lag-compensation rewind window in the
-                        # sender's favour.
-                        p["ping"] = max(0.0, min(240.0, rtt))
-                    continue
-                if ws not in LOBBY.sockets:
-                    continue
-                if kind == "bots":
-                    # Solo-only, same rule as join: never let a multiplayer
-                    # lobby spawn bots through this path either.
-                    if not LOBBY.match.solo:
-                        continue
-                    LOBBY.bots_on = bool(data.get("on"))
-                    LOBBY.bot_target = int(data.get("n", LOBBY.bot_target))
-                    if LOBBY.bots_on:
-                        LOBBY.match.fill_bots(LOBBY.bot_target)
-                    else:
-                        LOBBY.match.drop_bots()
-                    continue
-                pid = LOBBY.sockets[ws]
-                for ev in LOBBY.match.handle(pid, data):
-                    await LOBBY.deliver(ev)
+                await handle_client_message(ws, data)
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
         LOBBY.leave(ws)
     return ws
+
+
+# ----------------------------------------------------------- long-poll transport
+#
+# Not every environment lets a browser open a WebSocket: a hosted preview that
+# proxies the port can, and a plain HTTP reverse proxy in front of the game may
+# refuse the Upgrade. The client tries /ws first and falls back to this, which
+# carries exactly the same JSON messages over ordinary POSTs.
+#
+# The trick that keeps the rest of the server untouched: PollClient looks enough
+# like a websocket (an object with async send_str and close) for the lobby, the
+# match and every reply path to use it verbatim. Each POST hands over whatever
+# the client has queued, then holds the response until something is available --
+# so the game still gets pushed state at the normal rate instead of polling.
+
+POLL_TIMEOUT = 1.5        # seconds a poll may wait for the first message
+POLL_MAX_BATCH = 64       # messages per response
+POLL_IDLE = 12.0          # no poll for this long -> treat as disconnected
+POLL_MAX_WAITERS = 64     # poll clients allowed at once
+
+
+class PollClient:
+    def __init__(self, sid):
+        self.sid = sid
+        self.out = deque(maxlen=256)
+        self.wake = asyncio.Event()
+        self.seen = time.monotonic()
+
+    async def send_str(self, text):
+        self.out.append(text)
+        self.wake.set()
+
+    async def close(self):
+        self.out.clear()
+        self.wake.set()
+
+    def drain(self):
+        batch = []
+        while self.out and len(batch) < POLL_MAX_BATCH:
+            batch.append(self.out.popleft())
+        if not self.out:
+            self.wake.clear()
+        return batch
+
+
+POLL_CLIENTS = {}
+
+
+def _poll_id(raw):
+    if not isinstance(raw, str):
+        return ""
+    return "".join(c for c in raw if c.isalnum() or c in "-_")[:40]
+
+
+async def poll(request):
+    try:
+        data = await request.json()
+    except (ValueError, TypeError):
+        return web.json_response({"ok": False, "error": "bad json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "bad body"}, status=400)
+
+    sid = _poll_id(data.get("sid"))
+    if not sid:
+        return web.json_response({"ok": False, "error": "missing sid"}, status=400)
+    client = POLL_CLIENTS.get(sid)
+    if client is None:
+        if len(POLL_CLIENTS) >= POLL_MAX_WAITERS:
+            return web.json_response({"ok": False, "error": "too many pollers"}, status=503)
+        client = POLL_CLIENTS[sid] = PollClient(sid)
+    client.seen = time.monotonic()
+
+    # Everything the client queued since the last poll travels with this one.
+    for item in list(data.get("msgs") or [])[:POLL_MAX_BATCH]:
+        await handle_client_message(client, item)
+
+    batch = client.drain()
+    if not batch:
+        # Nothing to say yet: hold the request open for a moment so state
+        # arrives immediately instead of up to a poll interval late.
+        try:
+            await asyncio.wait_for(client.wake.wait(), timeout=POLL_TIMEOUT)
+        except asyncio.TimeoutError:
+            pass
+        batch = client.drain()
+    return web.json_response({"ok": True, "msgs": batch})
+
+
+async def poll_reaper():
+    """Drop poll clients that stopped asking (closed tab, lost network)."""
+    while True:
+        await asyncio.sleep(3.0)
+        now = time.monotonic()
+        for sid, client in list(POLL_CLIENTS.items()):
+            if now - client.seen > POLL_IDLE:
+                POLL_CLIENTS.pop(sid, None)
+                LOBBY.leave(client)
+                log("poll  dropped stale sid=%s" % sid)
 
 
 async def index(request):
@@ -479,10 +589,23 @@ async def index(request):
 
 @web.middleware
 async def no_store(request, handler):
-    resp = await handler(request)
+    if request.method == "OPTIONS":
+        # Preflight for the JSON POSTs (the polling fallback): answer it here so
+        # every route has one, and let the real handlers stay untouched.
+        resp = web.Response()
+    else:
+        resp = await handler(request)
     if not isinstance(resp, web.WebSocketResponse):
         resp.headers["Cache-Control"] = "no-store, must-revalidate"
         resp.headers["Pragma"] = "no-cache"
+        # The game can be opened from a preview pane whose page has an opaque
+        # origin (sandboxed iframe). Without this header that frame refuses to
+        # run its own module scripts or read its own JSON files, so nothing
+        # loads at all. Nothing here is authenticated or cookie based, so a
+        # wildcard gives away nothing the LAN demo does not already expose.
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
 
 
@@ -491,6 +614,7 @@ def create_app():
     app = web.Application(middlewares=[no_store], client_max_size=1 << 25)
     # /ws must be registered before the static catch-all.
     app.router.add_get("/ws", ws_handler)
+    app.router.add_post("/api/poll", poll)
     app.router.add_get("/api/characters", list_characters)
     app.router.add_post("/api/character", upload_character)
     app.router.add_static("/shared/", SHARED, show_index=False)
@@ -562,6 +686,7 @@ async def main():
         raise SystemExit(1)
 
     asyncio.ensure_future(game_loop())
+    asyncio.ensure_future(poll_reaper())
     log("ready -> http://127.0.0.1:%d" % port)
     ips = lan_ips()
     for ip in ips:
