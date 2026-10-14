@@ -115,17 +115,26 @@ the browser of **whoever created it** (the same in-page Pyodide engine solo uses
 connect straight to it. Nothing goes through a third-party service — no relay, no account, no key:
 
 - **Two tabs of one browser**: press *Create room*, then type the 8-digit code into another tab
-  (*Join with code*) and deploy. The two tabs talk over the browser's own `BroadcastChannel`.
+  (*Join with code*) and deploy. Both tabs must use the **same origin and browser storage partition**
+  (not different Vercel deployment URLs or a normal/private window pair). They use `BroadcastChannel`.
 - **Two different computers**: use *Invite a friend*. The host presses *Create an invite code*
   (a long piece of text starting with `TFi1.`) and sends it over; the friend's page takes it with
   *Join with an invite code* and produces an answer code (`TFa1.`), which goes back to the host and
   is pasted into the same box (*Pair up*). That builds a **direct WebRTC data channel** between the
-  two pages (`js/p2p.js`); the match traffic only ever travels over it. If two home connections cannot
-  find each other (NAT), tick *Different networks* to add a public STUN server that helps the two ends
-  discover each other — the data itself does not go through it.
+  two pages (`js/p2p.js`); the match traffic only ever travels over it. **Pair up reports success only
+  after the data channel is open.** Start the host's match, then deploy the guest; joins retry for up
+  to 30 seconds while the host's engine loads. Generate a separate invite for each friend.
+  Without external services, this requires a network that allows a direct connection (normally LAN
+  or reachable public addresses). For different home networks, **both players** can enable
+  *Different networks* **before generating their codes**, adding an optional external STUN service.
+  STUN helps discover addresses; it does not relay gameplay or guarantee a connection. Symmetric NAT,
+  blocked UDP or restrictive firewalls can still require **TURN**, which is **not provided by Vercel**.
+  A Vercel-only deployment cannot guarantee multiplayer across those networks.
 - **The room code exists the moment you press Create room** (it no longer waits for the in-page
   engine to boot). It shows in the top-right HUD chip and on the class screen, and **clicking the chip
-  copies an invite link** (`https://your-site/?code=1958 0121`) that joins the room when opened.
+  copies an invite link** (`https://your-site/?code=1958 0121`) that pre-fills the room code. A short
+  room code/link alone only connects tabs in the same browser storage partition; a different
+  computer still needs the invite/answer exchange.
 - **The host's browser is the authority for that match**: hits, score, respawns and the map are all
   decided there; the others are clients. That is why **every host can pick their own map and several
   rooms can run different maps at the same time** — something the Python server cannot do, since
@@ -159,13 +168,37 @@ The game needs no plugins, but two browser environments restrict pages and both 
   **Pressing `Esc` always hands the mouse back** (the view switches to *mouse handed back — click
   the view to continue*); clicking continues steering, and where pointer lock is available the
   click locks the pointer again. **To get normal mouse lock back, open the same address in a new
-  tab.**
-- **Environments without WebSocket** (HTTP-only proxies, some preview panes): the client falls
-  back to a **long-poll** channel (`POST /api/poll`) carrying the same messages. Gameplay is
-  unchanged; the menu just notes that polling is in use.
+  tab.** The cursor's central 60% is a dead zone; steering stops when the pointer leaves the canvas.
+  Blur, Esc and leaving a match clear held buttons/keys and cancel ability charging. A delayed
+  pointer-lock error cannot restart steering after Esc. The game cannot override a parent frame's
+  sandbox; if you control the embed, include `allow-pointer-lock` in its `sandbox` permissions.
+- **Vercel-only deployment without WebSocket**: multiplayer uses the browser-hosted engine plus
+  `BroadcastChannel` / WebRTC described above. It needs **neither `/ws` nor `/api/poll`**. There is no
+  always-on game server or shared room state in Vercel Functions. Blocking WebSocket does not block
+  WebRTC automatically, but blocking WebRTC/UDP can still prevent cross-computer play.
+- **A separately hosted Python server behind an HTTP-only proxy**: only this topology supports
+  fallback to `POST /api/poll`, carrying the same messages. Long-poll is **not** a Vercel-only fallback.
 - Also: a wrong or stale server address falls back to **the page's own server** with a note in the
   menu, and blocked local storage or missing WebGL produce a clear message on the loading screen
   instead of hanging there.
+
+
+### Static-deployment browser regression tests
+
+Run with Node.js 22.17+ on Linux (or provide your own Chromium via `CHROMIUM_EXECUTABLE`):
+
+```sh
+npm install --prefix /tmp/maxs-fpv-browser-tests playwright-core@1.64.1 @sparticuz/chromium@153.0.0
+node tools/test-vercel.mjs
+```
+
+The test serves only `public/` and the static API shims, disables WebSocket, and blocks external
+requests. It checks actual Pyodide host/guest gameplay (welcome, state, input, firing, reloading,
+abilities and chat), separate-room isolation, real WebRTC across isolated browser contexts,
+duplicate delivery over two transports, joining during host startup, invalid codes/timeouts,
+departure cleanup, and both native pointer lock and a sandboxed iframe fallback. This is a local
+static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
+Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
 ---
 

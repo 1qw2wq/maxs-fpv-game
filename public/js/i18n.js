@@ -202,6 +202,12 @@ const EN = {
   '已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）':
     'Mouse handed back — click the view to continue (this environment will not lock the mouse, so continuing uses cursor steering again: push the cursor to the sides to turn, Esc releases it)',
 
+  '回答码已生成，房号 {code}：发回房主完成配对；连接成功后再部署':
+    'Answer ready for room {code}: send it back to the host to finish pairing; deploy after the connection opens',
+
+  '直连已断开：请让房主生成新的邀请码并重新配对':
+    'Direct connection lost: ask the host for a new invite and pair again',
+
   // ------------------------------------------------------------ net / rooms
   '无法连接服务器': 'Cannot reach the server',
   '无法连接服务器（{host}）': 'Cannot reach the server ({host})',

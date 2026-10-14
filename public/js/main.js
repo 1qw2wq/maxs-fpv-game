@@ -510,6 +510,8 @@ function togglePause(on) {
   // A room running in this tab (solo engine or a hosted match) stops with it.
   if (app.net) app.net.paused = want;
   if (want) {
+    app.clickPending = false;
+    app.controls.releaseLook();
     app.hud.showPause({
       host: !!app.relayHostCode,
       note: app.relayHostCode
@@ -614,7 +616,7 @@ function setupInvite() {
       try {
         const res = await joinByInvite(text);
         app.hud.el.inviteCode.value = res.answer;
-        app.hud.inviteStatus(t('已接上房主，房号 {code}：把上面这段回答码发回给房主', { code: formatCode(res.room) }), true);
+        app.hud.inviteStatus(t('回答码已生成，房号 {code}：发回房主完成配对；连接成功后再部署', { code: formatCode(res.room) }), true);
       } catch (err) {
         app.hud.inviteStatus(err?.message || t('邀请码用不了'), false);
       }
@@ -1435,9 +1437,12 @@ function resetRemoteWorld() {
 function wireControls() {
   const c = app.controls;
   c.onFireDown = () => { app.clickPending = true; c.requestLock(); };
-  c.onReload = () => { app.net?.reload(); app.tut?.notify('reload'); };
+  c.onReload = () => {
+    if (!app.playing || app.paused) return;
+    app.net?.reload(); app.tut?.notify('reload');
+  };
   c.onAbilityDown = () => {
-    if (!app.net || !app.playing) return;
+    if (!app.net || !app.playing || app.paused) return;
     const me = app.net.lastMe;
     if (!me || !me.alive) return;
     const kind = app.data.classById[me.c].ability;
@@ -1470,20 +1475,19 @@ function wireControls() {
   // Crouching and standing both click, matching the view toggle's feedback.
   c.onStance = () => app.sfx.ui();
   c.onLockChange = (locked) => {
-    if (locked) app.mouseFreed = false;
+    if (locked) { app.mouseFreed = false; app.lockRefused = false; }
     updateLockHint();
   };
-  // Pointer lock refused (a page embedded in an iframe without the permission,
-  // a sandboxed preview pane): say so once, with the one thing that does help
-  // -- opening this page in a tab of its own -- instead of leaving the player
-  // with a mouse that seems dead.
+  // Explain the fallback once; a top-level tab can still restore normal FPS look.
   c.onLookMode = (mode) => {
     if (mode === 'unavailable') {
       app.lockRefused = true;
-      app.hud.toast(t('这个页面（多半是被嵌在 iframe 里）不允许锁定鼠标：请在新标签页打开本页，鼠标就能正常转视角'), 5200);
+      app.hud.toast(t('当前环境无法锁定鼠标：已切换为「光标转向」') + ' · '
+        + t('按住鼠标拖动可精确瞄准，方向键也能转身。按 Esc 可释放光标，点击画面继续。'), 6500);
     }
     // Esc: the mouse is free until the player clicks the view again.
     if (mode === 'free') app.mouseFreed = true;
+    if (mode === 'cursor') app.mouseFreed = false;
     // Every look-mode change redraws the prompt here rather than leaving it to
     // the next frame: a page whose frame loop is paused (a background tab, a
     // guest whose tab the browser is throttling) still has to show that the
@@ -1491,7 +1495,7 @@ function wireControls() {
     updateLockHint();
   };
   document.getElementById('game').addEventListener('click', () => {
-    if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
+    if (app.playing && !app.paused) { app.sfx.resume(); app.controls.requestLock(); }
   });
 }
 
@@ -1516,13 +1520,9 @@ const formatCode = (code) => {
   return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 };
 
-// Shown while the mouse is free in a page that refuses pointer lock: the way
-// back into the fight is a tab of its own, so say that instead of leaving the
-// player clicking a mouse that never comes back.
-const noLockHint = () => t('浏览器不允许这个页面锁定鼠标（多半是 iframe 预览面板）：'
-  + '点上面的「在新标签页打开」就能正常用鼠标转视角。现在可以用方向键转身。');
-// Shown after Esc, in a page that *can* lock the mouse: one click and the view
-// is yours again.
+// A refused lock cannot be forced from inside an iframe. Keep the game
+// playable in cursor mode, and offer a top-level tab for normal FPS mouse look.
+const noLockHint = () => t('已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）');
 const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠标重新被锁定，按 Esc 再次释放）');
 
 /**
@@ -1536,7 +1536,7 @@ function updateLockHint(alive = true) {
   // The pause menu owns the screen while it is up: no prompt underneath it.
   const live = app.playing && !app.paused && alive && !app.deathShown;
   if (live && !c.canLook && app.lockRefused) {
-    app.hud.setLockHint(true, noLockHint(), t('无法锁定鼠标'), true);
+    app.hud.setLockHint(true, noLockHint(), t('光标已释放'), true);
     return;
   }
   if (live && !c.canLook && app.mouseFreed) {

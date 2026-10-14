@@ -20,14 +20,18 @@
 // each other on the same network (or with public addresses) -- that is the
 // price of using nothing external. A STUN server, which is a public
 // address-lookup service rather than a relay and never sees the traffic, can be
-// switched on in the debug page (or by adding ?stun=host:port) for friends on
+// switched on in the invite dialog for friends on
 // different home networks. `iceServers` stays empty unless one is asked for.
 
 const PREFIX_INVITE = 'TFi1.';
 const PREFIX_ANSWER = 'TFa1.';
 // How long to wait for ICE gathering before giving up on "complete": the host
 // must send every candidate it has, because there is no trickle channel.
-const ICE_WAIT_MS = 4000;
+const ICE_WAIT_MS = 12000;
+const CONNECT_WAIT_MS = 20000;
+const DISCONNECT_GRACE_MS = 10000;
+const MAX_CODE_LENGTH = 256 * 1024;
+const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 // --------------------------------------------------------------- code packing
 
@@ -72,6 +76,7 @@ export async function packCode(prefix, obj) {
 /** The object behind a code, or null when the text is not one of ours. */
 export async function unpackCode(prefix, text) {
   const raw = String(text || '').replace(/\s+/g, '');
+  if (raw.length > MAX_CODE_LENGTH) throw new Error('Invite/answer code is too large');
   if (!raw.startsWith(prefix)) return null;
   const body = raw.slice(prefix.length);
   const z = body.startsWith('z');
@@ -114,33 +119,64 @@ export class Peer {
     this.open = false;
     this.closed = false;
     this._queue = [];
+    this._disconnectTimer = null;
+    this._openWaiters = new Set();
+    this._gatherCancel = null;
     this.pc.onconnectionstatechange = () => {
       const st = this.pc.connectionState;
-      if (st === 'connected') { this.h.onOpen?.(); return; }
-      if (st === 'failed' || st === 'closed' || st === 'disconnected') this._dead();
+      clearTimeout(this._disconnectTimer);
+      // ICE connected is not the same as an open data channel. Only dc.onopen
+      // may announce success, otherwise the menu claims a connection too soon.
+      if (st === 'failed' || st === 'closed') this._dead();
+      if (st === 'disconnected') {
+        this._disconnectTimer = setTimeout(() => this._dead(), DISCONNECT_GRACE_MS);
+      }
     };
   }
 
   _wire(channel) {
     this.dc = channel;
     this.dc.onopen = () => {
+      if (this.closed) return;
       this.open = true;
       for (const text of this._queue.splice(0)) this._raw(text);
+      for (const waiter of this._openWaiters) waiter.resolve();
+      this._openWaiters.clear();
       this.h.onOpen?.();
     };
     this.dc.onmessage = (e) => this.h.onMessage?.(String(e.data));
     this.dc.onclose = () => this._dead();
+    this.dc.onerror = () => this._dead();
   }
 
   _dead() {
     if (this.closed) return;
-    this.closed = true;
-    this.open = false;
+    this.close();
     this.h.onClose?.();
   }
 
   _raw(text) {
-    try { this.dc?.send(text); } catch { /* closed under us */ }
+    if (this.dc?.readyState !== 'open' || this.dc.bufferedAmount > MAX_BUFFERED_BYTES) return false;
+    try { this.dc.send(text); return true; } catch { return false; }
+  }
+
+  /** Pairing succeeds only once application messages can actually travel. */
+  waitForOpen(timeoutMs = CONNECT_WAIT_MS) {
+    if (this.open && !this.closed) return Promise.resolve();
+    if (this.closed) return Promise.reject(new Error('Peer connection is closed; exchange a new invite'));
+    return new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        this._openWaiters.delete(waiter);
+        if (error) reject(error); else resolve();
+      };
+      const waiter = { resolve: () => finish(), reject: (err) => finish(err) };
+      const timer = setTimeout(() => {
+        finish(new Error('Direct connection timed out. Check both networks; restrictive NAT/firewalls require a TURN relay (not available on Vercel-only hosting).'));
+        this._dead();
+      }, timeoutMs);
+      this._openWaiters.add(waiter);
+    });
   }
 
   send(text) {
@@ -149,22 +185,27 @@ export class Peer {
       if (this._queue.length < 500) this._queue.push(text);
       return false;
     }
-    this._raw(text);
-    return true;
+    return this._raw(text);
   }
 
-  /** Resolves once ICE gathering is done (or after ICE_WAIT_MS). */
+  /** Manual signalling cannot trickle candidates later: gather all or fail. */
   _gathered() {
-    return new Promise((resolve) => {
-      if (this.pc.iceGatheringState === 'complete') return resolve();
-      const done = () => {
-        if (this.pc.iceGatheringState === 'complete') {
-          this.pc.removeEventListener('icegatheringstatechange', done);
-          resolve();
-        }
+    if (this.closed) return Promise.reject(new Error('Peer connection closed'));
+    if (this.pc.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        this.pc.removeEventListener('icegatheringstatechange', done);
+        this._gatherCancel = null;
+        if (error) reject(error); else resolve();
       };
+      const done = () => {
+        if (this.pc.iceGatheringState === 'complete') finish();
+      };
+      const timer = setTimeout(() => finish(new Error('ICE gathering timed out; check network permissions and generate a new invite')), ICE_WAIT_MS);
+      this._gatherCancel = () => finish(new Error('Peer connection closed'));
       this.pc.addEventListener('icegatheringstatechange', done);
-      setTimeout(resolve, ICE_WAIT_MS);
+      done();
     });
   }
 
@@ -188,14 +229,21 @@ export class Peer {
 
   /** Host side again: the friend's answer closes the loop. */
   async acceptAnswer(answer) {
-    if (answer.id && answer.id !== this.id) throw new Error('this answer belongs to a different invite');
+    if (answer.id !== this.id) throw new Error('this answer belongs to a different invite');
     await this.pc.setRemoteDescription(answer.sdp);
-    // The channel opens when ICE finishes; `send` queues until then.
+    await this.waitForOpen();
     return true;
   }
 
   close() {
+    if (this.closed) return;
     this.closed = true;
+    this.open = false;
+    clearTimeout(this._disconnectTimer);
+    this._gatherCancel?.();
+    for (const waiter of this._openWaiters) waiter.reject(new Error('Peer connection closed; exchange a new invite'));
+    this._openWaiters.clear();
+    this._queue.length = 0;
     try { this.dc?.close(); } catch { /* already gone */ }
     try { this.pc.close(); } catch { /* already gone */ }
   }
@@ -205,11 +253,19 @@ export class Peer {
 export async function parseCode(text) {
   if (String(text || '').replace(/\s+/g, '').startsWith(PREFIX_INVITE)) {
     const invite = await unpackCode(PREFIX_INVITE, text);
-    if (invite) return { kind: 'invite', ...invite };
+    if (invite) { validateCode(invite, 'offer'); return { ...invite, kind: 'invite' }; }
   }
   if (String(text || '').replace(/\s+/g, '').startsWith(PREFIX_ANSWER)) {
     const answer = await unpackCode(PREFIX_ANSWER, text);
-    if (answer) return { kind: 'answer', ...answer };
+    if (answer) { validateCode(answer, 'answer'); return { ...answer, kind: 'answer' }; }
   }
   return null;
+}
+
+function validateCode(code, type) {
+  if (!code || code.v !== 1 || typeof code.id !== 'string' || !/^[a-z0-9]{1,32}$/.test(code.id)
+    || code.sdp?.type !== type || typeof code.sdp.sdp !== 'string' || !code.sdp.sdp.startsWith('v=0')
+    || (type === 'offer' && !/^\d{8}$/.test(code.room))) {
+    throw new Error('Invalid invite/answer code; ask the host for a new invite');
+  }
 }

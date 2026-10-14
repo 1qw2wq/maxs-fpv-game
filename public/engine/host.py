@@ -273,7 +273,7 @@ class RelayHost:
 
     def command(self, sid, text):
         """One message from one guest."""
-        sink = self.sinks.get(str(sid))
+        sink = self.sink if str(sid) == HOST_SEAT else self.sinks.get(str(sid))
         if self.room is None or sink is None:
             return "[]"
         self._run(self.room.handle(sink, json.loads(text)))

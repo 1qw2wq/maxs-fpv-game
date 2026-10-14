@@ -10,18 +10,10 @@ import { yawToRotation } from './character.js';
 
 const PITCH_LIMIT = 88;
 
-// Looking around is pointer lock and nothing else: the mouse is captured, the
-// view follows the raw movement, and Esc gives the mouse back. There used to be
-// a second way -- "cursor steering", which turned the view by pushing the
-// cursor towards the edges of the screen -- and it was a trap in a fight: aim
-// chased the cursor, a stray bump spun the camera, and the mode could only be
-// left by pressing Esc, which most players never guessed. It is gone. Where a
-// browser refuses pointer lock outright (a page embedded in an iframe without
-// the permission), the game says so and offers to open itself in a tab of its
-// own instead of inventing a second control scheme.
-//
-// The arrow keys can always turn the view as well: keyboard-only players, and
-// anyone whose mouse is busy, still get to look around.
+// Prefer pointer lock. Sandboxed embeds cannot grant it, so keep an explicit,
+// cancellable cursor-steering mode instead of leaving the mouse dead. A wide
+// centre dead zone prevents drift; holding a mouse button uses relative drag
+// aim instead of edge steering. Esc/blur always cancel both modes.
 const ARROW_YAW_RATE = 135;
 const ARROW_PITCH_RATE = 95;
 
@@ -62,6 +54,9 @@ export class Controls {
     // Set once pointer lock has actually been refused (see _lockFailed): only
     // then is the page worth telling the player about.
     this.lockUnavailable = false;
+    this.cursorLook = false;
+    this._cursor = { x: 0, y: 0 };
+    this._wantLook = false;
 
     this.sensitivity = 0.0022;
     this.speedMult = 1;
@@ -108,6 +103,7 @@ export class Controls {
 
     window.addEventListener('mousemove', (e) => {
       if (!this.canLook || !this.enabled || typing()) return;
+      if (!this.locked && (e.target !== c || !(e.buttons & 3))) return;
       // yaw grows clockwise (0 = +X, 90 = +Z), so mouse-right must add.
       const k = this.sensitivity * 57.2958;
       this.yaw += e.movementX * k;
@@ -115,9 +111,27 @@ export class Controls {
       this.yaw = ((this.yaw % 360) + 360) % 360;
       this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
     });
+    c.addEventListener('mousemove', (e) => {
+      if (!this.cursorLook || !this.enabled || typing()) return;
+      const r = c.getBoundingClientRect();
+      this._cursor.x = r.width ? (e.clientX - r.left) / r.width * 2 - 1 : 0;
+      this._cursor.y = r.height ? (e.clientY - r.top) / r.height * 2 - 1 : 0;
+    });
+    c.addEventListener('mouseleave', () => {
+      this._cursor.x = this._cursor.y = 0;
+    });
     document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement === c && (!this._wantLook || !this.enabled)) {
+        document.exitPointerLock?.();
+        return;
+      }
       this.locked = document.pointerLockElement === this.canvas;
-      if (!this.locked) {
+      clearTimeout(this._lockWatch);
+      this.cursorLook = false;
+      if (this.locked) {
+        this.lockUnavailable = false;
+      } else {
+        this._wantLook = false;
         this.mouse.left = false;
         this.mouse.right = false;
         this.keys.clear();
@@ -149,22 +163,26 @@ export class Controls {
       if (e.code === 'KeyQ') this.onAbilityUp?.();
       this.keys.delete(e.code);
     });
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.mouse.left = false;
-      this.onAbilityCancel?.();
-    });
+    window.addEventListener('blur', () => this.releaseLook());
   }
 
-  /** True when the mouse turns the view: it is captured, or not at all. */
+  /** True only while the player has explicitly taken control of the view. */
   get canLook() {
-    return this.locked;
+    return this.locked || this.cursorLook;
   }
 
   requestLock() {
-    if (this.locked) return;
+    if (!this.enabled || this.canLook) return;
+    this._wantLook = true;
+    if (this.lockUnavailable) { this._startCursorLook(); return; }
+    // Esc's browser-imposed cooldown is temporary, not a permissions failure.
+    if (performance.now() < this._lockCooldownUntil) return;
     const el = this.canvas;
     if (!el || typeof el.requestPointerLock !== 'function') { this._lockFailed(); return; }
+    // Welcome/map loading is asynchronous and may no longer have a user
+    // gesture. That is not a permanent refusal: leave the click prompt up so
+    // a normal top-level page can still obtain native lock on the first click.
+    if (navigator.userActivation && !navigator.userActivation.isActive) return;
     try {
       const pending = el.requestPointerLock();
       // Chrome/Edge return a promise whose rejection carries the reason
@@ -185,25 +203,27 @@ export class Controls {
     }, 900);
   }
 
-  /**
-   * Pointer lock was refused. There is nothing to fall back to any more: the
-   * only thing worth doing is telling the player why the mouse is dead, once,
-   * so the HUD can point at opening the page in a tab of its own.
-   */
+  /** Refusal is recoverable; never reactivate after Esc, blur or a menu. */
   _lockFailed() {
     clearTimeout(this._lockWatch);
-    // Refused because the player just pressed Esc (Chrome holds the mouse for a
-    // moment after): that is not a verdict on this page, so stay out of the way
-    // and let them click again.
+    if (!this.enabled || !this._wantLook || this.locked) return;
     if (performance.now() < this._lockCooldownUntil) return;
-    if (this.lockUnavailable) return;
-    this.lockUnavailable = true;
-    this.onLookMode?.('unavailable');
+    if (!this.lockUnavailable) {
+      this.lockUnavailable = true;
+      this.onLookMode?.('unavailable');
+    }
+    this._startCursorLook();
+  }
+
+  _startCursorLook() {
+    if (!this._wantLook || !this.enabled || this.cursorLook) return;
+    this.cursorLook = true;
+    this._cursor.x = this._cursor.y = 0;
+    this.onLookMode?.('cursor');
   }
 
   releaseLock() {
-    clearTimeout(this._lockWatch);
-    document.exitPointerLock?.();
+    this.releaseLook();
   }
 
   /**
@@ -218,6 +238,9 @@ export class Controls {
    */
   releaseLook() {
     clearTimeout(this._lockWatch);
+    this._wantLook = false;
+    this.cursorLook = false;
+    this._cursor.x = this._cursor.y = 0;
     this._lockCooldownUntil = performance.now() + 1300;
     this.keys.clear();
     this.mouse.left = false;
@@ -227,6 +250,14 @@ export class Controls {
       document.exitPointerLock?.();
     }
     this.onLookMode?.('free');
+  }
+
+  /** Centre 60% stays still; edge speed ramps smoothly up to 135 deg/s. */
+  _cursorLook(dt) {
+    if (!this.cursorLook || this.mouse.left || this.mouse.right) return;
+    const edge = (v) => Math.sign(v) * Math.min(1, Math.max(0, (Math.abs(v) - 0.6) / 0.4));
+    this.yaw += edge(this._cursor.x) * ARROW_YAW_RATE * dt;
+    this.pitch -= edge(this._cursor.y) * ARROW_PITCH_RATE * dt;
   }
 
   // ------------------------------------------------------- keyboard look
@@ -309,7 +340,10 @@ export class Controls {
     }
     // Arrow-key look is driven from the frame loop, but never while the chat
     // box has the keyboard.
-    if (!typing()) this._arrowLook(dt);
+    if (!typing()) {
+      this._cursorLook(dt);
+      this._arrowLook(dt);
+    }
 
     let fx = 0, fz = 0;
     if (k.has('KeyW')) fx += 1;
