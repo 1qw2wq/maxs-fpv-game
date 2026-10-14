@@ -11,20 +11,27 @@
 // authoritative; guests send the same input/fire/reload messages they would
 // send to a real server and receive the same welcome/state/me frames back.
 //
-// The wire is a public MQTT broker over WebSocket. No account, no key, no
-// server of ours: a broker broadcasts what it is given to everyone subscribed
-// to that topic, which is exactly a relay. One topic per room code, so several
-// people can host at the same time, and each host picks their own map -- the
-// single-map limit of the Python server comes from combat.py holding one world
-// per process, and every host has their own process.
+// The wire needs no service at all:
 //
-// If no broker is reachable (offline, or a network that blocks them), the same
-// protocol runs over BroadcastChannel, which still lets two tabs of this
-// browser play each other. The UI says which one is in use.
+//   * two tabs of the same browser talk over BroadcastChannel -- instant, and
+//     nothing to connect;
+//   * two different computers connect *directly* to each other over a WebRTC
+//     data channel (p2p.js), with the handshake carried as text the players
+//     pass along themselves ("invite code" / "answer code"). No signalling
+//     server, no STUN (unless asked for), no relay, no account.
+//
+// One room code per room, so several people can host at the same time and each
+// host picks their own map -- the single-map limit of the Python server came
+// from one process holding one world, and every host has their own process.
+//
+// A self-hosted MQTT broker can still be used instead, deliberately: add
+// ?relay=wss://your-broker/mqtt to the page. Nothing probes the internet by
+// itself any more, so opening the game never waits on a stranger's server.
 
 import { Net } from './net.js';
 import { LocalNet } from './local.js';
 import { MqttClient, randomId } from './mqtt.js';
+import { Peer, parseCode, getStun } from './p2p.js';
 import { t } from './i18n.js';
 import { store } from './storage.js';
 
@@ -37,22 +44,8 @@ const PROTO = 1;
 // The host's own seat, as tagged by host.py (see RelaySink there).
 const HOST_SEAT = '@host';
 
-// Public brokers, tried in order. All of them are free, anonymous and speak
-// MQTT over WebSocket, so a page can reach them from any origin. The first that
-// answers is remembered, so the next visit connects straight away.
-const BROKERS = [
-  'wss://broker.emqx.io:8084/mqtt',
-  'wss://broker.hivemq.com:8884/mqtt',
-  'wss://test.mosquitto.org:8081/mqtt',
-];
 const BROKER_KEY = 'tf.relay.broker';
-const BROKER_TIMEOUT_MS = 3500;
-// What the last attempt learned. Three brokers that all fail take ~13 s, and
-// the menu's lobby and the room itself ask within moments of each other: once
-// the network has said "no brokers here", believe it for a while instead of
-// making the player wait twice.
-const PROBE_RETRY_MS = 30000;
-const probe = { tabUntil: 0 };
+const BROKER_TIMEOUT_MS = 4000;
 // How long a guest may be silent before the host gives up its seat. Long, by
 // intent: a browser stops animating a background tab, so alt-tabbing away and
 // coming back is normal, not a disconnect -- and the seat is worth keeping,
@@ -68,22 +61,16 @@ const HOST_GONE_MS = 45000;     // quiet this long: the world is frozen, say so
 const HOST_LOST_MS = 120000;    // quiet this long: the host is not coming back
 const INPUT_HZ = 15;            // guests coalesce input: a public topic is shared
 
-/** `?relay=wss://host:port/mqtt` forces a broker (a private one, or a test one). */
+/**
+ * A broker, when one is asked for: `?relay=wss://host:port/mqtt`, or one this
+ * browser used before. Empty by default -- the game itself needs no server.
+ */
 function forcedBroker() {
   try {
     const q = new URLSearchParams(location.search).get('relay');
     if (q) return q;
   } catch { /* no URL API */ }
   return store.get(BROKER_KEY) || '';
-}
-
-/** The brokers to try, the one that worked (or was asked for) first. */
-function brokerList() {
-  const forced = forcedBroker();
-  const list = [];
-  if (forced) list.push(forced);
-  for (const url of BROKERS) if (!list.includes(url)) list.push(url);
-  return list;
 }
 
 /** A room code people can read out: eight digits, like the server's own. */
@@ -97,18 +84,20 @@ export function createRoomCode() {
 // ------------------------------------------------------------------- channel
 
 /**
- * One pub/sub pipe to the rest of the room: MQTT if a broker answers, and
- * BroadcastChannel (this browser's own tabs) when none does. Both directions of
- * the protocol are identical either way, so nothing above this line needs to
- * know which one it got.
+ * One pub/sub pipe to the rest of the room. Inside this browser it is a
+ * BroadcastChannel; each player on another computer is a direct WebRTC
+ * connection added to the same pipe. Neither needs a server, and nothing above
+ * this line has to know which one a given message came from.
  */
 class RelayChannel {
   constructor() {
     this.kind = '';
     this.label = '';
     this.connected = false;
-    this._client = null;
-    this._bc = null;
+    this._client = null;         // an explicit broker, when one was asked for
+    this._bc = null;             // this browser's own tabs
+    this._peers = new Set();     // direct connections to other computers
+    this._pending = new Map();   // invite id -> the peer waiting for its answer
     this._topics = new Set();
     this._closed = false;
   }
@@ -120,51 +109,36 @@ class RelayChannel {
   async open(h = {}) {
     this.h = h;
     this._closed = false;
-    // The memo only applies when nothing was asked for explicitly: a broker in
-    // the URL (or one remembered from last time) is a deliberate choice, and the
-    // player pressing "create room" must not be quietly moved to tab-only play
-    // because a background probe happened to fail a moment earlier.
-    if (!forcedBroker() && performance.now() < probe.tabUntil) return this._openTabs();
-    for (const url of brokerList()) {
-      h.onStatus?.(t('正在连接公共中转服务器…'));
-      // One attempt at a time, and only the attempt still being waited on may
-      // speak for the channel. A broker that times out here keeps its socket
-      // (and its close handler) for a moment longer -- without this flag that
-      // late close arrived *after* the next broker had connected and told the
-      // player's net the relay was down, which silently turned a live guest
-      // into a listener that could no longer move, shoot or chat.
-      let current = true;
-      let client = null;
+    // A broker is used only when one was named: ?relay=wss://… (or a broker
+    // remembered from an earlier visit). Nothing is probed by itself, so a room
+    // opens at once and no stranger's server is in the path.
+    const wanted = forcedBroker();
+    if (wanted) {
+      h.onStatus?.(t('正在连接中转服务器…'));
       try {
-        client = new MqttClient(url, {
+        const client = new MqttClient(wanted, {
           onMessage: (topic, text) => this._deliver(topic, text),
-          onClose: () => { if (current && !this._closed) this.h.onClose?.(); },
+          onClose: () => { if (!this._closed) this.h.onClose?.(); },
         });
         await client.connect(BROKER_TIMEOUT_MS);
         if (this._closed) { client.close(); throw new Error('cancelled'); }
         this._client = client;
-        probe.tabUntil = 0;
         this.kind = 'broker';
-        this.label = url;
+        this.label = wanted;
         this.connected = true;
-        store.set(BROKER_KEY, url);
         for (const topic of this._topics) client.subscribe(topic);
         h.onStatus?.('');
         return this;
-      } catch (err) {
-        // Abandoned: close it, so nothing of it keeps running and it can no
-        // longer report a close that is not this channel's business.
-        current = false;
-        try { client?.close(); } catch { /* already gone */ }
-        if (this._closed) throw err;
-        // Try the next broker: they are independent services and any one of
-        // them is enough. Only when all of them fail do we fall back to tabs.
+      } catch {
+        // Named but unreachable: fall through to the serverless ways rather
+        // than refusing to open a room at all.
+        if (this._closed) throw new Error(t('已取消'));
       }
     }
     return this._openTabs();
   }
 
-  /** Last resort: the same protocol across this browser's own tabs. */
+  /** Inside this browser: the same protocol across its own tabs. */
   _openTabs() {
     try {
       this._bc = new BroadcastChannel('trench-front');
@@ -172,16 +146,86 @@ class RelayChannel {
         const m = ev.data;
         if (m && typeof m.topic === 'string') this._deliver(m.topic, m.text);
       };
-      probe.tabUntil = performance.now() + PROBE_RETRY_MS;
-      this.kind = 'tab';
-      this.label = 'BroadcastChannel';
-      this.connected = true;
-      this.h.onStatus?.('');
-      return this;
     } catch {
-      throw new Error(t('没有可用的联机通道（公共中转与本地标签页都不可用）'));
+      this._bc = null;               // old browser: peers only
     }
+    this.kind = 'tab';
+    this.label = this._bc ? 'BroadcastChannel' : 'WebRTC';
+    this.connected = true;
+    this.h.onStatus?.('');
+    return this;
   }
+
+  // ------------------------------------------------------ direct connections
+
+  /**
+   * An invite for one friend on another computer. Each invite is its own
+   * connection, so this is called once per friend (the code is handed to that
+   * friend, and their answer is what completes it).
+   */
+  async createInvite(room) {
+    const peer = new Peer({
+      onMessage: (text) => this._deliverPeer(text),
+      onClose: () => this._dropPeer(peer),
+    });
+    this._pending.set(peer.id, peer);
+    const code = await peer.createOffer(room || this.room || '');
+    this._announcePeers();
+    return code;
+  }
+
+  /** The friend's answer to one of our invites. */
+  async acceptAnswer(code) {
+    const answer = await parseCode(code);
+    if (!answer || answer.kind !== 'answer') throw new Error(t('这不是一个回答码（回答码以 TFa1 开头）'));
+    const peer = this._pending.get(answer.id);
+    if (!peer) throw new Error(t('这个回答码过期了：请重新生成邀请码，再让朋友做一遍'));
+    await peer.acceptAnswer(answer);
+    this._pending.delete(answer.id);
+    this._peers.add(peer);          // from now on it is a live connection
+    this._announcePeers();
+    return true;
+  }
+
+  /**
+   * Guest side: an invite code from the host, turned into the answer code to
+   * send back. The room code travels inside the invite.
+   */
+  async acceptInvite(code) {
+    const invite = await parseCode(code);
+    if (!invite || invite.kind !== 'invite') throw new Error(t('这不是一个邀请码（邀请码以 TFi1 开头）'));
+    const peer = new Peer({
+      onMessage: (text) => this._deliverPeer(text),
+      onClose: () => this._dropPeer(peer),
+    });
+    const answer = await peer.acceptOffer(invite);
+    this._peers.add(peer);
+    this._announcePeers();
+    return { room: String(invite.room || ''), answer };
+  }
+
+  _deliverPeer(text) {
+    try {
+      const m = JSON.parse(text);
+      if (m && typeof m.topic === 'string') this._deliver(m.topic, m.text);
+    } catch { /* not ours */ }
+  }
+
+  _dropPeer(peer) {
+    this._pending.delete(peer.id);
+    if (this._peers.delete(peer)) this._announcePeers();
+  }
+
+  /** Tell the net above that the set of live links changed. */
+  _announcePeers() {
+    this.h.onPeers?.(this.peerCount);
+  }
+
+  /** How many other computers are connected directly right now. */
+  get peerCount() { return this._peers.size; }
+
+  /** How many invites are waiting for an answer. */
+  get pendingCount() { return this._pending.size; }
 
   subscribe(topic) {
     this._topics.add(topic);
@@ -190,9 +234,13 @@ class RelayChannel {
 
   send(topic, text) {
     if (this._closed) return false;
-    if (this._client) return this._client.publish(topic, text);
-    if (this._bc) { this._bc.postMessage({ topic, text }); return true; }
-    return false;
+    let sent = false;
+    if (this._client) { this._client.publish(topic, text); sent = true; }
+    if (this._bc) { this._bc.postMessage({ topic, text }); sent = true; }
+    const wire = JSON.stringify({ topic, text });
+    for (const peer of this._peers) if (peer.send(wire)) sent = true;
+    for (const peer of this._pending.values()) peer.send(wire);
+    return sent;
   }
 
   _deliver(topic, text) {
@@ -207,12 +255,28 @@ class RelayChannel {
     this._client = null;
     try { this._bc?.close(); } catch { /* already gone */ }
     this._bc = null;
+    for (const peer of [...this._peers, ...this._pending.values()]) peer.close();
+    this._peers.clear();
+    this._pending.clear();
   }
 }
 
 /** Open a channel bound to one room's topic. */
+/**
+ * Open a room's channel on its own, without touching the engine.
+ *
+ * "Create a room" is a separate step from "start a match" now: the code (and
+ * the link, and the invite codes) exists the moment the button is pressed,
+ * while the 12 MB in-page engine -- the thing that used to make that button
+ * look dead for half a minute -- is only booted when the match is deployed.
+ */
+export async function openRoomChannel(code, h = {}) {
+  return openChannel(String(code || ''), h);
+}
+
 async function openChannel(code, h) {
   const channel = new RelayChannel();
+  channel.room = String(code || '');
   await channel.open(h);
   channel.subscribe(roomTopic(code));
   return channel;
@@ -322,6 +386,22 @@ export class RelayNet extends Net {
       this._onChannelClose();
     }
   }
+
+  /**
+   * A guest on another computer: turn the host's invite code into the answer
+   * code to send back. The room code came inside the invite (see openChannel /
+   * super.connect), so this only has to build the connection.
+   */
+  async acceptInvite(code) {
+    const res = await this.channel.acceptInvite(code);
+    this.relayKind = 'p2p';
+    this.relayLabel = t('点对点直连（{n} 条）', { n: this.channel.peerCount });
+    this._lastHostAt = performance.now();
+    return res;
+  }
+
+  /** Direct links this player currently has to other computers. */
+  get peers() { return this.channel?.peerCount || 0; }
 
   /** Overrides Net.send: a guest coalesces input, everything else goes at once. */
   send(obj) {
@@ -532,13 +612,31 @@ export class RelayHostNet extends LocalNet {
 
   async connect(url, opts = {}) {
     this.code = String(opts.code || this.code || '');
-    this.channel = await this._openChannel();
+    // A channel opened earlier (the menu's "create a room") is reused when it
+    // belongs to this room -- that is what makes the code appear instantly and
+    // stay the same one the player already sent to their friends.
+    const ready = opts.channel && String(opts.channel.room || '') === this.code ? opts.channel : null;
+    this.channel = ready || await this._openChannel();
     this.relayKind = this.channel.kind;
     this.relayLabel = this.channel.label;
     await super.connect('');
     // LocalNet.connect() labels itself 'local'; this one is a relay room.
     this.mode = 'relay';
     return this.channel.kind;
+  }
+
+  /** An invite for one friend on another computer (their answer completes it). */
+  async createInvite() {
+    return this.channel.createInvite(this.code);
+  }
+
+  /** The answer to one of our invites: from here that friend is connected. */
+  async acceptAnswer(code) {
+    const ok = await this.channel.acceptAnswer(code);
+    this.relayLabel = this.channel.kind === 'broker'
+      ? this.channel.label
+      : t('点对点直连（{n} 条）', { n: this.channel.peerCount });
+    return ok;
   }
 
   /** The channel, plus the way back from a broker that drops this tab. */
@@ -732,7 +830,8 @@ export class RelayHostNet extends LocalNet {
   status() {
     const base = super.status();
     if (!base) return null;
-    return { ...base, relay: this.relayKind, relayLabel: this.relayLabel, guests: this._seen.size };
+    return { ...base, relay: this.relayKind, relayLabel: this.relayLabel,
+      guests: this._seen.size, peers: this.channel?.peerCount ?? 0 };
   }
 
   close() {
@@ -756,8 +855,6 @@ export class RelayLobby {
     this.onRooms = null;
     this.onStatus = null;
     this._sweep = null;
-    this._retry = null;
-    this._tries = 0;
   }
 
   async start(onRooms, onStatus) {
@@ -782,18 +879,6 @@ export class RelayLobby {
     channel.subscribe(LOBBY_TOPIC);
     this.channel = channel;
     this.kind = channel.kind;
-    // Rooms are announced on the broker only, so tabs-mode hears nothing new.
-    // Keep trying in the background: the first attempt can lose the race on a
-    // busy machine (or be made before the network is up), and a menu that never
-    // lists rooms again is worse than one that takes half a minute to.
-    this._tries += 1;
-    if (channel.kind !== 'broker' && this._tries <= 5 && !this._retry) {
-      this._retry = setTimeout(() => {
-        this._retry = null;
-        probe.tabUntil = 0;
-        this._open().catch(() => {});
-      }, 20000);
-    }
   }
 
   _heard(text) {
@@ -823,8 +908,6 @@ export class RelayLobby {
   stop() {
     clearInterval(this._sweep);
     this._sweep = null;
-    clearTimeout(this._retry);
-    this._retry = null;
     this.channel?.close();
     this.channel = null;
     this.rooms.clear();

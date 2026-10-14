@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "//": "Configuration for the static deployment of this directory (Vercel Project -> Root Directory: public). Everything the game needs is a file here: the page, its JS, /models, /sounds, /vendor/pyodide (the in-page Python engine) and /engine + /shared (that engine's code and data). There is no serverless function and no external backend -- the three /api/* endpoints the menu asks for are answered by the shim JSON in api/, the match itself runs in the browser (js/local.js), and multiplayer is hosted by the player who creates the room, the players reaching each other through a public MQTT relay over WebSocket (js/relay.js, js/mqtt.js).",
+  "//": "Configuration for the static deployment of this directory (Vercel Project -> Root Directory: public). Everything the game needs is a file here: the page, its JS, /models, /sounds, /vendor/pyodide (the in-page Python engine) and /engine + /shared (that engine's code and data). There is no serverless function and no external backend -- the three /api/* endpoints the menu asks for are answered by the shim JSON in api/, the match itself runs in the browser (js/local.js), and multiplayer is hosted by the player who creates the room: tabs of one browser meet over a BroadcastChannel and other computers connect straight to that host over a WebRTC data channel (js/relay.js, js/p2p.js), the two handshake codes being passed along by hand. Nothing here talks to a broker or any other outside service.",
   "rewrites": [
     {
       "source": "/api/health",
@@ -20,6 +20,16 @@
     }
   ],
   "headers": [
+    {
+      "//": "The /api/* answers are files here and change with every upload: never let a browser keep an old one.",
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
     {
       "//": "Pyodide is fetched as a module (needs a JS MIME type) and as a 9 MB wasm binary: it must be cacheable, or every visit downloads it again.",
       "source": "/vendor/pyodide/(.*)",

@@ -13,10 +13,12 @@ export class Hud {
       menu: $('screen-menu'), select: $('screen-select'), settings: $('screen-settings'),
       hud: $('screen-hud'), boot: $('boot'),
       name: $('input-name'), server: $('input-server'),
-      roomCreate: $('btn-room-create'), roomJoin: $('btn-room-join'),
+      roomCreate: $('btn-room-create'), roomJoin: $('btn-room-join'), roomInvite: $('btn-room-invite'),
       roomInput: $('input-room'), roomNote: $('room-note'), roomHistory: $('room-history'),
       roomListNote: $('room-list-note'),
       roomChip: $('room-chip'), roomCode: $('room-code'), roomCopy: $('room-copy'),
+      selectRoom: $('select-room'), selectRoomCode: $('select-room-code'),
+      selectInvite: $('btn-select-invite'), selectCopy: $('btn-select-copy'),
       botRow: $('bot-row'), botCount: $('bot-count'),
       botsLockHint: $('bots-lock-hint'), skinNote: $('skin-note'),
       mapRow: $('map-row'), mapNote: $('map-note'), tbMap: $('tb-map'), mapLoad: $('map-load'),
@@ -45,7 +47,16 @@ export class Hud {
       sbHead0: $('sb-head-0'), sbHead1: $('sb-head-1'), sbBody0: $('sb-body-0'), sbBody1: $('sb-body-1'),
       result: $('result-panel'), resultTitle: $('result-title'),
       result0: $('result-0'), result1: $('result-1'), resultMvp: $('result-mvp'),
-      lock: $('lockslot'),
+      lock: $('lockslot'), lockAction: $('lockslot')?.querySelector('.lock-action'),
+      openTab: $('btn-open-tab'),
+      pause: $('pause'), pauseNote: $('pause-note'),
+      pauseResume: $('btn-pause-resume'), pauseSettings: $('btn-pause-settings'),
+      pauseInvite: $('btn-pause-invite'), pauseLeave: $('btn-pause-leave'),
+      invite: $('invite'), inviteTitle: $('invite-title'), inviteStep: $('invite-step'),
+      inviteCode: $('invite-code'), inviteStatus: $('invite-status'), inviteHelp: $('invite-help'),
+      inviteGen: $('btn-invite-gen'), inviteCopy: $('btn-invite-copy'),
+      inviteAccept: $('btn-invite-accept'), inviteJoin: $('btn-invite-join'),
+      inviteClose: $('btn-invite-close'), inviteStun: $('invite-stun'),
     };
     this._cache = {};
     // true while a thrown ability is being charged, when the chip bar doubles as
@@ -122,17 +133,25 @@ export class Hud {
 
   // ------------------------------------------------------------ menu screen
 
-  bindMenu({ onMulti, onSolo, onSettings, onBotCount, onMap, onRoomMode, onRoomCode, onTutorial }) {
+  bindMenu({ onMulti, onSolo, onSettings, onBotCount, onMap, onRoomMode, onRoomCode, onTutorial,
+             onHost, onInvite, onCopyLink }) {
     this.el.modeMulti.addEventListener('click', onMulti);
     this.el.modeSolo.addEventListener('click', onSolo);
     this.el.modeSettings.addEventListener('click', onSettings);
     this.el.modeTutorial.addEventListener('click', onTutorial);
     this.el.name.addEventListener('keydown', (e) => { if (e.key === 'Enter') onMulti(); });
-    this.el.roomCreate.addEventListener('click', () => onRoomMode?.('create'));
+    // "Create a room" opens one *right here* -- the code appears before the
+    // match does, so it can be sent to friends while the class is being picked.
+    // It used to be a mode toggle only, and clicking it looked like nothing
+    // happened until a match was deployed.
+    this.el.roomCreate.addEventListener('click', () => onHost?.());
     this.el.roomJoin.addEventListener('click', () => {
       onRoomMode?.('join');
       this.el.roomInput.focus();
     });
+    this.el.roomInvite?.addEventListener('click', () => onInvite?.());
+    this.el.selectInvite?.addEventListener('click', () => onInvite?.());
+    this.el.selectCopy?.addEventListener('click', () => onCopyLink?.());
     // Digits only, and it accepts a pasted "1234 5678": the field shows what was
     // typed, the value is normalised when it is read.
     this.el.roomInput.addEventListener('input', () => {
@@ -240,6 +259,10 @@ export class Hud {
     const show = !!code;
     this.el.roomChip.classList.toggle('hidden', !show);
     if (show) this.el.roomCode.textContent = formatRoomCode(code);
+    // The class screen shows the same room: the host got there from 「创建房间」
+    // and must be able to pass the code on (or invite a friend) before deploying.
+    this.el.selectRoom?.classList.toggle('hidden', !show);
+    if (this.el.selectRoomCode) this.el.selectRoomCode.textContent = show ? formatRoomCode(code) : '--------';
   }
 
   /**
@@ -250,28 +273,32 @@ export class Hud {
     this._roomLink = url || '';
   }
 
+  /** Copy the room link (or the code) and say whether it worked. */
+  async copyRoomLink() {
+    const text = this._roomLink || this._roomCode || '';
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+      } catch { return false; }
+    }
+  }
+
   onRoomChipClick(handler) {
     this.el.roomChip.addEventListener('click', async () => {
-      const text = this._roomLink || this._roomCode || '';
-      if (!text) return;
-      let ok = false;
-      try {
-        await navigator.clipboard.writeText(text);
-        ok = true;
-      } catch {
-        // Clipboard API needs a secure context / permission; fall back to a
-        // throwaway selection so the code is at least copyable by hand.
-        try {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          ok = document.execCommand('copy');
-          ta.remove();
-        } catch { ok = false; }
-      }
+      if (!(this._roomLink || this._roomCode)) return;
+      const ok = await this.copyRoomLink();
       this.el.roomChip.classList.toggle('copied', ok);
       this.el.roomCopy.textContent = ok ? t('已复制') : t('复制失败');
       clearTimeout(this._roomCopyTimer);
@@ -623,12 +650,14 @@ export class Hud {
    * when the player pressed Esc and the mouse is free with no look mode on.
    * `heading` overrides the headline for that third state.
    */
-  setLockHint(show, note = '', heading = '') {
+  setLockHint(show, note = '', heading = '', action = false) {
     const soft = !!note;
-    if (this._cache.lock === show && this._cache.lockNote === note && this._lockHeading === heading) return;
+    if (this._cache.lock === show && this._cache.lockNote === note && this._lockHeading === heading
+      && this._lockAction === !!action) return;
     this._cache.lock = show;
     this._cache.lockNote = note;
     this._lockHeading = heading;
+    this._lockAction = !!action;
     this.el.lock.classList.toggle('hidden', !show);
     this.el.lock.classList.toggle('soft', soft);
     const title = this.el.lock.querySelector('.lock-title');
@@ -637,6 +666,92 @@ export class Hud {
     this._lockNote = note;
     if (title) title.textContent = heading || (soft ? t('光标转向模式') : t('点击画面继续战斗'));
     if (sub) sub.textContent = soft ? note : t('鼠标将被锁定 · 按 Esc 释放');
+    this.el.lockAction?.classList.toggle('hidden', !action);
+  }
+
+  // --------------------------------------------------------------- 暂停菜单
+
+  /** Buttons of the pause menu; `onInvite` is only offered to a host. */
+  bindPause({ onResume, onSettings, onLeave, onInvite } = {}) {
+    this.el.pauseResume?.addEventListener('click', () => onResume?.());
+    this.el.pauseSettings?.addEventListener('click', () => onSettings?.());
+    this.el.pauseLeave?.addEventListener('click', () => onLeave?.());
+    this.el.pauseInvite?.addEventListener('click', () => onInvite?.());
+    this.el.openTab?.addEventListener('click', () => {
+      // A page that cannot lock the mouse is almost always an embedded one, and
+      // a tab of its own is the one thing that fixes it for good.
+      window.open(location.href, '_blank', 'noopener');
+    });
+  }
+
+  /**
+   * `info` is what the pause menu says about the match you are in: the room
+   * code, how many guests, which map. Optional.
+   */
+  showPause(info = {}) {
+    if (!this.el.pause) return;
+    this.el.pause.classList.remove('hidden');
+    this.el.pauseNote.textContent = info.note || t('按 Esc 打开这个菜单；「继续战斗」回到战场。');
+    // The invite button only means something to the player running the room.
+    this.el.pauseInvite?.classList.toggle('hidden', !info.host);
+  }
+
+  hidePause() {
+    this.el.pause?.classList.add('hidden');
+  }
+
+  get paused() { return !!this.el.pause && !this.el.pause.classList.contains('hidden'); }
+
+  // ------------------------------------------- 邀请码（不用任何服务器联机）
+
+  /**
+   * The invite panel has two jobs and they look almost the same, so it is one
+   * box with a mode: a host *makes* invite codes and pastes the answers, a
+   * guest *pastes* an invite and copies the answer back out. `mode`:
+   *   'host'  - buttons: 生成邀请码 / 复制 / 完成配对
+   *   'guest' - buttons: 加入 / 复制
+   */
+  bindInvite({ onGenerate, onCopy, onAccept, onJoin, onClose, onStun } = {}) {
+    this.el.inviteGen?.addEventListener('click', () => onGenerate?.());
+    this.el.inviteCopy?.addEventListener('click', () => onCopy?.(this.el.inviteCode?.value || ''));
+    this.el.inviteAccept?.addEventListener('click', () => onAccept?.(this.el.inviteCode?.value || ''));
+    this.el.inviteJoin?.addEventListener('click', () => onJoin?.(this.el.inviteCode?.value || ''));
+    this.el.inviteClose?.addEventListener('click', () => onClose?.());
+    this.el.inviteStun?.addEventListener('change', () => onStun?.(!!this.el.inviteStun.checked));
+  }
+
+  openInvite(mode, { room = '', stun = false } = {}) {
+    if (!this.el.invite) return;
+    this._inviteMode = mode;
+    const host = mode === 'host';
+    this.el.invite.classList.remove('hidden');
+    this.el.inviteTitle.textContent = host ? t('邀请朋友（不同电脑，不用任何服务器）') : t('用邀请码加入');
+    this.el.inviteStep.textContent = host
+      ? t('把邀请码发给一位朋友（聊天、邮件都行）；他那一页会给出回答码，粘回下面按「完成配对」即可。')
+      : t('把房主给你的邀请码粘到下面，按「加入」；之后把你得到的回答码发回给房主。');
+    this.el.inviteGen?.classList.toggle('hidden', !host);
+    this.el.inviteAccept?.classList.toggle('hidden', !host);
+    this.el.inviteJoin?.classList.toggle('hidden', host);
+    this.el.inviteCode.value = '';
+    this.el.inviteCode.placeholder = host
+      ? t('生成后邀请码会出现在这里，也可以把朋友的回答码粘进来')
+      : t('把邀请码粘到这里（以 TFi1 开头）');
+    this.el.inviteCount = 0;
+    this.el.inviteStun.checked = !!stun;
+    this.el.inviteHelp.textContent = host
+      ? t('房号 {code} · 同一个浏览器多开标签页不需要邀请码，直接用房号即可', { code: formatRoomCode(room) })
+      : '';
+    this.inviteStatus('');
+  }
+
+  closeInvite() { this.el.invite?.classList.add('hidden'); }
+
+  get inviteOpen() { return !!this.el.invite && !this.el.invite.classList.contains('hidden'); }
+
+  inviteStatus(text, ok = true) {
+    if (!this.el.inviteStatus) return;
+    this.el.inviteStatus.textContent = text || '';
+    this.el.inviteStatus.className = 'invite-status' + (text ? (ok ? ' ok' : ' bad') : '');
   }
 
   // -------------------------------------------------------------- kill feed

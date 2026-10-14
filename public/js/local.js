@@ -226,6 +226,7 @@ export class LocalNet extends Net {
     this.mode = 'local';
     this.connected = true;
     this.h.onOpen?.();
+    this.paused = false;
     this._frame();
     return 'local';
   }
@@ -302,6 +303,14 @@ export class LocalNet extends Net {
 
   _frame() {
     if (this._closed || !this.connected) return;
+    if (this.paused) {
+      // Esc's pause menu: the room this tab is running stops advancing (which is
+      // what a pause means for a hosted match), and the clock is reset so the
+      // first frame after resuming does not try to catch up on lost time.
+      this._last = performance.now();
+      requestAnimationFrame(() => this._frame());
+      return;
+    }
     const now = performance.now();
     // A backgrounded tab stops being drawn, so its clock can jump by seconds;
     // the match must not fast-forward through them (the loop below caps this

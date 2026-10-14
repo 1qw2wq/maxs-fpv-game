@@ -263,10 +263,10 @@ const EN = {
   '已通过公共中转加入房间（房主：{host}）': 'Joined over the public relay (host: {host})',
   '房主模式：这一局在你这里运行，把房号发给朋友 · 中转 {host}':
     'Hosting: this match runs in your browser — send the room code to your friends · relay {host}',
-  '静态托管：单机与多人都不需要服务器——点「创建房间」你就是房主，把 8 位房号发给朋友，他们就能进来（公共中转连接）。':
-    'Static hosting: neither solo nor multiplayer needs a server — hit "Create room" and you are the host; send the 8-digit code to your friends and they can join (over a public relay).',
-  '连不上服务器：单机可以在这里直接开打（引擎在页面里跑），多人则创建房间、把房号发给朋友即可（房主的浏览器运行对局，通过公共中转连接）。想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。':
-    'Cannot reach a server: solo plays right here (the engine runs in this page), and for multiplayer you create a room and send the code to your friends (the host\'s browser runs the match, connected over a public relay). To use your own server, put its address in the box below (e.g. your-app.onrender.com).',
+  '静态托管：单机与多人都不需要服务器——点「创建房间」你就是房主：把 8 位房号发给朋友（同一浏览器多开标签页即可进），或用「邀请朋友」的邀请码让另一台电脑直连过来。':
+    'Static hosting: neither solo nor multiplayer needs a server - hit "Create room" and you are the host: send the 8-digit code to your friends (extra tabs of this browser can join with it), or use an "Invite a friend" code so another computer connects straight to you.',
+  '连不上服务器：单机可以在这里直接开打（引擎在页面里跑），多人则点「创建房间」，把 8 位房号发给朋友（同一个浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑直连——房主的浏览器运行整局，不经过任何服务器。想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。':
+    'Cannot reach a server: solo plays right here (the engine runs in this page); for multiplayer hit "Create room" and send the 8-digit code to your friends (extra tabs), or use an "Invite a friend" code to connect another computer straight to you - the host\'s browser runs the whole match, with no server involved. To use a server of your own, put its address in the box below (e.g. your-app.onrender.com).',
   '邀请链接里的房号 {code} 已填好，进战场就是加入这一局':
     'The invite link carried room {code} — deploying now joins that match',
   '邀请链接已复制：朋友打开就是加入房号 {code}':
@@ -354,6 +354,106 @@ const EN = {
   '本机数据已清空': 'Local data cleared',
   '清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？':
     'Erase the game data on this computer (name, room history, record, local character mapping)?',
+
+  // ----------------------------------------------------- 暂停菜单 / 直连邀请
+  '已暂停': 'Paused',
+  '继续战斗': 'Carry on',
+  '邀请朋友': 'Invite a friend',
+  '复制邀请链接': 'Copy the invite link',
+  '离开对局': 'Leave the match',
+  '设置': 'Settings',
+  '按 Esc 打开这个菜单；「继续战斗」回到战场。':
+    'Esc opens this menu; "Carry on" puts you back in the fight.',
+  '房号 {code} · 你是房主，这一局在你的浏览器里运行；离开后别人会失去这一局。':
+    'Room {code} · you are the host and this match runs in your browser — leaving ends it for everyone else.',
+  '按 Esc 或点「继续战斗」回到战场': 'Press Esc again, or click "Carry on", to get back to the fight',
+  '在新标签页打开': 'Open in a new tab',
+  '浏览器不允许这个页面锁定鼠标（多半是 iframe 预览面板）：点上面的「在新标签页打开」就能正常用鼠标转视角。现在可以用方向键转身。':
+    'This page is not allowed to capture the mouse (usually an embedded preview pane): \"Open in a new tab\" above fixes that for good. Arrow keys turn the view meanwhile.',
+  '无法锁定鼠标': 'Mouse cannot be captured',
+  '已释放光标：点击画面继续（继续后鼠标重新被锁定，按 Esc 再次释放）':
+    'Mouse handed back — click the view to carry on (the mouse is captured again; press Esc to release it)',
+  '这个页面（多半是被嵌在 iframe 里）不允许锁定鼠标：请在新标签页打开本页，鼠标就能正常转视角':
+    'This page (most likely an iframe) will not let the mouse be captured — open it in a tab of its own and the mouse works normally',
+  '用邀请码加入': 'Join with an invite code',
+  '邀请朋友（不同电脑，不用任何服务器）': 'Invite a friend (another computer, no server at all)',
+  '把邀请码发给一位朋友（聊天、邮件都行）；他那一页会给出回答码，粘回下面按「完成配对」即可。':
+    'Send the invite code to one friend (chat, mail, anything). Their page produces an answer code — paste it below and press "Pair up".',
+  '把房主给你的邀请码粘到下面，按「加入」；之后把你得到的回答码发回给房主。':
+    'Paste the invite code from the host below and press "Join"; then send the answer code you get back to the host.',
+  '生成邀请码': 'Create an invite code',
+  '复制': 'Copy',
+  '完成配对': 'Pair up',
+  '加入': 'Join',
+  '关闭': 'Close',
+  '生成后邀请码会出现在这里，也可以把朋友的回答码粘进来':
+    'The invite code appears here; paste your friend\'s answer code here too',
+  '把邀请码粘到这里（以 TFi1 开头）': 'Paste the invite code here (it starts with TFi1)',
+  '房号 {code} · 同一个浏览器多开标签页不需要邀请码，直接用房号即可':
+    'Room {code} · two tabs of this same browser need no codes — the room code alone is enough',
+  '跨网络（不同家里的宽带）：加上公共 STUN 服务器，帮助两端互相找到对方（不经过它传输）':
+    'Different networks (two home connections): add a public STUN server to help the two ends find each other (no traffic goes through it)',
+  '正在生成邀请码…': 'Creating an invite code…',
+  '邀请码已生成：把上面这段发给一位朋友（他会得到一个回答码）':
+    'Invite code ready: send this line to one friend (they get an answer code)',
+  '先创建房间（房主才有邀请码）': 'Create a room first — invite codes are the host\'s job',
+  '邀请码生成失败': 'Could not create an invite code',
+  '已复制': 'Copied',
+  '复制失败：请手动选中复制（Ctrl/Cmd+C）': 'Copy failed — select the text and copy it (Ctrl/Cmd+C)',
+  '正在配对…': 'Pairing…',
+  '配对成功：这位朋友已经连上你了，他现在能进这一局':
+    'Paired: your friend is connected directly and can now join this match',
+  '朋友已直连进来': 'A friend connected directly',
+  '一位朋友已直连进来（当前 {n} 条直连）':
+    'A friend connected directly ({n} direct link(s) now)',
+  '浏览器内的房间（房主运行对局，朋友直连你）':
+    'Room inside this browser (you run the match; friends connect straight to you)',
+  '房主模式：这一局在你这里运行，已有 {n} 条跨电脑直连':
+    'Hosting: this match runs in your browser, with {n} direct link(s) from other computers',
+  '房主模式：这一局在你这里运行——把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑直连':
+    'Hosting: this match runs in your browser - send the room code to friends (extra tabs of this browser), or use an "Invite a friend" code to connect another computer straight to you',
+  '已直连房主（跨电脑点对点，没有经过任何服务器）':
+    'Connected straight to the host (peer to peer, no server in between)',
+  '已加入房间：对局在房主的浏览器里运行（同一浏览器的标签页之间直通）':
+    'Joined the room: the match runs in the host\'s browser (tabs of one browser talk directly)',
+  '联机通道不可用': 'The multiplayer link could not be opened',
+  '还没有房间：先点「创建房间」': 'No room yet - press "Create a room" first',
+  '已离开对局（房间也关了）：想再来一局就再点「创建房间」':
+    'Match left, and the room closed with it - press "Create a room" for another round',
+  '回答码用不了': 'That answer code did not work',
+  '正在连接房主…': 'Connecting to the host…',
+  '已接上房主，房号 {code}：把上面这段回答码发回给房主':
+    'Connected to the host, room {code}: send the answer code above back to them',
+  '邀请码用不了': 'That invite code did not work',
+  '已打开跨网络支持（下次生成邀请码时生效）':
+    'Cross-network support on (it applies to the next invite code you make)',
+  '已关闭跨网络支持：只连同一网络内的朋友':
+    'Cross-network support off: only friends on the same network can connect',
+  '这不像一个邀请码：它应以 TFi1 开头（回答码是发给房主的）':
+    'That is not an invite code: it should start with TFi1 (an answer code goes to the host)',
+  '邀请码里的房号不对：请让房主重新生成一个':
+    'The room code inside that invite is wrong — ask the host for a fresh one',
+  '这不是一个回答码（回答码以 TFa1 开头）': 'That is not an answer code (they start with TFa1)',
+  '这个回答码过期了：请重新生成邀请码，再让朋友做一遍':
+    'That answer code has expired: make a new invite code and have your friend do it again',
+  '这不是一个邀请码（邀请码以 TFi1 开头）': 'That is not an invite code (they start with TFi1)',
+  '正在连接中转服务器…': 'Connecting to the relay…',
+  '房间已创建 · 房号 {code}：把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑联机':
+    'Room created · code {code}: send the code to friends (two tabs of this browser), or use "Invite a friend" for another computer',
+  '房间 {code} 已经开着了：把房号发给朋友，或按 Esc →「邀请朋友」生成跨电脑邀请码':
+    'Room {code} is already open: send the code to friends, or press Esc → "Invite a friend" to connect another computer',
+  '已离开战场，房间 {code} 还在：朋友仍可以用这个房号进来等你':
+    'You left the fight; room {code} is still open — friends can still come in and wait for you',
+  '已离开对局': 'You left the match',
+  '本机房主（浏览器内引擎，别人直接连你）':
+    'Hosting from this browser (in-page engine; others connect straight to you)',
+  '房号 {code}': 'Room {code}',
+  '点对点直连（{n} 条）': 'Direct peer links ({n})',
+  '没有可用的联机通道（公共中转与本地标签页都不可用）':
+    'No way to reach other players: neither a direct connection nor this browser\'s own tabs are available',
+  'API 调试页': 'API debug page',
+  '看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步':
+    'See which engine this page is really running, which endpoints answer, and where multiplayer stands',
 
   // ------------------------------------------------------------------ misc
   '界面语言 / Interface language': '界面语言 / Interface language',

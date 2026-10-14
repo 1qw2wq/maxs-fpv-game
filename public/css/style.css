@@ -767,7 +767,66 @@ html[lang="en"] #tutorial .tut-tip { font-size: 12px; margin-bottom: 9px; paddin
 #lockslot.soft .lock-title { font-size: 15px; letter-spacing: .14em; color: #ffcf5c; }
 #lockslot.soft .lock-sub { font-size: 12.5px; letter-spacing: .1em; max-width: min(760px, 88vw); line-height: 1.6; }
 
+/* The room strip on the class screen: the host arrived here straight from
+   「创建房间」, so the code and the invite button have to come along. */
+.select-room {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center;
+  margin: 0 auto 14px; padding: 8px 14px; width: fit-content; max-width: 94vw;
+  border: 1px solid rgba(255, 207, 92, .3); border-radius: 999px;
+  background: rgba(8, 11, 18, .72); font-size: 13px;
+}
+.select-room .sr-label { letter-spacing: .18em; font-size: 11px; color: rgba(244, 241, 234, .55); }
+.select-room b { font: 700 17px/1 var(--mono, monospace); letter-spacing: .12em; color: #ffcf5c; }
+.select-room .ghost-btn { font-size: 12.5px; padding: 5px 10px; }
+
+/* -------------------------------------------------- 暂停菜单 / 邀请面板 */
+.pause-panel, .invite-panel {
+  width: min(520px, 92vw);
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: rgba(8, 11, 18, .95);
+  border: 1px solid rgba(255, 207, 92, .35);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .65);
+  color: rgba(244, 241, 234, .92);
+  text-align: center;
+}
+.invite-panel { width: min(640px, 94vw); text-align: left; }
+.pause-title { margin: 0 0 8px; font-size: 28px; font-weight: 900; letter-spacing: .22em; color: #ffcf5c; }
+.pause-note { margin: 0 0 18px; font-size: 13.5px; line-height: 1.7; color: rgba(244, 241, 234, .72); }
+.pause-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.pause-hint { margin: 16px 0 0; font-size: 12px; letter-spacing: .1em; color: rgba(244, 241, 234, .45); }
+.pause-hint b { color: rgba(255, 207, 92, .9); }
+
+/* The prompt slot's optional button (a page that cannot capture the mouse). */
+.lock-action { margin: 10px 0 0; pointer-events: auto; }
+#lockslot.soft .lock-action { margin-top: 12px; }
+
+.invite-title { margin: 0 0 8px; font-size: 20px; letter-spacing: .1em; color: #ffcf5c; }
+.invite-step { margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: rgba(244, 241, 234, .8); }
+.invite-code {
+  width: 100%; min-height: 96px; resize: vertical;
+  font: 12px/1.5 var(--mono, monospace);
+  color: rgba(244, 241, 234, .92); background: rgba(0, 0, 0, .45);
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 10px; padding: 10px 12px;
+  word-break: break-all;
+}
+.invite-code:focus { outline: none; border-color: rgba(255, 207, 92, .55); }
+.invite-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.invite-actions .big-btn.small, .invite-actions .ghost-btn { font-size: 13px; }
+.invite-stun { display: flex; gap: 8px; margin-top: 14px; font-size: 12px; line-height: 1.6; color: rgba(244, 241, 234, .66); }
+.invite-stun input { margin-top: 3px; }
+.invite-status { margin: 10px 0 0; font-size: 12.5px; min-height: 18px; }
+.invite-status.ok { color: #7ee08a; }
+.invite-status.bad { color: var(--danger); }
+.invite-help { margin: 6px 0 0; font-size: 12px; color: rgba(244, 241, 234, .5); }
+.debug-link { color: #ffcf5c; text-decoration: underline dotted; }
+
 /* ------------------------------------------------------------ 覆盖层 */
+/* The pause menu and the invite panel are page-level, not HUD widgets: the menu
+   itself has a "join with an invite code" button, so the panel has to render
+   over the menu too (inside #screen-hud it appeared inside a hidden box). */
+#pause, #invite { position: fixed; z-index: 35; }
+
 .overlay {
   position: absolute;
   inset: 0;

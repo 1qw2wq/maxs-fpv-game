@@ -45,6 +45,7 @@
         <div class="room-row">
           <button id="btn-room-create" class="room-btn on" type="button">创建房间</button>
           <button id="btn-room-join" class="room-btn" type="button">输入房号加入</button>
+          <button id="btn-room-invite" class="room-btn" type="button">用邀请码加入</button>
         </div>
         <input id="input-room" class="hidden" type="text" inputmode="numeric" maxlength="9"
                placeholder="8 位房号，例如 1234 5678" autocomplete="off" list="room-history">
@@ -88,7 +89,8 @@
       <p id="skin-note" class="hint dim"></p>
 
       <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
-      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩</p>
+      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
+      <p class="hint dim"><a class="debug-link" href="debug.html">API 调试页</a>：看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步</p>
     </div>
     <p id="menu-error" class="error"></p>
     <p class="hint dim">角色出现白块 / 黑块（头发、衣服、鞋子变色）？<a href="/colorfixer.html">打开颜色修复者 ColorFixer</a></p>
@@ -103,6 +105,15 @@
       <h2>选择你的兵种</h2>
       <p>堑壕里的每个人都有位置 —— 挑一个，然后活下去。</p>
     </header>
+
+    <!-- A hosted room exists before the match does, so the code and the way to
+         invite somebody travel with the player to this screen. -->
+    <div id="select-room" class="select-room hidden">
+      <span class="sr-label">房号</span>
+      <b id="select-room-code">--------</b>
+      <button id="btn-select-invite" class="ghost-btn small" type="button">邀请朋友</button>
+      <button id="btn-select-copy" class="ghost-btn small" type="button">复制邀请链接</button>
+    </div>
 
     <div class="class-row" id="class-row"></div>
 
@@ -238,7 +249,12 @@
   <div id="lockslot" class="hidden">
     <p class="lock-title">点击画面继续战斗</p>
     <p class="lock-sub">鼠标将被锁定 · 按 Esc 释放</p>
+    <p class="lock-action hidden">
+      <button id="btn-open-tab" class="big-btn small" type="button">在新标签页打开</button>
+    </p>
   </div>
+
+
 
   <div id="killfeed"></div>
   <div id="chat-log"></div>
@@ -301,6 +317,46 @@
   </div>
 
 </section>
+
+  <!-- Pause menu and invite panel. They used to sit inside the HUD screen,
+       which meant "join with an invite code" on the menu opened a panel inside
+       a hidden box -- invisible and unclickable. They belong to the page itself. -->
+  <!-- Esc: pause. Leaving a match used to mean reloading the page. -->
+  <div id="pause" class="overlay hidden">
+    <div class="pause-panel">
+      <h2 class="pause-title">已暂停</h2>
+      <p class="pause-note" id="pause-note"></p>
+      <div class="pause-actions">
+        <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>
+        <button id="btn-pause-settings" class="ghost-btn" type="button">设置</button>
+        <button id="btn-pause-invite" class="ghost-btn" type="button">邀请朋友</button>
+        <button id="btn-pause-leave" class="ghost-btn" type="button">离开对局</button>
+      </div>
+      <p class="pause-hint">按 <b>Esc</b> 或点「继续战斗」回到战场</p>
+    </div>
+  </div>
+
+  <!-- Cross-computer multiplayer without any server: two codes, passed by hand. -->
+  <div id="invite" class="overlay hidden">
+    <div class="invite-panel">
+      <h2 class="invite-title" id="invite-title"></h2>
+      <p class="invite-step" id="invite-step"></p>
+      <textarea id="invite-code" class="invite-code" spellcheck="false" placeholder=""></textarea>
+      <div class="invite-actions">
+        <button id="btn-invite-gen" class="big-btn small" type="button">生成邀请码</button>
+        <button id="btn-invite-copy" class="ghost-btn" type="button">复制</button>
+        <button id="btn-invite-accept" class="big-btn small hidden" type="button">完成配对</button>
+        <button id="btn-invite-join" class="big-btn small hidden" type="button">加入</button>
+        <button id="btn-invite-close" class="ghost-btn" type="button">关闭</button>
+      </div>
+      <label class="invite-stun">
+        <input id="invite-stun" type="checkbox">
+        <span>跨网络（不同家里的宽带）：加上公共 STUN 服务器，帮助两端互相找到对方（不经过它传输）</span>
+      </label>
+      <p class="invite-status" id="invite-status"></p>
+      <p class="invite-help" id="invite-help"></p>
+    </div>
+  </div>
 
 <div id="boot" class="screen">
   <p class="boot-text">正在装载战场数据…</p>

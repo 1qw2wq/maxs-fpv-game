@@ -22,6 +22,8 @@ import { flatMat } from './toon.js';
 import { store, session } from './storage.js';
 import * as profile from './profile.js';
 import { Tutorial } from './tutorial.js';
+import { Peer, parseCode, setStun, getStun } from './p2p.js';
+import { openRoomChannel } from './relay.js';
 import { setApiBase, apiUrl } from './api.js';
 import { t, nameOf, getLang, setLang, onLangChange } from './i18n.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
@@ -115,7 +117,19 @@ const app = {
   backendHere: null,
   localEngine: false,
   // Set the first time pointer lock is refused here; see updateLockHint().
+  // Only then does the prompt mention iframes and offer a tab of its own.
   lockRefused: false,
+  // Esc paused the match (see togglePause): the world stops, the menu is up.
+  paused: false,
+  // A room opened from the menu before a match exists (see hostNow): the channel
+  // the deploy step then adopts, so the code never changes under the player.
+  roomChannel: null,
+  // Handed to the net at connect time, then cleared.
+  deployChannel: null,
+  // Esc freed the mouse and the player has not clicked back in yet.
+  mouseFreed: false,
+  // A leaving player must not be told off for disconnecting; see leaveMatch().
+  leaving: false,
   // Rooms the menu knows about: the backend's own list, and the rooms other
   // players are hosting in their browsers (see relay.js RelayLobby).
   serverRooms: null,
@@ -230,6 +244,8 @@ async function boot() {
   setupMenu();
   setupLanguage();
   setupTutorial();
+  setupPause();
+  setupInvite();
   wireControls();
   app.hud.screen('menu');
   requestAnimationFrame(loop);
@@ -460,6 +476,193 @@ function setupTutorial() {
   }
 }
 
+/**
+ * Esc pauses the match and opens a menu that can actually leave it.
+ *
+ * Before this, Esc only handed the mouse back: there was no way out of a match
+ * except reloading the page, and no way to stop playing for a moment without
+ * losing the mouse. The world stops while the menu is up (the frame loop skips
+ * its update, so a solo engine or a hosted room really does pause), the mouse
+ * is free, and the menu offers the three things a player wants: carry on,
+ * change settings, or leave the match.
+ */
+function setupPause() {
+  app.hud.bindPause({
+    onResume: () => togglePause(false),
+    onSettings: () => {
+      app.sfx.resume();
+      app.settings.open();
+    },
+    onInvite: () => openInvite('host'),
+    onLeave: () => leaveMatch(),
+  });
+  // Esc itself: `controls` releases the mouse, then tells us here.
+  app.controls.onEscape = () => {
+    if (!app.playing) return;
+    togglePause(!app.paused);
+  };
+}
+
+function togglePause(on) {
+  const want = on === undefined ? !app.paused : !!on;
+  if (want === app.paused) return;
+  app.paused = want;
+  // A room running in this tab (solo engine or a hosted match) stops with it.
+  if (app.net) app.net.paused = want;
+  if (want) {
+    app.hud.showPause({
+      host: !!app.relayHostCode,
+      note: app.relayHostCode
+        ? t('房号 {code} · 你是房主，这一局在你的浏览器里运行；离开后别人会失去这一局。',
+          { code: formatCode(app.relayHostCode) })
+        : t('按 Esc 打开这个菜单；「继续战斗」回到战场。'),
+    });
+  } else {
+    app.hud.hidePause();
+    // The click (or the Esc key) that got here is a user gesture, which is what
+    // pointer lock needs; if the browser still refuses, the prompt says so.
+    app.controls.requestLock();
+  }
+}
+
+/**
+ * Out of a match, from the pause menu. `leaving` keeps the net's own
+ * "disconnected" handling quiet: nobody should be told off for choosing to
+ * leave. The room stays open for a host (the code still works if they come
+ * back), and a guest simply says goodbye.
+ */
+function leaveMatch() {
+  app.leaving = true;
+  app.paused = false;
+  app.hud.hidePause();
+  app.playing = false;
+  try { app.controls.releaseLook(); } catch { /* nothing to release */ }
+  app.controls.enabled = false;
+  // A hosted room goes with the match: guests are told (the relay's own goodbye)
+  // and the code is retired, so nobody is left knocking on a room whose engine
+  // is no longer running.
+  try { app.roomChannel?.close(); } catch { /* already gone */ }
+  app.roomChannel = null;
+  try { app.net?.close(); } catch { /* already gone */ }
+  app.net = null;
+  app.netUrl = null;
+  const wasHosting = !!app.relayHostCode;
+  app.relayHostCode = '';
+  app.relayKind = '';
+  app.relayLabel = '';
+  app.deathShown = false;
+  app.hud.hideDeath?.();
+  app.hud.setRoomCode('');
+  app.hud.screen('menu');
+  app.hud.toast(wasHosting
+    ? t('已离开对局（房间也关了）：想再来一局就再点「创建房间」')
+    : t('已离开对局'), 3200);
+  app.leaving = false;
+}
+
+// ------------------------------------------- 联机：不用任何服务器的邀请码
+
+/**
+ * Cross-computer multiplayer in two codes and no service at all: the host makes
+ * an invite code (a WebRTC offer, deflated into text), the friend's page turns
+ * it into an answer code, the host pastes that back and the two pages are
+ * connected directly. This is what the "no server" requirement comes down to --
+ * the players themselves are the signalling channel.
+ */
+function setupInvite() {
+  app.hud.bindInvite({
+    onGenerate: async () => {
+      // 「创建房间」 opens the room's channel straight away and the match adopts
+      // that same channel when it deploys, so an invite made here -- while the
+      // player is still picking a class -- keeps working once the fight starts.
+      const ch = inviteChannel();
+      if (!ch) {
+        app.hud.inviteStatus(t('先创建房间（房主才有邀请码）'), false);
+        return;
+      }
+      app.hud.inviteStatus(t('正在生成邀请码…'));
+      try {
+        const code = await ch.createInvite(app.relayHostCode || ch.room || '');
+        app.hud.el.inviteCode.value = code;
+        app.hud.inviteStatus(t('邀请码已生成：把上面这段发给一位朋友（他会得到一个回答码）'), true);
+      } catch (err) {
+        app.hud.inviteStatus(err?.message || t('邀请码生成失败'), false);
+      }
+    },
+    onCopy: async (text) => {
+      if (!text) return;
+      try { await navigator.clipboard.writeText(text); app.hud.inviteStatus(t('已复制'), true); }
+      catch { app.hud.el.inviteCode.select?.(); app.hud.inviteStatus(t('复制失败：请手动选中复制（Ctrl/Cmd+C）'), false); }
+    },
+    onAccept: async (text) => {
+      const ch = inviteChannel();
+      if (!ch) {
+        app.hud.inviteStatus(t('先创建房间（房主才有邀请码）'), false);
+        return;
+      }
+      app.hud.inviteStatus(t('正在配对…'));
+      try {
+        await ch.acceptAnswer(text);
+        app.hud.inviteStatus(t('配对成功：这位朋友已经连上你了，他现在能进这一局'), true);
+        app.hud.toast(t('朋友已直连进来'), 3200);
+      } catch (err) {
+        app.hud.inviteStatus(err?.message || t('回答码用不了'), false);
+      }
+    },
+    onJoin: async (text) => {
+      app.hud.inviteStatus(t('正在连接房主…'));
+      try {
+        const res = await joinByInvite(text);
+        app.hud.el.inviteCode.value = res.answer;
+        app.hud.inviteStatus(t('已接上房主，房号 {code}：把上面这段回答码发回给房主', { code: formatCode(res.room) }), true);
+      } catch (err) {
+        app.hud.inviteStatus(err?.message || t('邀请码用不了'), false);
+      }
+    },
+    onStun: (on) => {
+      // Off by default: with no STUN server the two browsers must see each
+      // other directly, which is exactly "nothing external". On: a public
+      // address-lookup service helps two home networks find each other.
+      setStun(on ? 'stun.l.google.com:19302' : '');
+      store.set('tf.stun', on ? '1' : '');
+      app.hud.inviteStatus(on ? t('已打开跨网络支持（下次生成邀请码时生效）') : t('已关闭跨网络支持：只连同一网络内的朋友'));
+    },
+    onClose: () => app.hud.closeInvite(),
+  });
+  setStun(getStun() || (store.get('tf.stun') ? 'stun.l.google.com:19302' : ''));
+}
+
+/**
+ * Where invite codes are made: the room opened by 「创建房间」 if there is one
+ * (that is the channel the match will adopt), else the running match's own.
+ */
+function inviteChannel() {
+  if (app.roomChannel) return app.roomChannel;
+  if (app.net?.createInvite) return app.net;
+  return null;
+}
+
+function openInvite(mode) {
+  app.hud.openInvite(mode, { room: app.relayHostCode || app.roomCode || '', stun: !!getStun() });
+}
+
+/** Guest side of the invite exchange: learn the room, connect, return an answer. */
+async function joinByInvite(text) {
+  const parsed = await parseCode(text);
+  if (!parsed || parsed.kind !== 'invite') throw new Error(t('这不像一个邀请码：它应以 TFi1 开头（回答码是发给房主的）'));
+  const room = String(parsed.room || '').replace(/\D/g, '');
+  if (room.length !== 8) throw new Error(t('邀请码里的房号不对：请让房主重新生成一个'));
+  app.roomMode = 'join';
+  app.roomCode = room;
+  profile.save({ roomMode: 'join', room });
+  app.hud.setRoomMode('join', room);
+  await connectRelay({ room, solo: false });
+  const res = await app.net.acceptInvite(text);
+  if (res.room) { app.relayHostCode = ''; }
+  app.hud.setRoomCode('');
+  return { room: res.room || room, answer: res.answer };
+}
+
 function setupMenu() {
   // Everything personal lives in this browser only (see profile.js): the name,
   // the loadout, the room codes and the local stats. No database anywhere.
@@ -531,7 +734,35 @@ function setupMenu() {
       app.hud.menuError('');
       app.hud.setRoomMode(m, app.roomCode);
     },
+    // One click, one room: hosting starts immediately instead of waiting for
+    // the deploy button (and for a broker probe that no longer exists).
+    onHost: async () => {
+      app.hud.menuError('');
+      if (app.relayHostCode) {
+        app.hud.toast(t('房间 {code} 已经开着了：把房号发给朋友，或按 Esc →「邀请朋友」生成跨电脑邀请码',
+          { code: formatCode(app.relayHostCode) }), 4200);
+        return;
+      }
+      app.sfx.ui();
+      const ok = await hostNow();
+      if (!ok) return;
+      enterMulti();
+    },
+    onInvite: () => {
+      app.hud.menuError('');
+      openInvite(app.relayHostCode ? 'host' : 'guest');
+    },
     onRoomCode: () => app.hud.menuError(''),
+    // The class screen's copy button: same words as the HUD chip.
+    onCopyLink: async () => {
+      const code = app.relayHostCode || app.roomCode || '';
+      if (!code) { app.hud.menuError(t('还没有房间：先点「创建房间」')); return; }
+      const ok = await app.hud.copyRoomLink();
+      app.hud.menuError('');
+      app.hud.toast(ok
+        ? t('邀请链接已复制：朋友打开就是加入房号 {code}', { code: formatCode(code) })
+        : t('房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）', { code: formatCode(code) }), 3200);
+    },
     onTutorial: () => {
       app.hud.menuError('');
       app.tut?.open();
@@ -697,12 +928,14 @@ function setupServerAddress() {
 // Built per call rather than stored as a constant: the nudge itself is
 // translated, so it has to be rebuilt when the language changes.
 const staticHint = () => t('连不上服务器：单机可以在这里直接开打（引擎在页面里跑），'
-  + '多人则创建房间、把房号发给朋友即可（房主的浏览器运行对局，通过公共中转连接）。'
+  + '多人则点「创建房间」，把 8 位房号发给朋友（同一个浏览器多开标签页），'
+  + '或用「邀请朋友」的邀请码跨电脑直连——房主的浏览器运行整局，不经过任何服务器。'
   + '想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。');
 
 /** The menu line a static copy of the page shows: how multiplayer works here. */
 const localEngineHint = () => t('静态托管：单机与多人都不需要服务器——'
-  + '点「创建房间」你就是房主，把 8 位房号发给朋友，他们就能进来（公共中转连接）。');
+  + '点「创建房间」你就是房主：把 8 位房号发给朋友（同一浏览器多开标签页即可进），'
+  + '或用「邀请朋友」的邀请码让另一台电脑直连过来。');
 
 function showStaticHint() {
   const configured = !!(app.hud.serverAddress || app.serverPick);
@@ -793,8 +1026,10 @@ function netHandlers(label) {
       else app.hud.menuError(text);
     },
     onClose: () => {
-      if (!app.playing) return;
+      if (!app.playing || app.leaving) return;
       app.playing = false;
+      app.paused = false;
+      app.hud.hidePause();
       app.controls.releaseLock();
       app.hud.screen('menu');
       app.hud.menuError(app.net?.mode === 'relay'
@@ -802,6 +1037,14 @@ function netHandlers(label) {
         : t('与服务器断开连接'));
     },
     onError: (text) => app.hud.menuError(text || t('无法连接服务器（{host}）', { host: label })),
+    // A friend on another computer connected straight to this browser: nobody
+    // else on the page can tell the player that, so say it here.
+    onPeers: (n) => {
+      if (!n) return;
+      const text = t('一位朋友已直连进来（当前 {n} 条直连）', { n });
+      if (app.playing) app.hud.toast(text, 3400);
+      else app.hud.menuError(text);
+    },
   };
 }
 
@@ -884,7 +1127,12 @@ async function connectLocal() {
  */
 async function connectRelay(opts = {}) {
   const hosting = !opts.room;
-  const code = hosting ? createRoomCode() : String(opts.room).replace(/\D/g, '');
+  // Creating a room is its own step now (`hostNow`): if this browser is already
+  // hosting, deploying must join *that* room instead of quietly making a new
+  // one and losing the code the player just sent to their friends.
+  const code = hosting
+    ? (app.relayHostCode || createRoomCode())
+    : String(opts.room).replace(/\D/g, '');
   const url = `relay://${code}`;
   if (app.net && (!app.net.connected || app.netUrl !== url)) {
     app.net.close();
@@ -893,14 +1141,17 @@ async function connectRelay(opts = {}) {
   }
   if (!app.net) {
     const label = hosting
-      ? t('本机房主（浏览器内引擎 + 公共中转）')
-      : t('公共中转 · 房号 {code}', { code: formatCode(code) });
+      ? t('本机房主（浏览器内引擎，别人直接连你）')
+      : t('房号 {code}', { code: formatCode(code) });
     app.net = hosting
       ? new RelayHostNet(netHandlers(label), { code })
       : new RelayNet(netHandlers(label), { code });
+    // The room opened from the menu is the same one the match will use.
+    app.deployChannel = hosting ? app.roomChannel : null;
     app.netUrl = url;
     try {
-      await app.net.connect('', { code });
+      await app.net.connect('', { code, channel: app.deployChannel });
+      app.deployChannel = null;
       app.relayKind = app.net.relayKind || '';
       app.relayLabel = app.net.relayLabel || '';
       app.relayHostCode = hosting ? code : '';
@@ -914,6 +1165,41 @@ async function connectRelay(opts = {}) {
     }
   }
   return url;
+}
+
+/**
+ * What the menu's "create a room" button does: open the room *now*, so the code
+ * exists before the match does -- it can be read out, copied as a link, or
+ * turned into an invite code while the player is still picking a class. Waiting
+ * for a broker probe used to make this button look dead for a quarter of a
+ * minute, which is exactly what players reported.
+ */
+async function hostNow() {
+  app.roomMode = 'create';
+  app.roomCode = '';
+  profile.save({ roomMode: 'create' });
+  app.hud.setRoomMode('create');
+  try {
+    if (!app.roomChannel || app.roomChannel.room !== app.relayHostCode || !app.relayHostCode) {
+      const code = app.relayHostCode || createRoomCode();
+      // Just the channel: the code is ready in milliseconds, and the engine
+      // boots later, when the match is actually deployed.
+      app.roomChannel = await openRoomChannel(code, {
+        onMessage: (topic, text) => app.net?._onRelay?.(text),
+      });
+      app.relayHostCode = code;
+      app.relayKind = app.roomChannel.kind;
+      app.relayLabel = app.roomChannel.label;
+    }
+  } catch (err) {
+    app.hud.menuError(err?.message || t('联机通道不可用'));
+    return false;
+  }
+  app.hud.setRoomCode(app.relayHostCode);
+  app.hud.setRoomLink(joinLink(app.relayHostCode));
+  app.hud.toast(t('房间已创建 · 房号 {code}：把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑联机',
+    { code: formatCode(app.relayHostCode) }), 6000);
+  return true;
 }
 
 async function deploy(opts) {
@@ -947,7 +1233,7 @@ async function deploy(opts) {
   // the only way to reach them is a room hosted by one of the players.
   candidates.push(opts.solo
     ? { host: t('浏览器内引擎'), local: true }
-    : { host: t('公共中转（房主在本机运行对局）'), relay: true });
+    : { host: t('浏览器内的房间（房主运行对局，朋友直连你）'), relay: true });
 
   let url = null;
   let reached = null;
@@ -961,12 +1247,13 @@ async function deploy(opts) {
       if (server.local) {
         notes.push(t('静态托管：对局由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）'));
       } else if (server.relay) {
-        notes.push(app.net.relayKind === 'tab'
-          ? t('没连上公共中转：同一浏览器多开标签页照样能对战')
-          : (opts.room
-            ? t('已通过公共中转加入房间（房主：{host}）', { host: shortRelayHost(app.relayLabel) })
-            : t('房主模式：这一局在你这里运行，把房号发给朋友 · 中转 {host}',
-              { host: shortRelayHost(app.relayLabel) })));
+        notes.push(!opts.room
+          ? (app.net.peers
+            ? t('房主模式：这一局在你这里运行，已有 {n} 条跨电脑直连', { n: app.net.peers })
+            : t('房主模式：这一局在你这里运行——把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑直连'))
+          : (app.net.peers
+            ? t('已直连房主（跨电脑点对点，没有经过任何服务器）')
+            : t('已加入房间：对局在房主的浏览器里运行（同一浏览器的标签页之间直通）')));
         if (opts.room) app.hud.setRoomMode('join', String(opts.room).replace(/\D/g, ''));
       } else if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
@@ -1182,20 +1469,21 @@ function wireControls() {
   };
   // Crouching and standing both click, matching the view toggle's feedback.
   c.onStance = () => app.sfx.ui();
-  c.onLockChange = () => updateLockHint();
-  // Pointer lock refused (embedded preview pane, iframe without the permission):
-  // the controls switch to cursor steering, so explain the new controls once
-  // instead of leaving the player with a mouse that seems dead.
+  c.onLockChange = (locked) => {
+    if (locked) app.mouseFreed = false;
+    updateLockHint();
+  };
+  // Pointer lock refused (a page embedded in an iframe without the permission,
+  // a sandboxed preview pane): say so once, with the one thing that does help
+  // -- opening this page in a tab of its own -- instead of leaving the player
+  // with a mouse that seems dead.
   c.onLookMode = (mode) => {
-    if (mode === 'steer') {
-      // Remembered: "this environment will not lock the mouse", which changes
-      // what the resume prompt can promise (see updateLockHint).
+    if (mode === 'unavailable') {
       app.lockRefused = true;
-      // The hint is held for a few seconds by updateLockHint (which runs every
-      // frame), so this needs no timer of its own.
-      app._steerHintUntil = performance.now() + STEER_HINT_MS;
-      app.hud.toast(t('当前环境无法锁定鼠标：已切换为「光标转向」'), 4200);
+      app.hud.toast(t('这个页面（多半是被嵌在 iframe 里）不允许锁定鼠标：请在新标签页打开本页，鼠标就能正常转视角'), 5200);
     }
+    // Esc: the mouse is free until the player clicks the view again.
+    if (mode === 'free') app.mouseFreed = true;
     // Every look-mode change redraws the prompt here rather than leaving it to
     // the next frame: a page whose frame loop is paused (a background tab, a
     // guest whose tab the browser is throttling) still has to show that the
@@ -1208,9 +1496,6 @@ function wireControls() {
 }
 
 /** `wss://broker.emqx.io:8084/mqtt` -> `broker.emqx.io`, for the menu line. */
-const shortRelayHost = (url) => {
-  try { return new URL(url).host; } catch { return url || ''; }
-};
 
 /** The link a relay host can send: it carries the code into the join field. */
 function joinLink(code) {
@@ -1231,29 +1516,30 @@ const formatCode = (code) => {
   return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 };
 
-const steerHint = () => t('把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；')
-  + t('按住鼠标拖动可精确瞄准，方向键也能转身。按 Esc 可释放光标，点击画面继续。');
-// Shown for as long as the mouse is free in an environment that refuses pointer
-// lock: the cursor is out and the way back into the fight is a click, so say so
-// instead of leaving the player wondering what happened (that was the bug: Esc
-// used to leave cursor steering on with no way to turn it off).
-const resumeHint = () => t('已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）');
-const STEER_HINT_MS = 15000;
+// Shown while the mouse is free in a page that refuses pointer lock: the way
+// back into the fight is a tab of its own, so say that instead of leaving the
+// player clicking a mouse that never comes back.
+const noLockHint = () => t('浏览器不允许这个页面锁定鼠标（多半是 iframe 预览面板）：'
+  + '点上面的「在新标签页打开」就能正常用鼠标转视角。现在可以用方向键转身。');
+// Shown after Esc, in a page that *can* lock the mouse: one click and the view
+// is yours again.
+const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠标重新被锁定，按 Esc 再次释放）');
 
 /**
  * Drives the one prompt slot every frame:
  *  - pointer lock available and not held -> the big "click the screen" prompt;
- *  - pointer lock refused -> the steering hint, for a few seconds after the
- *    switch, then the smaller "click to continue" line while the mouse is out.
+ *  - pointer lock refused -> the same slot, saying why and offering a tab of
+ *    its own (the button lives in the slot, see hud.setLockHint).
  */
 function updateLockHint(alive = true) {
   const c = app.controls;
-  const live = app.playing && alive && !app.deathShown;
-  if (c.steer && live && performance.now() < app._steerHintUntil) {
-    app.hud.setLockHint(true, steerHint());
+  // The pause menu owns the screen while it is up: no prompt underneath it.
+  const live = app.playing && !app.paused && alive && !app.deathShown;
+  if (live && !c.canLook && app.lockRefused) {
+    app.hud.setLockHint(true, noLockHint(), t('无法锁定鼠标'), true);
     return;
   }
-  if (live && !c.canLook && app.lockRefused) {
+  if (live && !c.canLook && app.mouseFreed) {
     app.hud.setLockHint(true, resumeHint(), t('光标已释放'));
     return;
   }
@@ -1974,7 +2260,11 @@ function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, app.last ? (now - app.last) / 1000 : 0.016);
   app.last = now;
-  if (app.playing) tick(dt, now);
+  // Paused (Esc menu): the clock still runs for the effects that are already in
+  // the air, but the match itself is frozen -- no input is sent, and a room
+  // this browser is hosting stops advancing for everybody, which is what a
+  // pause means.
+  if (app.playing && !app.paused) tick(dt, now);
   updateTracers(now);
   // Muzzle flashes, smoke, brass and the punch decay all ride one clock.
   app.gunfx?.update(dt);

@@ -10,26 +10,18 @@ import { yawToRotation } from './character.js';
 
 const PITCH_LIMIT = 88;
 
-// Pointer lock is the normal way to look around, but it is not always granted:
-// a page embedded in an iframe that lacks the pointer-lock permission, or a
-// sandboxed preview pane, is refused outright -- there is no permission prompt
-// to accept, requestPointerLock() just fails. Before this fallback existed the
-// mouse did nothing at all in those frames, so the game looked broken (aim and
-// fire both dead) even though everything else worked. When lock is refused the
-// controls switch to "steer" look instead:
+// Looking around is pointer lock and nothing else: the mouse is captured, the
+// view follows the raw movement, and Esc gives the mouse back. There used to be
+// a second way -- "cursor steering", which turned the view by pushing the
+// cursor towards the edges of the screen -- and it was a trap in a fight: aim
+// chased the cursor, a stray bump spun the camera, and the mode could only be
+// left by pressing Esc, which most players never guessed. It is gone. Where a
+// browser refuses pointer lock outright (a page embedded in an iframe without
+// the permission), the game says so and offers to open itself in a tab of its
+// own instead of inventing a second control scheme.
 //
-//   * the view turns while the cursor is pushed away from the middle of the
-//     screen: left/right of centre yaws, near the top or bottom edge pitches;
-//   * holding either mouse button drags the aim directly, like a touchpad, for
-//     the precision shots (this works while firing, so aiming never stops);
-//   * the arrow keys turn as well.
-//
-// Fire, ADS, crouch, jump, reload and abilities are untouched by the fallback.
-const STEER_YAW_RATE = 165;      // deg/s at full deflection
-const STEER_PITCH_RATE = 105;
-const STEER_DEADZONE_X = 0.16;   // fraction of the half-width that never turns
-const STEER_DEADZONE_Y = 0.42;   // middle band is aim-safe: only the edges pitch
-const DRAG_LOOK_SCALE = 1.35;
+// The arrow keys can always turn the view as well: keyboard-only players, and
+// anyone whose mouse is busy, still get to look around.
 const ARROW_YAW_RATE = 135;
 const ARROW_PITCH_RATE = 95;
 
@@ -67,11 +59,9 @@ export class Controls {
     this.moveSpeed = 0;
     this.enabled = false;
     this.locked = false;
-    // Pointer lock refused -> cursor steering (see the notes at the top).
-    this.steer = false;
-    this.pointerX = 0;
-    this.pointerY = 0;
-    this.pointerInside = false;
+    // Set once pointer lock has actually been refused (see _lockFailed): only
+    // then is the page worth telling the player about.
+    this.lockUnavailable = false;
 
     this.sensitivity = 0.0022;
     this.speedMult = 1;
@@ -87,8 +77,12 @@ export class Controls {
     this.onChat = null;
     this.onViewToggle = null;
     this.onLockChange = null;
-    // Fired with 'steer' the moment pointer lock turns out to be unavailable.
+    // Fired with 'unavailable' when the browser refuses the lock, and with
+    // 'free' when the mouse is handed back.
     this.onLookMode = null;
+    // Esc was pressed during a match: the game opens its pause menu here (the
+    // mouse itself has already been handed back by releaseLook).
+    this.onEscape = null;
 
     this._lockWatch = null;
     // A lock request right after the player pressed Esc is refused by Chrome
@@ -113,29 +107,14 @@ export class Controls {
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
     window.addEventListener('mousemove', (e) => {
-      // Cursor position drives steer look, so it is tracked in every mode.
-      if (typeof e.clientX === 'number') {
-        this.pointerX = e.clientX;
-        this.pointerY = e.clientY;
-        this.pointerInside = true;
-      }
       if (!this.canLook || !this.enabled || typing()) return;
-      // Steered look only reads raw deltas while a button is held (drag-look);
-      // otherwise the cursor position steers it from update().
-      if (this.steer && !(this.mouse.left || this.mouse.right)) return;
       // yaw grows clockwise (0 = +X, 90 = +Z), so mouse-right must add.
-      const k = this.sensitivity * 57.2958 * (this.steer ? DRAG_LOOK_SCALE : 1);
+      const k = this.sensitivity * 57.2958;
       this.yaw += e.movementX * k;
       this.pitch -= e.movementY * k;
       this.yaw = ((this.yaw % 360) + 360) % 360;
       this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
     });
-    // The cursor leaving the window must stop the turn: a stale position would
-    // otherwise keep the view spinning at full rate with no way to stop it.
-    window.addEventListener('mouseout', (e) => {
-      if (!e.relatedTarget) this.pointerInside = false;
-    });
-
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
       if (!this.locked) {
@@ -154,8 +133,9 @@ export class Controls {
       if (e.code === 'Tab') { e.preventDefault(); this.onScoreboard?.(true); return; }
       if (e.code.startsWith('Arrow')) e.preventDefault();
       if (!this.enabled || typing()) return;
-      // Esc always hands the mouse back, in both look modes (see releaseLook).
-      if (e.code === 'Escape') { this.releaseLook(); return; }
+      // Esc hands the mouse back (see releaseLook) and opens the pause menu:
+      // one key, and the player can carry on, change settings or leave.
+      if (e.code === 'Escape') { this.releaseLook(); this.onEscape?.(); return; }
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'KeyR') this.onReload?.();
@@ -172,18 +152,17 @@ export class Controls {
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.mouse.left = false;
-      this.pointerInside = false;
       this.onAbilityCancel?.();
     });
   }
 
-  /** True when the mouse can turn the view: either locked or steered. */
+  /** True when the mouse turns the view: it is captured, or not at all. */
   get canLook() {
-    return this.locked || this.steer;
+    return this.locked;
   }
 
   requestLock() {
-    if (this.steer || this.locked) return;
+    if (this.locked) return;
     const el = this.canvas;
     if (!el || typeof el.requestPointerLock !== 'function') { this._lockFailed(); return; }
     try {
@@ -207,8 +186,9 @@ export class Controls {
   }
 
   /**
-   * Pointer lock is unavailable here. Turn on cursor steering instead of
-   * leaving the player with a dead mouse, and let the HUD explain the switch.
+   * Pointer lock was refused. There is nothing to fall back to any more: the
+   * only thing worth doing is telling the player why the mouse is dead, once,
+   * so the HUD can point at opening the page in a tab of its own.
    */
   _lockFailed() {
     clearTimeout(this._lockWatch);
@@ -216,12 +196,9 @@ export class Controls {
     // moment after): that is not a verdict on this page, so stay out of the way
     // and let them click again.
     if (performance.now() < this._lockCooldownUntil) return;
-    if (this.steer) return;
-    this.steer = true;
-    this.mouse.left = false;
-    this.mouse.right = false;
-    this.pointerInside = false;
-    this.onLookMode?.('steer');
+    if (this.lockUnavailable) return;
+    this.lockUnavailable = true;
+    this.onLookMode?.('unavailable');
   }
 
   releaseLock() {
@@ -232,18 +209,12 @@ export class Controls {
   /**
    * Esc: give the mouse back.
    *
-   * The locked case is the browser's own doing -- Esc exits pointer lock and
-   * the pointerlockchange handler cleans up -- except that Chrome then refuses
-   * another lock for about a second, and *that* refusal used to be read as
-   * "pointer lock is unavailable here", which dropped the player into cursor
-   * steering they had not asked for.
-   *
-   * The steered case had no way out at all: Esc does nothing while there is no
-   * lock to exit, so the view kept turning with the cursor and the only exit
-   * was reloading the page. Here it is deliberate: steering off, keys and
-   * buttons released, and the "click to continue" prompt comes back -- clicking
-   * re-locks if this environment allows it, and re-enters steering if it does
-   * not.
+   * In a locked game this is the browser's own doing -- Esc exits pointer lock
+   * and the pointerlockchange handler cleans up -- except that Chrome then
+   * refuses another lock for about a second, and that refusal must not be read
+   * as "this page cannot lock the mouse". Here the release is deliberate:
+   * keys and buttons are dropped, the "click to continue" prompt comes back,
+   * and clicking the view takes the mouse again.
    */
   releaseLook() {
     clearTimeout(this._lockWatch);
@@ -252,30 +223,16 @@ export class Controls {
     this.mouse.left = false;
     this.mouse.right = false;
     this.onAbilityCancel?.();
-    const steered = this.steer;
-    if (steered) {
-      this.steer = false;
-      this.pointerInside = false;
-      this.onLookMode?.('free');
-    }
     if (this.locked || document.pointerLockElement === this.canvas) {
       document.exitPointerLock?.();
     }
+    this.onLookMode?.('free');
   }
 
-  // ------------------------------------------------------------ steer look
+  // ------------------------------------------------------- keyboard look
 
-  /** Turn the view from the cursor's offset from the middle of the screen. */
-  _steerLook(dt) {
-    const w = innerWidth || 1;
-    const h = innerHeight || 1;
-    const nx = this.pointerInside ? (this.pointerX / w) * 2 - 1 : 0;
-    const ny = this.pointerInside ? (this.pointerY / h) * 2 - 1 : 0;
-    this.yaw += ramp(nx, STEER_DEADZONE_X) * STEER_YAW_RATE * dt;
-    this.pitch -= ramp(ny, STEER_DEADZONE_Y) * STEER_PITCH_RATE * dt;
-
-    // Arrow keys: the same turn, at a constant rate, for players who cannot
-    // push the cursor to the far edge of a small window.
+  /** Arrow-key look: the same turn the mouse makes, at a constant rate. */
+  _arrowLook(dt) {
     const k = this.keys;
     if (k.has('ArrowLeft')) this.yaw -= ARROW_YAW_RATE * dt;
     if (k.has('ArrowRight')) this.yaw += ARROW_YAW_RATE * dt;
@@ -350,9 +307,9 @@ export class Controls {
       this.moveSpeed = 0;
       return;
     }
-    // Steered look is driven from the frame loop (the cursor itself is the
-    // input), but never while the chat box has the keyboard.
-    if (this.steer && !typing()) this._steerLook(dt);
+    // Arrow-key look is driven from the frame loop, but never while the chat
+    // box has the keyboard.
+    if (!typing()) this._arrowLook(dt);
 
     let fx = 0, fz = 0;
     if (k.has('KeyW')) fx += 1;
@@ -428,15 +385,4 @@ export class Controls {
 
   /** Yaw/pitch for a headless spectator ViewModel — unused but kept symmetrical. */
   get rotationY() { return yawToRotation(this.yaw); }
-}
-
-/**
- * Deflection curve for steered look: nothing inside the dead zone, then a
- * smooth-step ramp so small offsets aim gently and the edges turn fast.
- */
-function ramp(v, dead) {
-  const a = Math.abs(v);
-  if (a <= dead) return 0;
-  const t = Math.min(1, (a - dead) / (1 - dead));
-  return Math.sign(v) * t * t * (3 - 2 * t);
 }
