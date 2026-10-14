@@ -20,6 +20,7 @@
 <!-- ================================ 主菜单 ================================ -->
 <section id="screen-menu" class="screen">
   <div class="menu-bg"></div>
+  <button id="lang-toggle" class="lang-chip" type="button" title="界面语言 / Interface language">EN</button>
   <div class="menu-inner">
     <h1 class="logo">
       <span class="logo-cn">堑壕前线</span>
@@ -173,6 +174,15 @@
     </div>
 
     <div class="rig-shared-block">
+      <h3 class="rig-h3">界面语言</h3>
+      <div class="lang-row">
+        <button id="lang-zh" class="room-btn" type="button">中文</button>
+        <button id="lang-en" class="room-btn" type="button">English</button>
+      </div>
+      <p class="hint dim">语言将立即生效并记住。</p>
+    </div>
+
+    <div class="rig-shared-block">
       <h3 class="rig-h3">本地存档（只存在这台电脑上）</h3>
       <p id="local-note" class="hint dim"></p>
       <div class="local-actions">
@@ -300,6 +310,11 @@
   <p class="boot-text">正在装载地图…</p>
 </div>
 
+<script type="module">
+  // Static markup is translated before the app boots; main.js runs the rest.
+  import { applyDom } from './js/i18n.js';
+  applyDom();
+</script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

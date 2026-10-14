@@ -22,6 +22,7 @@ import { store, session } from './storage.js';
 import * as profile from './profile.js';
 import { Tutorial } from './tutorial.js';
 import { setApiBase, apiUrl } from './api.js';
+import { t, nameOf, getLang, setLang, onLangChange } from './i18n.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
   BUILTIN_SKINS, DEFAULT_CLASS_SKIN } from './rig.js';
 
@@ -142,8 +143,8 @@ async function boot() {
   try {
     app.data = await loadConfig();
   } catch (err) {
-    bootFail(`战场数据载入失败：${err.message}`,
-      '请确认服务端已启动，并且这个页面是从服务端地址打开的（http://…，不是直接双击 html 文件）。');
+    bootFail(t('战场数据载入失败：{why}', { why: err.message }),
+      t('请确认服务端已启动，并且这个页面是从服务端地址打开的（http://…，不是直接双击 html 文件）。'));
     return;
   }
 
@@ -155,8 +156,8 @@ async function boot() {
   try {
     app.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   } catch (err) {
-    bootFail(`无法创建 3D 画面（WebGL）：${err.message}`,
-      '请在浏览器设置里打开「使用硬件加速」「使用图形加速」后重开页面；若仍不行，换 Chrome / Edge / Firefox 试试。');
+    bootFail(t('无法创建 3D 画面（WebGL）：{why}', { why: err.message }),
+      t('请在浏览器设置里打开「使用硬件加速」「使用图形加速」后重开页面；若仍不行，换 Chrome / Edge / Firefox 试试。'));
     return;
   }
   app.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -167,7 +168,7 @@ async function boot() {
   // A driver reset (tab suspended for a long time, GPU driver restart) leaves a
   // black screen but the game keeps running. Say so instead of looking frozen.
   canvas.addEventListener('webglcontextlost', () => {
-    app.hud?.toast('显卡上下文丢失，正在尝试恢复…', 4000);
+    app.hud?.toast(t('显卡上下文丢失，正在尝试恢复…'), 4000);
   });
 
   app.scene = new THREE.Scene();
@@ -199,7 +200,7 @@ async function boot() {
     hud: app.hud,
     onUse: (skin) => {
       app.loadout.skin = skin?.id || '';
-      app.hud.setSkinNote(skin ? `当前角色：${skin.name || skin.id}` : '');
+      app.hud.setSkinNote(skin ? t('当前角色：{name}', { name: nameOf(skin) || skin.id }) : '');
     },
   });
   setupServerAddress();
@@ -214,6 +215,7 @@ async function boot() {
   for (const skin of Object.values(BUILTIN_SKINS)) ensureTemplate(skin.id, skin);
 
   setupMenu();
+  setupLanguage();
   setupTutorial();
   wireControls();
   app.hud.screen('menu');
@@ -255,7 +257,7 @@ async function refreshCharLibrary() {
   const saved = store.get('tf.skinId') || '';
   const meta = app.charMeta.get(saved);
   app.loadout.skin = meta ? meta.id : '';
-  app.hud.setSkinNote(meta ? `当前角色：${meta.name || meta.id}` : '');
+  app.hud.setSkinNote(meta ? t('当前角色：{name}', { name: nameOf(meta) || meta.id }) : '');
 }
 
 // Weak Intel iGPUs (HD 4600 era, 2020 drivers) silently turn a texture's very
@@ -324,12 +326,53 @@ function makeRemoteGirl(cls, team, skinId) {
 // --------------------------------------------------------------------- menu
 
 /**
+ * Language switch: a chip in the menu corner, and a pair of buttons on the
+ * settings screen. i18n.js owns the choice (it is applied when the module is
+ * imported, so the first paint is already in the right language); this only
+ * paints the controls and re-renders the bits of the menu that were built
+ * before the switch: the error line, the room list and the local panel.
+ */
+function setupLanguage() {
+  const chip = document.getElementById('lang-toggle');
+  const zh = document.getElementById('lang-zh');
+  const en = document.getElementById('lang-en');
+
+  const paint = () => {
+    const l = getLang();
+    // The chip offers the *other* language, which is what a player looking for
+    // a way out of Chinese wants to see.
+    if (chip) chip.textContent = l === 'en' ? '中文' : 'EN';
+    zh?.classList.toggle('on', l === 'zh');
+    en?.classList.toggle('on', l === 'en');
+  };
+
+  const choose = (lang) => {
+    if (lang === getLang()) { paint(); return; }
+    setLang(lang);
+    app.sfx?.ui();
+    app.hud.menuError('');
+    showStaticHint();
+    refreshRoomList();
+    setupLocalPanel.render();
+    paint();
+  };
+
+  chip?.addEventListener('click', () => choose(getLang() === 'en' ? 'zh' : 'en'));
+  zh?.addEventListener('click', () => choose('zh'));
+  en?.addEventListener('click', () => choose('en'));
+  onLangChange(paint);
+  paint();
+}
+
+/**
  * Settings screen: show the player exactly what this browser stores, let them
  * export it, and let them wipe it. The game keeps no server-side profile, so
  * this panel is the whole story of "my data".
  */
 function setupLocalPanel() {
   const note = document.getElementById('local-note');
+  // setupLanguage() re-runs render() when the interface language changes.
+  setupLocalPanel.render = () => {};
   const exportBtn = document.getElementById('local-export');
   const resetBtn = document.getElementById('local-reset');
   if (!note) return;
@@ -337,16 +380,20 @@ function setupLocalPanel() {
     const sum = profile.summary();
     const st = sum.stats;
     const lines = [
-      `名字：${sum.name || '（未设置）'}`,
-      `最近房号：${sum.room || '（还没进过房间）'}`,
-      `战绩：${st.matches} 局 · ${st.kills} 击杀 · ${st.deaths} 阵亡 · 胜 ${st.wins}`,
-      `新手指引：${sum.tutorialDone ? '已完成' : '未完成'}`,
+      t('名字：{name}', { name: sum.name || t('（未设置）') }),
+      t('最近房号：{code}', { code: sum.room || t('（还没进过房间）') }),
+      t('战绩：{matches} 局 · {kills} 击杀 · {deaths} 阵亡 · 胜 {wins}', {
+        matches: st.matches, kills: st.kills, deaths: st.deaths, wins: st.wins,
+      }),
+      t('新手指引：{state}', { state: sum.tutorialDone ? t('已完成') : t('未完成') }),
       sum.persistent
-        ? '存储位置：本机 localStorage（不会上传到服务器，也没有账号系统）'
-        : '注意：这个环境禁止了本地存储，本次数据只在内存里，刷新即失效',
+        ? t('存储位置：本机 localStorage（不会上传到服务器，也没有账号系统）')
+        : t('注意：这个环境禁止了本地存储，本次数据只在内存里，刷新即失效'),
     ];
     note.innerHTML = lines.join('<br>');
   };
+  setupLocalPanel.render = render;
+  onLangChange(render);
   render();
 
   exportBtn?.addEventListener('click', () => {
@@ -357,18 +404,18 @@ function setupLocalPanel() {
     a.download = 'trench-front-profile.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-    app.hud.toast('存档已导出到下载文件夹', 2200);
+    app.hud.toast(t('存档已导出到下载文件夹'), 2200);
   });
 
   resetBtn?.addEventListener('click', () => {
-    if (!window.confirm('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？')) return;
+    if (!window.confirm(t('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？'))) return;
     profile.reset();
     for (const key of ['tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig']) store.remove(key);
     app.hud.setRoomMode('create', '');
     app.hud.setRoomHistory([]);
     app.hud.setServerAddress('');
     app.hud.el.name.value = '';
-    app.hud.toast('本机数据已清空', 2200);
+    app.hud.toast(t('本机数据已清空'), 2200);
     render();
   });
 }
@@ -391,7 +438,7 @@ function setupTutorial() {
     onFinish: (completed) => {
       profile.save({ tutorialDone: true });
       app.hud.menuError('');
-      app.hud.toast(completed ? '新手指引完成，祝你玩得开心' : '随时可以在主菜单重新打开新手指引', 2600);
+      app.hud.toast(completed ? t('新手指引完成，祝你玩得开心') : t('随时可以在主菜单重新打开新手指引'), 2600);
     },
   });
   // First visit: offer the walkthrough instead of leaving the player to guess.
@@ -436,7 +483,7 @@ function setupMenu() {
   const roomProblem = () => {
     if (!multiNeedsCode()) return '';
     const code = app.hud.joinCode;
-    if (code.length !== 8) return '请输入房主给你的 8 位房号（例如 1234 5678）';
+    if (code.length !== 8) return t('请输入房主给你的 8 位房号（例如 1234 5678）');
     return '';
   };
   const enterMulti = () => {
@@ -529,7 +576,7 @@ function normalizeServer(raw) {
   try {
     url = new URL(explicit ? text : `http://${text}`);
   } catch {
-    throw new Error(`服务器地址无效：${text}`);
+    throw new Error(t('服务器地址无效：{text}', { text }));
   }
   // A typed full URL knows better than this page does: on an https deployment the
   // game server has to be https too (the browser blocks a ws:// socket from a
@@ -600,21 +647,26 @@ function setupServerAddress() {
  * the line is an offer, not a complaint: type an address to play on a hosted
  * server instead, with other people.
  */
-const STATIC_HINT = '当前是静态托管：对局将由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）。'
+// Built per call rather than stored as a constant: the nudge itself is
+// translated, so it has to be rebuilt when the language changes.
+const staticHint = () => t('当前是静态托管：对局将由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）。'
   + '想联机就在下方「服务器地址」填入后端地址（例如 your-app.onrender.com），'
-  + '或按 README「部署」用 Render / Docker 整体部署';
+  + '或按 README「部署」用 Render / Docker 整体部署');
 
 function showStaticHint() {
   const configured = !!(app.hud.serverAddress || app.serverPick);
+  const shown = app.staticHint;
+  app.staticHint = false;
   // A page that runs the engine itself needs no nudge at all: the menu's
   // deploy button already works.
   if (app.localEngine) {
-    if (app.hud.el.menuError.textContent === STATIC_HINT) app.hud.menuError('');
+    if (shown) app.hud.menuError('');
     return;
   }
   if (!configured && app.backendHere === false) {
-    app.hud.menuError(STATIC_HINT);
-  } else if (configured && app.hud.el.menuError.textContent === STATIC_HINT) {
+    app.staticHint = true;
+    app.hud.menuError(staticHint());
+  } else if (configured && shown) {
     // A server address turned up (remembered, or ?server=): the nudge is stale.
     app.hud.menuError('');
   }
@@ -654,9 +706,9 @@ function netHandlers(label) {
       app.playing = false;
       app.controls.releaseLock();
       app.hud.screen('menu');
-      app.hud.menuError('与服务器断开连接');
+      app.hud.menuError(t('与服务器断开连接'));
     },
-    onError: () => app.hud.menuError(`无法连接服务器（${label}）`),
+    onError: () => app.hud.menuError(t('无法连接服务器（{host}）', { host: label })),
   };
 }
 
@@ -711,11 +763,14 @@ async function connectLocal() {
     app.netUrl = null;
   }
   if (!app.net) {
-    app.net = new LocalNet(netHandlers('浏览器内引擎'));
+    app.net = new LocalNet(netHandlers(t('浏览器内引擎')));
     app.netUrl = url;
     try {
       await app.net.connect('');
     } catch (err) {
+      // The menu only says "cannot connect": a boot failure (a missing Pyodide
+      // file, inconsistent engine data) deserves its own console line.
+      console.error('[trench] the in-page engine failed to start', err);
       app.net.close();
       app.net = null;
       app.netUrl = null;
@@ -752,7 +807,7 @@ async function deploy(opts) {
   // A static origin cannot also be a game server, so it is skipped rather than
   // waited on: the health probe has already said what this origin is.
   if (!app.localEngine) candidates.push(here);
-  candidates.push({ host: '浏览器内引擎', local: true });
+  candidates.push({ host: t('浏览器内引擎'), local: true });
 
   let url = null;
   let reached = null;
@@ -762,13 +817,14 @@ async function deploy(opts) {
       reached = server;
       const notes = [];
       if (server.local) {
-        notes.push('静态托管：对局由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）');
+        notes.push(t('静态托管：对局由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）'));
       } else if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
-        notes.push(`连不上 ${primary.host}，已改用本页面的服务器（${server.host}）`);
+        notes.push(t('连不上 {primary}，已改用本页面的服务器（{host}）',
+          { primary: primary.host, host: server.host }));
       }
       if (app.net.mode === 'poll') {
-        notes.push('本环境不支持 WebSocket，已改用 HTTP 轮询传输（对局照常）');
+        notes.push(t('本环境不支持 WebSocket，已改用 HTTP 轮询传输（对局照常）'));
       }
       app.hud.menuError(notes.join(' · '));
       break;
@@ -777,8 +833,8 @@ async function deploy(opts) {
   if (!url) {
     const failed = candidates.map((c) => c.host).join(' / ');
     app.hud.menuError(app.backendHere === false
-      ? `无法连接服务器（${failed}）· ${STATIC_HINT}`
-      : `无法连接服务器（${failed}）`);
+      ? t('无法连接服务器（{hosts}）· {hint}', { hosts: failed, hint: staticHint() })
+      : t('无法连接服务器（{host}）', { host: failed }));
     return;
   }
   // The room list, the character library and the upload endpoint now follow the
@@ -811,7 +867,7 @@ async function setMap(mapId) {
   const meta = app.data.mapById[mapId] || app.data.mapById[app.data.defaultMapId];
   if (app.mapId === meta.id && app.world) return;
   app.mapLoading = true;
-  app.hud.showMapLoad(`正在装载地图 · ${meta.name}`);
+  app.hud.showMapLoad(t('正在装载地图 · {name}', { name: nameOf(meta) }));
   try {
     let map = app.mapData.get(meta.id);
     if (!map) {
@@ -833,7 +889,7 @@ async function setMap(mapId) {
     // The saved atmosphere belonged to the old map's scene setup.
     app.smokeBase = null;
     app.smokeOn = false;
-    app.hud.setCurrentMap(meta.name);
+    app.hud.setCurrentMap(meta);
   } finally {
     app.mapLoading = false;
     app.hud.hideMapLoad();
@@ -867,7 +923,9 @@ async function onWelcome(m) {
   app.hud.setRoomCode(m.room || '');
   if (m.room) {
     profile.rememberRoom(m.room, app.deployRoom ? 'join' : 'create');
-    app.hud.toast(app.deployRoom ? `已加入房间 ${formatCode(m.room)}` : `房间已创建 · 房号 ${formatCode(m.room)}`, 4200);
+    app.hud.toast(app.deployRoom
+      ? t('已加入房间 {code}', { code: formatCode(m.room) })
+      : t('房间已创建 · 房号 {code}', { code: formatCode(m.room) }), 4200);
     app.hud.setRoomHistory(profile.load().recentRooms);
   }
   app.hud.screen('game');
@@ -889,15 +947,18 @@ async function onWelcome(m) {
   app.tut?.onDeploy();
   app.last = performance.now();
   app.sfx.resume();
-  if (m.botsOn) app.hud.toast('AI 机器人已加入战场', 2600);
-  else app.hud.toast(`阵营：${app.data.teamById[m.team].name}`, 2600);
+  if (m.botsOn) app.hud.toast(t('AI 机器人已加入战场'), 2600);
+  else app.hud.toast(t('阵营：{team}', { team: nameOf(app.data.teamById[m.team]) }), 2600);
   // One match runs at a time on the server (see combat.py), so a map pick
   // cannot always be honoured. Say which map this round is on and why, rather
   // than silently loading something else.
   if (app.deployPick && m.mapId && app.deployPick !== m.mapId) {
     const want = app.data.mapById[app.deployPick];
     const got = app.data.mapById[m.mapId];
-    if (want && got) app.hud.toast(`「${want.name}」正被其他房间占用，本局是「${got.name}」`, 5200);
+    if (want && got) {
+      app.hud.toast(t('「{want}」正被其他房间占用，本局是「{got}」',
+        { want: nameOf(want), got: nameOf(got) }), 5200);
+    }
   }
 }
 
@@ -964,7 +1025,7 @@ function wireControls() {
     app.tut?.notify('view');
     app.cameraMode = app.cameraMode === 'fp' ? 'tp' : 'fp';
     app.sfx.ui();
-    app.hud.toast(app.cameraMode === 'tp' ? '第三人称视角' : '第一人称视角', 1200);
+    app.hud.toast(app.cameraMode === 'tp' ? t('第三人称视角') : t('第一人称视角'), 1200);
   };
   // Crouching and standing both click, matching the view toggle's feedback.
   c.onStance = () => app.sfx.ui();
@@ -977,7 +1038,7 @@ function wireControls() {
     // The hint is held for a few seconds by updateLockHint (which runs every
     // frame), so this needs no timer of its own.
     app._steerHintUntil = performance.now() + STEER_HINT_MS;
-    app.hud.toast('当前环境无法锁定鼠标：已切换为「光标转向」', 4200);
+    app.hud.toast(t('当前环境无法锁定鼠标：已切换为「光标转向」'), 4200);
   };
   document.getElementById('game').addEventListener('click', () => {
     if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
@@ -990,8 +1051,8 @@ const formatCode = (code) => {
   return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 };
 
-const STEER_HINT = '把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；'
-  + '按住鼠标拖动可精确瞄准，方向键也能转身。在新标签页打开本页可恢复鼠标锁定。';
+const steerHint = () => t('把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；')
+  + t('按住鼠标拖动可精确瞄准，方向键也能转身。在新标签页打开本页可恢复鼠标锁定。');
 const STEER_HINT_MS = 15000;
 
 /**
@@ -1004,7 +1065,7 @@ function updateLockHint(alive = true) {
   const c = app.controls;
   const live = app.playing && alive && !app.deathShown;
   if (c.steer && live && performance.now() < app._steerHintUntil) {
-    app.hud.setLockHint(true, STEER_HINT);
+    app.hud.setLockHint(true, steerHint());
     return;
   }
   app.hud.setLockHint(live && !c.canLook);
@@ -1122,7 +1183,7 @@ async function onMessage(m) {
         // wedge can point back at it instead of just flashing everywhere
         if (Array.isArray(m.p)) app.hud.damageDirection(bearingTo(m.p));
         app.sfx.hurt(m.dmg);
-        if (m.zone === 'blast') app.hud.toast('遭受爆炸冲击', 1200);
+        if (m.zone === 'blast') app.hud.toast(t('遭受爆炸冲击'), 1200);
       }
       break;
     }
@@ -1133,7 +1194,7 @@ async function onMessage(m) {
         app.sfx.death();
       } else if (m.k.id === app.myId) {
         app.sfx.kill();
-        app.hud.toast(m.head ? '爆头击杀！' : '击杀 +1', 1100);
+        app.hud.toast(m.head ? t('爆头击杀！') : t('击杀 +1'), 1100);
       }
       break;
     }
@@ -1154,10 +1215,10 @@ async function onMessage(m) {
       // The room code was wrong (or the room is full): stay on the menu and say
       // exactly what happened instead of leaving the player on a dead screen.
       const why = {
-        notfound: '房号不存在：请向房主要正确房号（8 位数字），或自己创建房间',
-        full: '该房间已满员，换一个房间或自己创建',
-        toomany: '服务器上房间太多了，稍后再试',
-      }[m.why] || '无法加入该房间';
+        notfound: t('房号不存在：请向房主要正确房号（8 位数字），或自己创建房间'),
+        full: t('该房间已满员，换一个房间或自己创建'),
+        toomany: t('服务器上房间太多了，稍后再试'),
+      }[m.why] || t('无法加入该房间');
       app.hud.screen('menu');
       app.hud.menuError(why);
       app.hud.setRoomMode('join', app.hud.joinCode);
@@ -1169,11 +1230,11 @@ async function onMessage(m) {
       // that follow (one per player) place everyone on the new ground.
       await setMap(m.id);
       if (Array.isArray(m.spawn)) app.controls.reset(m.spawn, m.yaw);
-      app.hud.toast(`地图切换：${m.name}`, 2600);
+      app.hud.toast(t('地图切换：{name}', { name: nameOf(data.mapById[m.id] || { name: m.name }) }), 2600);
       break;
     }
     case 'full':
-      app.hud.menuError('服务器已满');
+      app.hud.menuError(t('服务器已满'));
       break;
   }
 }

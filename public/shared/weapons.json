@@ -1,5 +1,5 @@
 {
-  "note": "Shared by the Python server and the JS client. Single source of truth for all gameplay numbers. Distances in meters, times in milliseconds. Damage model: full `dmg` up to `rangeM`, then linear down to `dmg * falloff` at `falloffMaxM`, flat after that. A weapon with `lethalBody` one-shot-kills the torso between `lethalMinM` and `lethalMaxM`. Reload model: magazine guns use `reloadMs` (tactical) and `reloadEmptyMs` (from empty); clip-fed bolt-actions use `clip` instead - `fullMs` when the chamber holds 0-1 rounds, else `(clipMax - mag) * perRoundMs`, fed round by round so firing early keeps whatever is already in. Effects (`fx`) are presentation only - the server never reads them, and the client falls back to documented defaults if one is missing, so a hand-edited file can never break a match. Per weapon: `flash` = muzzle flash size (1 = 0.30m), colour, muzzle light strength and duration; `kick` = viewmodel recoil `vm`, camera `punch` and `roll` in degrees; `tracer` = colour, `width` (x the 1.2cm base), lifetime and `every` (1 = every round); `smoke` = puff size, count and lifetime; `casing` = ejected brass size; `sound` = gunfire trim (`gain`, `rate` = playback pitch, `lpf` Hz low-pass, `tone` = synth fallback pitch), all relative to 1.0.",
+  "note": "Shared by the Python server and the JS client. Single source of truth for all gameplay numbers. Distances in meters, times in milliseconds. Damage model: full `dmg` up to `rangeM`, then linear down to `dmg * falloff` at `falloffMaxM`, flat after that. A weapon with `lethalBody` one-shot-kills the torso between `lethalMinM` and `lethalMaxM`. Reload model: magazine guns use `reloadMs` (tactical) and `reloadEmptyMs` (from empty); clip-fed bolt-actions use `clip` instead - `fullMs` when the chamber holds 0-1 rounds, else `(clipMax - mag) * perRoundMs`, fed round by round so firing early keeps whatever is already in. Effects (`fx`) are presentation only - the server never reads them, and the client falls back to documented defaults if one is missing, so a hand-edited file can never break a match. Per weapon: `flash` = muzzle flash size (1 = 0.30m), colour, muzzle light strength and duration; `kick` = viewmodel recoil `vm`, camera `punch` and `roll` in degrees; `tracer` = colour, `width` (x the 1.2cm base), lifetime and `every` (1 = every round); `smoke` = puff size, count and lifetime; `casing` = ejected brass size; `sound` = gunfire trim (`gain`, `rate` = playback pitch, `lpf` Hz low-pass, `tone` = synth fallback pitch), all relative to 1.0. Every display field carries its English twin (nameEn/descEn/roleEn/taglineEn/abilityNameEn/abilityDescEn) so the client can switch language without a second copy of these numbers.",
   "combat": {
     "headMult": 2.0,
     "torsoMult": 1.0,
@@ -38,7 +38,8 @@
       "short": "ENTENTE",
       "color": "#4db8ff",
       "glow": "#2f9bff",
-      "accent": "#123055"
+      "accent": "#123055",
+      "nameEn": "Entente"
     },
     {
       "id": 1,
@@ -47,7 +48,8 @@
       "short": "CENTRAL",
       "color": "#ff7a4d",
       "glow": "#ff5a2b",
-      "accent": "#552b12"
+      "accent": "#552b12",
+      "nameEn": "Central Powers"
     }
   ],
   "classes": [
@@ -68,7 +70,11 @@
       "hairColor": "#f97f4d",
       "hairStyle": "short",
       "eyeColor": "#e8562f",
-      "accentColor": "#c9a227"
+      "accentColor": "#c9a227",
+      "roleEn": "Close-quarters burst",
+      "taglineEn": "Push up and tear the trench open",
+      "abilityNameEn": "Smoke grenade",
+      "abilityDescEn": "Throw a smoke grenade: it bursts into a wide cloud that blocks sight lines, and enemies inside it cannot be seen through the scout's flare."
     },
     {
       "id": "medic",
@@ -86,7 +92,11 @@
       "hairColor": "#ffc2d6",
       "hairStyle": "long",
       "eyeColor": "#ff5c8d",
-      "accentColor": "#ffffff"
+      "accentColor": "#ffffff",
+      "roleEn": "Mid-range sustain",
+      "taglineEn": "Nobody dies in no man's land",
+      "abilityNameEn": "Medic box",
+      "abilityDescEn": "Place a medic box beside you: it heals you and nearby teammates continuously until you put down the next one."
     },
     {
       "id": "support",
@@ -104,7 +114,11 @@
       "hairColor": "#c8a05a",
       "hairStyle": "ponytail",
       "eyeColor": "#b8860b",
-      "accentColor": "#7a6a3a"
+      "accentColor": "#7a6a3a",
+      "roleEn": "Suppressive fire",
+      "taglineEn": "Get down, I will open the way",
+      "abilityNameEn": "Ammo crate",
+      "abilityDescEn": "Place an ammo crate beside you: it refills reserve ammunition for you and nearby teammates until you put down the next one."
     },
     {
       "id": "scout",
@@ -123,7 +137,11 @@
       "hairColor": "#c9d4f0",
       "hairStyle": "straight",
       "eyeColor": "#6b5bd6",
-      "accentColor": "#4a3f8f"
+      "accentColor": "#4a3f8f",
+      "roleEn": "Long-range sniping",
+      "taglineEn": "One shot, one breath",
+      "abilityNameEn": "Flare",
+      "abilityDescEn": "Throw a flare: enemies in range are spotted overhead and visible through walls; leaving the area or hiding in smoke breaks the mark."
     }
   ],
   "weapons": [
@@ -182,7 +200,8 @@
           "lpf": 0,
           "tone": 1.1
         }
-      }
+      },
+      "descEn": "A steady submachine gun: the all-rounder up close and at medium range."
     },
     {
       "id": "auto1918",
@@ -239,7 +258,8 @@
           "lpf": 0,
           "tone": 1.22
         }
-      }
+      },
+      "descEn": "A 900 rpm hose — you have to be right in their face to kill with it."
     },
     {
       "id": "hellriegel",
@@ -296,7 +316,8 @@
           "lpf": 5200,
           "tone": 0.92
         }
-      }
+      },
+      "descEn": "A 60-round drum that can pin down a whole trench."
     },
     {
       "id": "cei",
@@ -353,7 +374,8 @@
           "lpf": 0,
           "tone": 1.0
         }
-      }
+      },
+      "descEn": "A light, quick semi-auto that is easy to track with."
     },
     {
       "id": "rsc1917",
@@ -410,7 +432,8 @@
           "lpf": 4600,
           "tone": 0.85
         }
-      }
+      },
+      "descEn": "A hard-hitting six-shot semi-auto: two hits at any range."
     },
     {
       "id": "federov",
@@ -467,7 +490,8 @@
           "lpf": 6800,
           "tone": 1.05
         }
-      }
+      },
+      "descEn": "A 26-round rifle that switches between semi and full auto — the medium-range pick."
     },
     {
       "id": "lewis",
@@ -524,7 +548,8 @@
           "lpf": 0,
           "tone": 0.88
         }
-      }
+      },
+      "descEn": "A 97-round pan magazine: excellent accuracy once you are settled, and it suppresses at range."
     },
     {
       "id": "bar",
@@ -581,7 +606,8 @@
           "lpf": 0,
           "tone": 0.98
         }
-      }
+      },
+      "descEn": "Only 20 rounds, but barely any damage falloff and it handles well on the move."
     },
     {
       "id": "chauchat",
@@ -638,7 +664,8 @@
           "lpf": 4200,
           "tone": 0.8
         }
-      }
+      },
+      "descEn": "A 20-round magazine with a slow rate of fire and painful hits: three shots at any range."
     },
     {
       "id": "smle",
@@ -701,7 +728,8 @@
           "lpf": 0,
           "tone": 0.95
         }
-      }
+      },
+      "descEn": "The fastest bolt, a 10-round magazine, and one-shot lethal to the torso from 0-40 m."
     },
     {
       "id": "m95",
@@ -763,7 +791,8 @@
           "lpf": 0,
           "tone": 1.0
         }
-      }
+      },
+      "descEn": "A straight-pull bolt that works even while scoped; consistent damage, but never a torso one-shot."
     },
     {
       "id": "springfield",
@@ -826,7 +855,8 @@
           "lpf": 3800,
           "tone": 0.86
         }
-      }
+      },
+      "descEn": "The hardest single shot in the game: torso-lethal from 40-120 m, with a fast, flat bullet."
     }
   ]
 }

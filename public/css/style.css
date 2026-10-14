@@ -253,6 +253,27 @@ body { user-select: none; }
 }
 .mini-btn:hover { border-color: rgba(255, 255, 255, .45); color: #fff; }
 
+/* ------------------------------------------------------------ 界面语言 */
+.lang-chip {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  z-index: 5;
+  min-width: 58px;
+  padding: 9px 14px;
+  font: 800 13px/1 var(--font);
+  letter-spacing: .12em;
+  color: rgba(244, 241, 234, .82);
+  background: rgba(0, 0, 0, .38);
+  border: 2px solid rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.lang-chip:hover { color: #fff; border-color: rgba(255, 255, 255, .45); }
+
+.lang-row { display: flex; gap: 8px; }
+.lang-row .room-btn { flex: 1; padding: 11px 10px; }
+
 .hint { margin: 0; font-size: 11.5px; line-height: 1.7; text-align: center; color: rgba(244, 241, 234, .5); }
 .hint.dim { color: rgba(244, 241, 234, .34); }
 .error { min-height: 18px; margin: 0; font-size: 13px; font-weight: 700; color: var(--danger); }
@@ -644,6 +665,15 @@ body { user-select: none; }
 #tutorial footer { display: flex; gap: 8px; justify-content: flex-end; }
 #tutorial .ghost-btn, #tutorial .big-btn { font-size: 13px; }
 
+/* The English steps are longer than the Chinese ones; these keep the whole
+   panel (list + buttons) on one screen as it is in Chinese. Scoped to the
+   English page, so the Chinese layout does not move a pixel. */
+html[lang="en"] #tutorial { padding-top: 68px; }
+html[lang="en"] #tutorial .tut-panel { max-height: 88vh; }
+html[lang="en"] #tutorial .tut-list { gap: 5px; margin: 9px 0 7px; }
+html[lang="en"] #tutorial .tut-list li { padding: 6px 9px; font-size: 12.4px; line-height: 1.42; }
+html[lang="en"] #tutorial .tut-tip { font-size: 12px; margin-bottom: 9px; padding: 8px 10px; }
+
 /* ------------------------------------------------------- 联机房间（房号） */
 .room-field {
   display: flex; flex-direction: column; gap: 8px;
@@ -784,6 +814,11 @@ body { user-select: none; }
 }
 .mode-btn b { font-size: 16px; font-weight: 900; letter-spacing: .1em; }
 .mode-btn span { font-size: 10.5px; font-weight: 700; line-height: 1.5; color: rgba(43, 21, 8, .68); }
+/* English subtitles run a line longer than the Chinese ones, which makes the
+   main menu taller than it needs to be. Scoped to the English page, so the
+   Chinese layout is byte-for-byte what it always was. */
+html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
+
 .mode-btn:hover { filter: brightness(1.07); }
 .mode-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #a45f14; }
 

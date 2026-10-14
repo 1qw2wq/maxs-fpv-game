@@ -15,6 +15,7 @@ import { ensureMotions, RUN_SECTORS } from './motion.js';
 import { store } from './storage.js';
 import { fixImportedMaterials } from './lighting.js';
 import { apiUrl } from './api.js';
+import { t, onLangChange } from './i18n.js';
 
 /** Joint keys the game understands, in the order the settings UI shows them. */
 export const JOINTS = [
@@ -155,10 +156,11 @@ export function loadGltfFromFile(file) {
     const loader = new GLTFLoader();
     const isGlb = /\.glb$/i.test(file.name) || file.type === 'model/gltf-binary';
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('无法读取文件'));
+    reader.onerror = () => reject(new Error(t('无法读取文件')));
     reader.onload = () => {
       loader.parse(reader.result, '', resolve, (err) => {
-        reject(new Error(err?.message ? String(err.message) : '模型解析失败（不支持 Draco / meshopt 压缩）'));
+        reject(new Error(err?.message ? String(err.message)
+          : t('模型解析失败（不支持 Draco / meshopt 压缩）')));
       });
     };
     if (isGlb) reader.readAsArrayBuffer(file);
@@ -1353,7 +1355,7 @@ export function createSettings({ data, hud, onUse }) {
       });
       scene.add(preview.root);
     } catch (err) {
-      setStatus(`预览失败：${err.message}`, true);
+      setStatus(t('预览失败：{why}', { why: err.message }), true);
     }
   }
 
@@ -1372,8 +1374,8 @@ export function createSettings({ data, hud, onUse }) {
     el.scaleOut.textContent = state.scale.toFixed(2);
     el.rotYOut.textContent = `${Math.round(state.rotY)}°`;
     el.heightOut.textContent = state.template
-      ? `高度 ${(TARGET_HEIGHT * state.scale).toFixed(2)} m`
-      : '高度 —';
+      ? t('高度 {h} m', { h: (TARGET_HEIGHT * state.scale).toFixed(2) })
+      : t('高度 —');
   }
 
   // ------------------------------------------------------------- bone mapping
@@ -1386,12 +1388,12 @@ export function createSettings({ data, hud, onUse }) {
       row.dataset.key = j.key;
 
       const label = document.createElement('span');
-      label.textContent = j.label;
+      label.textContent = t(j.label);
 
       const sel = document.createElement('select');
       const none = document.createElement('option');
       none.value = '';
-      none.textContent = '— 未映射 —';
+      none.textContent = t('— 未映射 —');
       sel.append(none);
       for (const name of state.bones) {
         const opt = document.createElement('option');
@@ -1415,7 +1417,7 @@ export function createSettings({ data, hud, onUse }) {
 
   function buildOffsetSliders() {
     const o = state.offsets[state.active] || [0, 0, 0];
-    el.offsetTarget.textContent = JOINT_LABEL[state.active] || state.active;
+    el.offsetTarget.textContent = t(JOINT_LABEL[state.active] || state.active);
     el.offsets.innerHTML = '';
     ['X', 'Y', 'Z'].forEach((axis, i) => {
       const field = document.createElement('label');
@@ -1458,11 +1460,11 @@ export function createSettings({ data, hud, onUse }) {
       const res = await fetch(apiUrl('/api/characters'));
       list = (await res.json()).characters || [];
     } catch {
-      el.shared.innerHTML = '<span class="hint dim">无法连接服务器，暂时看不到共享角色</span>';
+      el.shared.innerHTML = `<span class="hint dim">${t('无法连接服务器，暂时看不到共享角色')}</span>`;
       return;
     }
     if (!list.length) {
-      el.shared.innerHTML = '<span class="hint dim">还没有人上传角色</span>';
+      el.shared.innerHTML = `<span class="hint dim">${t('还没有人上传角色')}</span>`;
       return;
     }
     for (const m of list) {
@@ -1475,13 +1477,13 @@ export function createSettings({ data, hud, onUse }) {
       const use = document.createElement('button');
       use.type = 'button';
       use.className = 'mini-btn';
-      use.textContent = state.using === m.id ? '使用中' : '使用';
+      use.textContent = state.using === m.id ? t('使用中') : t('使用');
       use.addEventListener('click', () => selectShared(m));
       const dl = document.createElement('a');
       dl.className = 'mini-btn';
       dl.href = m.file;
       dl.download = `${m.name || 'character'}.glb`;
-      dl.textContent = '下载';
+      dl.textContent = t('下载');
       row.append(name, by, use, dl);
       el.shared.append(row);
     }
@@ -1493,20 +1495,21 @@ export function createSettings({ data, hud, onUse }) {
     store.set(SKIN_NAME_KEY, m.name || '');
     onUse?.({ id: m.id, name: m.name });
     refreshShared();
-    setStatus(`已选用「${m.name || m.id}」。对局中其他玩家会看到这个模型；想再改就先导入同一个文件。`);
+    setStatus(t('已选用「{name}」。对局中其他玩家会看到这个模型；想再改就先导入同一个文件。',
+      { name: m.name || m.id }));
   }
 
   // ---------------------------------------------------------------- importing
 
   async function importFile(file) {
-    setStatus('正在解析模型…');
+    setStatus(t('正在解析模型…'));
     try {
       const gltf = await loadGltfFromFile(file);
       state.file = file;
       state.template = prepareTemplate(gltf.scene);
       state.bones = collectBones(gltf.scene);
       if (!state.bones.length) {
-        setStatus('这个模型没有骨骼（不是蒙皮模型），无法用于角色替换。', true);
+        setStatus(t('这个模型没有骨骼（不是蒙皮模型），无法用于角色替换。'), true);
         state.template = null;
         scheduleRebuild();
         return;
@@ -1519,7 +1522,8 @@ export function createSettings({ data, hud, onUse }) {
       buildBoneRows();
       syncTransformReadouts();
       scheduleRebuild();
-      setStatus(`已导入 ${state.bones.length} 根骨骼，自动匹配 ${Object.keys(state.map).length} 个关节。肩肘手为静止姿态，请用偏移滑杆调整持枪姿势。`);
+      setStatus(t('已导入 {bones} 根骨骼，自动匹配 {joints} 个关节。肩肘手为静止姿态，请用偏移滑杆调整持枪姿势。',
+        { bones: state.bones.length, joints: Object.keys(state.map).length }));
     } catch (err) {
       setStatus(err.message, true);
     }
@@ -1532,7 +1536,7 @@ export function createSettings({ data, hud, onUse }) {
       name: state.name, map: state.map, offsets: state.offsets,
       scale: state.scale, rotY: state.rotY,
     }));
-    setStatus('映射与偏移已保存在本机浏览器。要跨设备使用请点「上传共享」。');
+    setStatus(t('映射与偏移已保存在本机浏览器。要跨设备使用请点「上传共享」。'));
   }
 
   function loadLocal() {
@@ -1555,22 +1559,22 @@ export function createSettings({ data, hud, onUse }) {
 
   async function upload() {
     if (!state.file) {
-      setStatus('请先导入模型文件，再上传共享。', true);
+      setStatus(t('请先导入模型文件，再上传共享。'), true);
       return;
     }
     if (!Object.keys(state.map).length) {
-      setStatus('至少映射一个关节再上传。', true);
+      setStatus(t('至少映射一个关节再上传。'), true);
       return;
     }
     const fd = new FormData();
     fd.append('meta', JSON.stringify({
-      name: (state.name || '自定义角色').slice(0, 24),
+      name: (state.name || t('自定义角色')).slice(0, 24),
       author: hud.playerName,
       bones: state.map, offsets: state.offsets,
       scale: state.scale, rotY: state.rotY,
     }));
     fd.append('model', state.file, state.file.name);
-    setStatus('正在上传…');
+    setStatus(t('正在上传…'));
     try {
       const res = await fetch(apiUrl('/api/character'), { method: 'POST', body: fd });
       // A static upload (Vercel) has no endpoint to receive this: the answer is
@@ -1578,19 +1582,21 @@ export function createSettings({ data, hud, onUse }) {
       let json = null;
       try { json = await res.json(); } catch { /* not a server that stores rigs */ }
       if (!json) {
-        setStatus(`上传失败：HTTP ${res.status} —— 这台托管只提供静态文件。`
-          + '共享角色需要一台带服务端的部署（Render / Docker 跑 server/server.py），'
-          + '或在菜单里填上那台服务器的地址。', true);
+        setStatus(t('上传失败：{why}', {
+          why: `HTTP ${res.status} — ${t('这台托管只提供静态文件。')}`
+            + t('共享角色需要一台带服务端的部署（Render / Docker 跑 server/server.py），'
+              + '或在菜单里填上那台服务器的地址。'),
+        }), true);
         return;
       }
       if (!json.ok) {
-        setStatus(`上传失败：${json.error || res.status}`, true);
+        setStatus(t('上传失败：{why}', { why: json.error || res.status }), true);
         return;
       }
-      setStatus(`上传成功，服务器编号 ${json.meta.id}，现在所有玩家都能选用它。`);
+      setStatus(t('上传成功，服务器编号 {id}，现在所有玩家都能选用它。', { id: json.meta.id }));
       selectShared(json.meta);
     } catch (err) {
-      setStatus(`上传失败：${err.message}`, true);
+      setStatus(t('上传失败：{why}', { why: err.message }), true);
     }
   }
 
@@ -1611,11 +1617,11 @@ export function createSettings({ data, hud, onUse }) {
     el.play.setAttribute('aria-pressed', 'false');
     el.bones.innerHTML = '';
     el.offsets.innerHTML = '';
-    el.offsetTarget.textContent = JOINT_LABEL[state.active];
+    el.offsetTarget.textContent = t(JOINT_LABEL[state.active]);
     store.remove(LOCAL_KEY);
     syncTransformReadouts();
     scheduleRebuild();
-    setStatus('已重置。请重新导入模型。');
+    setStatus(t('已重置。请重新导入模型。'));
   }
 
   // ------------------------------------------------------------------ wiring
@@ -1656,7 +1662,7 @@ export function createSettings({ data, hud, onUse }) {
       hud.screen('settings');
       loadLocal();
       refreshShared();
-      if (!state.template) setStatus('尚未导入模型。仅支持未压缩的 glTF/GLB（不支持 Draco / meshopt）。');
+      if (!state.template) setStatus(t('尚未导入模型。仅支持未压缩的 glTF/GLB（不支持 Draco / meshopt）。'));
       rebuild();
     },
 
@@ -1697,7 +1703,7 @@ export function createSettings({ data, hud, onUse }) {
  */
 export const BUILTIN_SKINS = {
   'builtin-furina': {
-    id: 'builtin-furina', name: '芙宁娜', file: '/models/genshin/furina.glb',
+    id: 'builtin-furina', name: '芙宁娜', nameEn: 'Furina', file: '/models/genshin/furina.glb',
     bones: {
       hips: 'Hips_02', spine: 'Spine_03', head: 'Head_06',
       shoulderL: 'Left shoulder_058', shoulderR: 'Right shoulder_084',
@@ -1709,7 +1715,7 @@ export const BUILTIN_SKINS = {
     offsets: {}, scale: 1, rotY: 0,
   },
   'builtin-navia': {
-    id: 'builtin-navia', name: 'Navia', file: '/models/genshin/navia.glb',
+    id: 'builtin-navia', name: 'Navia', nameEn: 'Navia', file: '/models/genshin/navia.glb',
     bones: {
       hips: 'Hips_07', spine: 'Spine_08', head: 'Head_011',
       shoulderL: 'Left shoulder_045', shoulderR: 'Right shoulder_083',
@@ -1721,7 +1727,7 @@ export const BUILTIN_SKINS = {
     offsets: {}, scale: 1, rotY: 0,
   },
   'builtin-charlotte': {
-    id: 'builtin-charlotte', name: '夏洛蒂', file: '/models/genshin/charlotte.glb',
+    id: 'builtin-charlotte', name: '夏洛蒂', nameEn: 'Charlotte', file: '/models/genshin/charlotte.glb',
     bones: {
       hips: 'Hips_02', spine: 'Spine_03', head: 'Head_06',
       shoulderL: 'Left shoulder_034', shoulderR: 'Right shoulder_056',
@@ -1733,7 +1739,7 @@ export const BUILTIN_SKINS = {
     offsets: {}, scale: 1, rotY: 0,
   },
   'builtin-clorinde': {
-    id: 'builtin-clorinde', name: '克洛琳德', file: '/models/genshin/clorinde.glb',
+    id: 'builtin-clorinde', name: '克洛琳德', nameEn: 'Clorinde', file: '/models/genshin/clorinde.glb',
     bones: {
       hips: 'Hips_03_441', spine: 'Spine_0174_440', head: 'Head_0177_194',
       shoulderL: 'Left_shoulder_0179_312', shoulderR: 'Right_shoulder_0316_391',

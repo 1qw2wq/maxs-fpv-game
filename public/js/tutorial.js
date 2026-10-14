@@ -12,6 +12,8 @@
 //  * The overlay is pointer-events:none apart from the panel itself: the player
 //    keeps playing while it is on screen.
 
+import { t, onLangChange } from './i18n.js';
+
 const PANEL_ID = 'tutorial';
 
 /** One entry per skill. `test` gets fresh per-run accumulators. */
@@ -70,7 +72,7 @@ const STEPS = [
   },
   {
     id: 'ability', title: '⑦ 兵种技能', key: 'Q',
-    text: '按 Q 使用你兵种的技能（突击兵炸药包 / 医疗兵医疗包 / 支援兵弹药箱 / 侦察兵信号弹）。',
+    text: '按 Q 使用你兵种的技能（突击兵烟雾弹 / 医疗兵医疗箱 / 支援兵弹药箱 / 侦察兵信号弹）。',
     tip: '投掷类技能按住 Q 蓄力，画面上的抛物线和落点就是它的飞行轨迹。',
     test: (s) => s.events.ability >= 1,
   },
@@ -110,6 +112,10 @@ export class Tutorial {
     this.inGame = false;
     this.visible = false;
     this._el = null;
+    // The walkthrough keeps its text in the step table below, in Chinese, and
+    // every line goes through t() when it is drawn -- so a language change
+    // while the panel is open simply redraws it.
+    onLangChange(() => { if (this._el) this._render(); });
   }
 
   get active() { return this.visible; }
@@ -126,15 +132,15 @@ export class Tutorial {
     root.innerHTML = `
       <div class="tut-panel">
         <header>
-          <b>新手指引</b>
+          <b class="tut-title"></b>
           <span class="tut-count"></span>
         </header>
         <ol class="tut-list"></ol>
         <p class="tut-tip"></p>
         <footer>
-          <button type="button" class="ghost-btn" data-act="skip">跳过教程</button>
-          <button type="button" class="big-btn small hidden" data-act="go">进入战场开始练习</button>
-          <button type="button" class="big-btn small hidden" data-act="finish">完成了，去联机</button>
+          <button type="button" class="ghost-btn" data-act="skip"></button>
+          <button type="button" class="big-btn small hidden" data-act="go"></button>
+          <button type="button" class="big-btn small hidden" data-act="finish"></button>
         </footer>
       </div>`;
     document.body.appendChild(root);
@@ -150,19 +156,24 @@ export class Tutorial {
 
   _render() {
     const el = this._build();
+    // chrome first: the same strings in the current language every time
+    el.querySelector('.tut-title').textContent = t('新手指引');
+    el.querySelector('[data-act="skip"]').textContent = t('跳过教程');
+    el.querySelector('[data-act="go"]').textContent = t('进入战场开始练习');
+    el.querySelector('[data-act="finish"]').textContent = t('完成了，去联机');
     const list = el.querySelector('.tut-list');
     list.innerHTML = '';
     STEPS.forEach((step, i) => {
       const li = document.createElement('li');
       const isDone = this.done.has(step.id) || i < this.index;
       li.className = (i === this.index && !isDone ? 'now ' : '') + (isDone ? 'done' : '');
-      li.innerHTML = `<b>${step.title}</b><span class="key">${step.key}</span>`
-        + `<span class="txt">${step.text}</span>`;
+      li.innerHTML = `<b>${t(step.title)}</b><span class="key">${t(step.key)}</span>`
+        + `<span class="txt">${t(step.text)}</span>`;
       list.appendChild(li);
     });
     const doneCount = STEPS.filter((s) => this.done.has(s.id)).length;
     el.querySelector('.tut-count').textContent = `${doneCount} / ${STEPS.length}`;
-    el.querySelector('.tut-tip').textContent = this.current.tip || '';
+    el.querySelector('.tut-tip').textContent = this.current.tip ? t(this.current.tip) : '';
     const last = !!this.current.last;
     el.querySelector('[data-act="go"]').classList.toggle('hidden', this.inGame || last);
     el.querySelector('[data-act="finish"]').classList.toggle('hidden', !last);
@@ -221,7 +232,10 @@ export class Tutorial {
     this._render();
     if (this.hud && !step.last) {
       const next = this.current;
-      this.hud.toast(`✔ ${step.title.replace(/^[①-⑨]\s*/, '')} 完成 · 下一步：${next.title}`, 2200);
+      this.hud.toast(t('✔ {step} 完成 · 下一步：{next}', {
+        step: t(step.title).replace(/^[①-⑨]\s*/, ''),
+        next: t(next.title),
+      }), 2200);
     }
   }
 

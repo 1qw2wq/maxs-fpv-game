@@ -14,6 +14,7 @@
 // render loop cannot tell which transport a match arrived on.
 
 import { Net } from './net.js';
+import { t } from './i18n.js';
 
 // Paths are resolved against this module rather than against the site root, so
 // a copy of the game served from a sub-path still finds its own files.
@@ -63,12 +64,13 @@ function bootEngine(note) {
 }
 
 async function boot(note) {
-  note?.('正在加载浏览器内引擎（首次约 12 MB，之后有缓存）…');
+  note?.(t('正在加载浏览器内引擎（首次约 12 MB，之后有缓存）…'));
   let mod;
   try {
     mod = await import(/* @vite-ignore */ PYODIDE_DIR.href + 'pyodide.mjs');
   } catch (err) {
-    throw new Error(`嵌入引擎不可用（${PYODIDE_DIR.href}pyodide.mjs）：${err.message}`);
+    throw new Error(t('嵌入引擎不可用（{url}）：{why}',
+      { url: `${PYODIDE_DIR.href}pyodide.mjs`, why: err.message }));
   }
   const py = await mod.loadPyodide({
     indexURL: PYODIDE_DIR.href,
@@ -78,7 +80,7 @@ async function boot(note) {
     stderr: (line) => console.warn('[engine]', line),
   });
 
-  note?.('正在装载战场数据…');
+  note?.(t('正在装载战场数据…（本地引擎）'));
   const [engineSrc, sharedSrc] = await Promise.all([
     Promise.all(ENGINE_FILES.map((f) => text(new URL(f, ENGINE_DIR).href))),
     Promise.all(SHARED_FILES.map((f) => text(new URL(f, SHARED_DIR).href))),
@@ -102,7 +104,7 @@ async function boot(note) {
     py.FS.writeFile(`/shared/${rel}`, mapSrc[i]);
   });
 
-  note?.('正在启动引擎…');
+  note?.(t('正在启动引擎…'));
   py.runPython(`
 import json, sys
 sys.path.insert(0, '/engine')
@@ -112,7 +114,7 @@ import combat, host as _host_mod
 # reasons, instead of failing later inside a firefight.
 _problems = combat.validate_shared_data()
 if _problems:
-    raise RuntimeError('引擎数据不一致: ' + '; '.join(str(x) for x in _problems)[:400])
+    raise RuntimeError('ENGINE_DATA: ' + '; '.join(str(x) for x in _problems)[:400])
 
 _registry = json.loads(open('/shared/maps.json', encoding='utf-8').read())
 for _m in _registry.get('maps', []):
@@ -172,7 +174,7 @@ export class LocalNet extends Net {
   async connect(url, opts = {}) {
     this._closed = false;
     this._engine = await bootEngine(this.h.onNote);
-    if (this._closed) throw new Error('已取消');
+    if (this._closed) throw new Error(t('已取消'));
     this._engine.reset();
     // A fresh match: the previous one's snapshots would otherwise be sampled
     // into the first frames of this one.
@@ -228,8 +230,8 @@ export class LocalNet extends Net {
     } catch (err) {
       // Nothing else can happen if the room would not open, and the menu's
       // error line is the only place the player will look.
-      console.error('[trench] 浏览器内引擎拒绝开局', err);
-      this.h.onError?.('浏览器内引擎无法开局');
+      console.error('[trench] the in-page engine refused to start the match', err);
+      this.h.onError?.(t('浏览器内引擎无法开局'));
       this._joined = false;
     }
   }
@@ -273,7 +275,7 @@ export class LocalNet extends Net {
       try {
         this._eat(this._engine.cmd(JSON.stringify(msg)));
       } catch (err) {
-        console.error('[trench] 引擎拒绝了消息', msg, err);
+        console.error('[trench] the engine rejected a message', msg, err);
       }
     }
   }

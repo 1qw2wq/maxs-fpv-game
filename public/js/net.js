@@ -11,13 +11,17 @@
 // the game can refuse the WebSocket Upgrade; before this fallback such a page
 // could not join a match at all, it only ever showed 无法连接服务器.
 
+import { t } from './i18n.js';
+
 const TAU = Math.PI * 2;
 const WS_TIMEOUT_MS = 6000;
 const POLL_RETRY_MS = 400;
 
-function lerpAngle(a, b, t) {
+// (the parameter is not called `t`: that name is the translator in every
+// module that imports it, and a local of the same name would shadow it.)
+function lerpAngle(a, b, k) {
   let d = ((b - a + Math.PI) % TAU + TAU) % TAU - Math.PI;
-  return a + d * t;
+  return a + d * k;
 }
 
 /** `ws://host/ws` -> `http://host/api/poll` (and wss -> https). */
@@ -109,12 +113,12 @@ export class Net {
         if (settled) return;
         settled = true;
         clearTimeout(this._wsTimer);
-        reject(err || new Error('无法连接服务器'));
+        reject(err || new Error(t('无法连接服务器')));
       };
       // A proxy that accepts the request but never upgrades leaves this hanging,
       // so the fallback must not wait forever for an answer that never comes.
       clearTimeout(this._wsTimer);
-      this._wsTimer = setTimeout(() => fail(new Error('WebSocket 超时')), timeoutMs || WS_TIMEOUT_MS);
+      this._wsTimer = setTimeout(() => fail(new Error(t('WebSocket 超时'))), timeoutMs || WS_TIMEOUT_MS);
 
       ws.onopen = () => {
         if (settled || this._closed) return;
@@ -126,11 +130,11 @@ export class Net {
         resolve();
       };
       ws.onerror = () => {
-        if (!settled) { fail(new Error('无法连接服务器')); return; }
-        this.h.onError?.('连接出错');
+        if (!settled) { fail(new Error(t('无法连接服务器'))); return; }
+        this.h.onError?.(t('连接出错'));
       };
       ws.onclose = () => {
-        if (!settled) { fail(new Error('无法连接服务器')); return; }
+        if (!settled) { fail(new Error(t('无法连接服务器'))); return; }
         this.connected = false;
         if (this.mode === 'ws') this.h.onClose?.();
       };

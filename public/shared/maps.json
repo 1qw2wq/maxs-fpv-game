@@ -7,7 +7,8 @@
       "nameEn": "Somme No Man's Land",
       "desc": "1916 · 战壕与无人区",
       "file": "/shared/map.json",
-      "scene": null
+      "scene": null,
+      "descEn": "1916 · trenches and no man's land"
     },
     {
       "id": "italy",
@@ -19,8 +20,13 @@
         "model": "/models/maps/cs_italy.glb",
         "rotX": 0,
         "scale": 1.0,
-        "offset": [5.727, -28.75, -33.259]
-      }
+        "offset": [
+          5.727,
+          -28.75,
+          -33.259
+        ]
+      },
+      "descEn": "Mediterranean town · close-quarters streets"
     }
   ]
 }
