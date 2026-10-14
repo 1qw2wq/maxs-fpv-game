@@ -612,19 +612,32 @@ body { user-select: none; }
 /* ------------------------------------------------------------ 新手指引 */
 #tutorial {
   position: fixed; inset: 0; z-index: 30;
+  /* Space kept free above the panel (top bar + the room chip). The panel's
+     height budget is derived from it, so the buttons at its bottom are always
+     on screen: see .tut-panel below. */
+  --tut-top: 92px;
   display: flex; align-items: flex-start; justify-content: center;
-  padding: 92px 16px 16px;
+  padding: var(--tut-top) 16px 16px;
   pointer-events: none;           /* the game stays playable underneath */
 }
 /* In a match the panel moves out of the way: top-right corner, narrow, so the
    crosshair and the middle of the screen stay clear while the player shoots. */
 #tutorial.in-game {
+  --tut-top: 96px;
   align-items: flex-start; justify-content: flex-end;
-  padding: 96px 18px 16px;
+  padding: var(--tut-top) 18px 16px;
 }
+/* A column: the header, the tip and the buttons are fixed, and only the step
+   list scrolls. The panel used to scroll as a whole, which pushed its bottom --
+   the "start practising" / "done" buttons -- out of sight on any window shorter
+   than the page (a laptop, a preview pane, a zoomed browser), leaving the
+   player with no visible way forward. */
 #tutorial .tut-panel {
   pointer-events: auto;
-  width: min(560px, 94vw); max-height: 78vh; overflow: auto;
+  display: flex; flex-direction: column;
+  width: min(560px, 94vw);
+  max-height: calc(100vh - var(--tut-top) - 16px);
+  overflow: hidden;
   padding: 16px 18px; border-radius: 14px;
   background: rgba(8, 11, 18, .93);
   border: 1px solid rgba(255, 207, 92, .35);
@@ -632,17 +645,34 @@ body { user-select: none; }
   color: rgba(244, 241, 234, .92);
 }
 #tutorial.in-game .tut-panel {
-  width: min(330px, 46vw); max-height: 56vh; padding: 11px 13px;
+  width: min(330px, 46vw);
+  max-height: min(56vh, calc(100vh - var(--tut-top) - 16px));
+  padding: 11px 13px;
   background: rgba(8, 11, 18, .84);
 }
 #tutorial.in-game .tut-list { margin: 9px 0 6px; gap: 5px; }
 #tutorial.in-game .tut-list li { padding: 5px 8px; font-size: 12px; }
 #tutorial.in-game .tut-tip { display: none; }
-#tutorial header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+#tutorial header {
+  flex: 0 0 auto;                 /* never scrolls away with the steps */
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+}
 #tutorial header b { font-size: 16px; letter-spacing: .16em; color: #ffcf5c; }
 .tut-count { font-size: 12px; letter-spacing: .16em; color: rgba(244, 241, 234, .55); }
 .tut-count.all { color: #7ee08a; }
-#tutorial .tut-list { list-style: none; margin: 12px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+#tutorial .tut-list {
+  flex: 1 1 auto; min-height: 0;  /* the one part that gives way when space is tight */
+  overflow-y: auto; overscroll-behavior: contain;
+  list-style: none; margin: 12px 0 8px; padding: 0 4px 0 0;
+  display: flex; flex-direction: column; gap: 7px;
+}
+#tutorial .tut-list::-webkit-scrollbar { width: 8px; }
+#tutorial .tut-list::-webkit-scrollbar-track { background: rgba(255, 255, 255, .04); border-radius: 4px; }
+#tutorial .tut-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 207, 92, .35); border-radius: 4px;
+}
+#tutorial .tut-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 207, 92, .55); }
+#tutorial .tut-list { scrollbar-width: thin; scrollbar-color: rgba(255, 207, 92, .45) rgba(255, 255, 255, .04); }
 #tutorial .tut-list li {
   display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: baseline;
   padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, .04);
@@ -658,18 +688,21 @@ body { user-select: none; }
 }
 #tutorial .txt { color: rgba(244, 241, 234, .78); }
 .tut-tip {
+  flex: 0 0 auto;
   margin: 0 0 12px; padding: 9px 11px; border-radius: 9px; font-size: 12.5px; line-height: 1.6;
   background: rgba(120, 200, 255, .08); border: 1px solid rgba(120, 200, 255, .22);
   color: rgba(220, 235, 255, .85);
 }
-#tutorial footer { display: flex; gap: 8px; justify-content: flex-end; }
+#tutorial footer {
+  flex: 0 0 auto;                 /* the way onward stays on screen */
+  display: flex; gap: 8px; justify-content: flex-end;
+}
 #tutorial .ghost-btn, #tutorial .big-btn { font-size: 13px; }
 
 /* The English steps are longer than the Chinese ones; these keep the whole
    panel (list + buttons) on one screen as it is in Chinese. Scoped to the
    English page, so the Chinese layout does not move a pixel. */
-html[lang="en"] #tutorial { padding-top: 68px; }
-html[lang="en"] #tutorial .tut-panel { max-height: 88vh; }
+html[lang="en"] #tutorial { --tut-top: 68px; }
 html[lang="en"] #tutorial .tut-list { gap: 5px; margin: 9px 0 7px; }
 html[lang="en"] #tutorial .tut-list li { padding: 6px 9px; font-size: 12.4px; line-height: 1.42; }
 html[lang="en"] #tutorial .tut-tip { font-size: 12px; margin-bottom: 9px; padding: 8px 10px; }
