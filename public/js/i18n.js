@@ -192,15 +192,9 @@ const EN = {
   'AI 机器人已加入战场': 'AI bots have joined the battle',
   '第三人称视角': 'Third-person view',
   '第一人称视角': 'First-person view',
-  '当前环境无法锁定鼠标：已切换为「光标转向」': 'This environment refuses mouse lock: switched to cursor steering',
-  '把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；':
-    'Push the cursor toward the sides of the screen to turn, and toward the top or bottom to look up or down; ',
-  '按住鼠标拖动可精确瞄准，方向键也能转身。按 Esc 可释放光标，点击画面继续。':
-    'hold the mouse to drag-aim, and the arrow keys turn too. Esc gives the mouse back; click to continue.',
-  '光标转向模式': 'Cursor steering',
   '光标已释放': 'Mouse handed back',
-  '已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）':
-    'Mouse handed back — click the view to continue (this environment will not lock the mouse, so continuing uses cursor steering again: push the cursor to the sides to turn, Esc releases it)',
+  '鼠标锁定失败：点击画面重试；若预览禁止锁定，请在新标签页打开':
+    'Mouse lock failed: click the view to retry; if the preview blocks locking, open the game in a new tab',
 
   '回答码已生成，房号 {code}：发回房主完成配对；连接成功后再部署':
     'Answer ready for room {code}: send it back to the host to finish pairing; deploy after the connection opens',
@@ -304,8 +298,8 @@ const EN = {
   'Shift 蹲下能从低矮的坑道里钻过去，收益是更小的暴露面积。': 'Shift crouches, which fits through low tunnels and makes you a smaller target.',
   '② 视角': '② Looking around',
   '鼠标': 'Mouse',
-  '移动鼠标环顾四周（如果顶部提示写着「光标转向」，就把光标推向左右两侧转身）。':
-    'Move the mouse to look around (with "cursor steering", push the cursor to the sides).',
+  '点击画面锁定鼠标，然后移动鼠标环顾四周；按 Esc 释放。':
+    'Click the view to lock the mouse, then move it to look around; press Esc to release.',
   '被卡在窗口里没法锁定鼠标时，按住左键拖动也能精确瞄准。': 'With no mouse lock, hold the left button and drag to aim precisely.',
   '③ 开火': '③ Firing',
   '左键': 'LMB',

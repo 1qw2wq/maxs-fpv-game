@@ -644,11 +644,8 @@ export class Hud {
   }
 
   /**
-   * The "click the screen to take the mouse" prompt. With `note` it turns into
-   * the small top-of-screen hint used instead when pointer lock is refused and
-   * the controls are steering the view from the cursor (see controls.js), or
-   * when the player pressed Esc and the mouse is free with no look mode on.
-   * `heading` overrides the headline for that third state.
+   * The native-pointer-lock prompt. A denied request keeps the mouse free and
+   * shows a retry/open-in-new-tab explanation; no alternative steering mode.
    */
   setLockHint(show, note = '', heading = '', action = false) {
     const soft = !!note;
@@ -664,7 +661,7 @@ export class Hud {
     const sub = this.el.lock.querySelector('.lock-sub');
     this._lockSoft = soft;
     this._lockNote = note;
-    if (title) title.textContent = heading || (soft ? t('光标转向模式') : t('点击画面继续战斗'));
+    if (title) title.textContent = heading || (soft ? t('光标已释放') : t('点击画面继续战斗'));
     if (sub) sub.textContent = soft ? note : t('鼠标将被锁定 · 按 Esc 释放');
     this.el.lockAction?.classList.toggle('hidden', !action);
   }

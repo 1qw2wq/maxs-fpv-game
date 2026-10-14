@@ -160,18 +160,23 @@ connect straight to it. Nothing goes through a third-party service — no relay,
 
 The game needs no plugins, but two browser environments restrict pages and both are handled:
 
-- **Pages that cannot lock the pointer** (inside an `iframe`, preview panes, sandboxed previews):
-  pointer lock is refused outright. The game switches to **cursor steering** — push the cursor to
-  the left/right edge to turn, towards the top/bottom edge to look up/down, hold the left button
-  and drag for fine aim, arrow keys also turn. Firing, aiming down sights, crouching, jumping,
-  reloading and abilities all keep working, and a hint appears at the top of the screen once.
-  **Pressing `Esc` always hands the mouse back** (the view switches to *mouse handed back — click
-  the view to continue*); clicking continues steering, and where pointer lock is available the
-  click locks the pointer again. **To get normal mouse lock back, open the same address in a new
-  tab.** The cursor's central 60% is a dead zone; steering stops when the pointer leaves the canvas.
-  Blur, Esc and leaving a match clear held buttons/keys and cancel ability charging. A delayed
-  pointer-lock error cannot restart steering after Esc. The game cannot override a parent frame's
-  sandbox; if you control the embed, include `allow-pointer-lock` in its `sandbox` permissions.
+- **Mouse look is native pointer lock only**: click the game view to capture the mouse. Moving the
+  mouse turns the camera; **Esc releases the mouse and opens the pause menu**. Clicking to continue
+  requests native lock again. There is **no cursor steering, edge turning or drag-to-aim fallback**.
+  Failed requests can be retried on the next click; temporary failures do not permanently disable
+  pointer lock. Blur, Esc and leaving a match clear held input and cancel ability charging.
+- **Embedded pages / previews**: pointer lock works in an iframe **when the parent permits it**.
+  If you own the embed, include `allow-pointer-lock` in its sandbox permissions, for example:
+
+  ```html
+  <iframe src="https://your-game.vercel.app/"
+          sandbox="allow-scripts allow-same-origin allow-pointer-lock"></iframe>
+  ```
+
+  If the parent preview forbids pointer lock, the game leaves the mouse free and shows a retry /
+  **Open in new tab** action instead of switching controls. A child page cannot override the parent's
+  sandbox. Use a top-level tab in a browser that supports the Pointer Lock API; browsers without
+  that API cannot provide native mouse capture.
 - **Vercel-only deployment without WebSocket**: multiplayer uses the browser-hosted engine plus
   `BroadcastChannel` / WebRTC described above. It needs **neither `/ws` nor `/api/poll`**. There is no
   always-on game server or shared room state in Vercel Functions. Blocking WebSocket does not block
@@ -196,7 +201,8 @@ The test serves only `public/` and the static API shims, disables WebSocket, and
 requests. It checks actual Pyodide host/guest gameplay (welcome, state, input, firing, reloading,
 abilities and chat), separate-room isolation, real WebRTC across isolated browser contexts,
 duplicate delivery over two transports, joining during host startup, invalid codes/timeouts,
-departure cleanup, and both native pointer lock and a sandboxed iframe fallback. This is a local
+departure cleanup, native lock/retry/Esc/relock, permitted iframe locking, and denied sandbox requests
+without alternative steering. This is a local
 static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
@@ -216,11 +222,11 @@ Use `TEST_DEPS` to change the external test-dependency directory; no npm build s
 | `V` | First / third person camera |
 | `Tab` (hold) | Scoreboard |
 | `Enter` | Chat input (`Esc` cancels) |
-| `Esc` | Hand the mouse back (works in pointer lock *and* in cursor steering) |
+| `Esc` | Release pointer lock and open the pause menu |
 
-Click the screen to continue: where pointer lock is available it locks again, and in an
-`iframe` / preview pane that refuses it you go back to cursor steering. The first entry into a
-match needs one click before the view turns.
+Click the screen to continue with native pointer lock. The first entry into a match needs one click
+before the mouse turns the view. If the browser refuses capture, click to retry or open the game in
+its own tab; the game never switches to a different mouse control scheme.
 
 ### The four classes
 
@@ -519,7 +525,7 @@ FPS web game demo/
         ├── character.js        # the anime girl: hair / clothes / accessories / walk and run animation
         ├── rig.js              # external rigs: parsing / joint mapping / normalisation / Setup UI
         ├── viewmodel.js        # first-person arms and weapon view model
-        ├── controls.js         # pointer lock, mouse look (cursor steering when lock is refused), client movement
+        ├── controls.js         # native pointer lock, mouse look, retry/release, client movement
         ├── hud.js              # all the DOM / HUD logic
         ├── audio.js            # procedural WebAudio sound (no audio files)
         ├── net.js              # WebSocket client (with long-poll fallback) + remote-player interpolation

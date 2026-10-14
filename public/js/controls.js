@@ -10,10 +10,9 @@ import { yawToRotation } from './character.js';
 
 const PITCH_LIMIT = 88;
 
-// Prefer pointer lock. Sandboxed embeds cannot grant it, so keep an explicit,
-// cancellable cursor-steering mode instead of leaving the mouse dead. A wide
-// centre dead zone prevents drift; holding a mouse button uses relative drag
-// aim instead of edge steering. Esc/blur always cancel both modes.
+// Mouse look uses native pointer lock only. Never substitute edge steering or
+// drag aiming. A denied request leaves the mouse free and can be retried on a
+// later click; parent iframe sandbox permissions cannot be overridden here.
 const ARROW_YAW_RATE = 135;
 const ARROW_PITCH_RATE = 95;
 
@@ -54,8 +53,6 @@ export class Controls {
     // Set once pointer lock has actually been refused (see _lockFailed): only
     // then is the page worth telling the player about.
     this.lockUnavailable = false;
-    this.cursorLook = false;
-    this._cursor = { x: 0, y: 0 };
     this._wantLook = false;
 
     this.sensitivity = 0.0022;
@@ -80,6 +77,8 @@ export class Controls {
     this.onEscape = null;
 
     this._lockWatch = null;
+    this._lockPending = false;
+    this._lockRequestId = 0;
     // A lock request right after the player pressed Esc is refused by Chrome
     // for about a second; that refusal must not be mistaken for "this page
     // cannot lock the mouse" (see _lockFailed).
@@ -103,22 +102,12 @@ export class Controls {
 
     window.addEventListener('mousemove', (e) => {
       if (!this.canLook || !this.enabled || typing()) return;
-      if (!this.locked && (e.target !== c || !(e.buttons & 3))) return;
       // yaw grows clockwise (0 = +X, 90 = +Z), so mouse-right must add.
       const k = this.sensitivity * 57.2958;
       this.yaw += e.movementX * k;
       this.pitch -= e.movementY * k;
       this.yaw = ((this.yaw % 360) + 360) % 360;
       this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
-    });
-    c.addEventListener('mousemove', (e) => {
-      if (!this.cursorLook || !this.enabled || typing()) return;
-      const r = c.getBoundingClientRect();
-      this._cursor.x = r.width ? (e.clientX - r.left) / r.width * 2 - 1 : 0;
-      this._cursor.y = r.height ? (e.clientY - r.top) / r.height * 2 - 1 : 0;
-    });
-    c.addEventListener('mouseleave', () => {
-      this._cursor.x = this._cursor.y = 0;
     });
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === c && (!this._wantLook || !this.enabled)) {
@@ -127,11 +116,13 @@ export class Controls {
       }
       this.locked = document.pointerLockElement === this.canvas;
       clearTimeout(this._lockWatch);
-      this.cursorLook = false;
+      this._lockPending = false;
+      this._lockRequestId += 1;
       if (this.locked) {
         this.lockUnavailable = false;
       } else {
         this._wantLook = false;
+        this._lockCooldownUntil = Math.max(this._lockCooldownUntil, performance.now() + 1300);
         this.mouse.left = false;
         this.mouse.right = false;
         this.keys.clear();
@@ -140,7 +131,7 @@ export class Controls {
       this.onLockChange?.(this.locked);
     });
     // Fired by browsers that refuse the lock request; some also reject the
-    // promise, so both paths funnel into the same fallback.
+    // promise, so both paths report a failed request without changing controls.
     document.addEventListener('pointerlockerror', () => this._lockFailed());
 
     window.addEventListener('keydown', (e) => {
@@ -168,58 +159,45 @@ export class Controls {
 
   /** True only while the player has explicitly taken control of the view. */
   get canLook() {
-    return this.locked || this.cursorLook;
+    return this.locked;
   }
 
   requestLock() {
-    if (!this.enabled || this.canLook) return;
-    this._wantLook = true;
-    if (this.lockUnavailable) { this._startCursorLook(); return; }
-    // Esc's browser-imposed cooldown is temporary, not a permissions failure.
+    if (!this.enabled || this.locked || this._lockPending) return;
+    // Retrying needs a fresh user gesture, particularly after Esc. Do not
+    // schedule an automatic retry that browsers would refuse anyway.
     if (performance.now() < this._lockCooldownUntil) return;
     const el = this.canvas;
-    if (!el || typeof el.requestPointerLock !== 'function') { this._lockFailed(); return; }
-    // Welcome/map loading is asynchronous and may no longer have a user
-    // gesture. That is not a permanent refusal: leave the click prompt up so
-    // a normal top-level page can still obtain native lock on the first click.
     if (navigator.userActivation && !navigator.userActivation.isActive) return;
-    try {
-      const pending = el.requestPointerLock();
-      // Chrome/Edge return a promise whose rejection carries the reason
-      // ("frame is sandboxed and the 'allow-pointer-lock' permission is not
-      // set", or a permissions-policy refusal).
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch(() => this._lockFailed());
-      }
-    } catch (err) {
-      this._lockFailed();
-      return;
-    }
-    // Firefox and Safari may fail silently, so cover that with a short
-    // watchdog: still unlocked a moment later means it will never be granted.
+    this._wantLook = true;
+    this._lockPending = true;
+    const requestId = ++this._lockRequestId;
+    if (!el || typeof el.requestPointerLock !== 'function') { this._lockFailed(requestId); return; }
+    // Cover legacy implementations that return no promise or fail silently.
     clearTimeout(this._lockWatch);
     this._lockWatch = setTimeout(() => {
-      if (document.pointerLockElement !== el) this._lockFailed();
-    }, 900);
+      if (document.pointerLockElement !== el) this._lockFailed(requestId);
+    }, 1500);
+    try {
+      const pending = el.requestPointerLock();
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch(() => this._lockFailed(requestId));
+      }
+    } catch {
+      this._lockFailed(requestId);
+    }
   }
 
-  /** Refusal is recoverable; never reactivate after Esc, blur or a menu. */
-  _lockFailed() {
+  /** A denial is not permanent. Every subsequent eligible click can retry. */
+  _lockFailed(requestId = this._lockRequestId) {
+    if (requestId !== this._lockRequestId || !this._lockPending) return;
     clearTimeout(this._lockWatch);
+    this._lockPending = false;
     if (!this.enabled || !this._wantLook || this.locked) return;
-    if (performance.now() < this._lockCooldownUntil) return;
     if (!this.lockUnavailable) {
       this.lockUnavailable = true;
       this.onLookMode?.('unavailable');
     }
-    this._startCursorLook();
-  }
-
-  _startCursorLook() {
-    if (!this._wantLook || !this.enabled || this.cursorLook) return;
-    this.cursorLook = true;
-    this._cursor.x = this._cursor.y = 0;
-    this.onLookMode?.('cursor');
   }
 
   releaseLock() {
@@ -239,8 +217,8 @@ export class Controls {
   releaseLook() {
     clearTimeout(this._lockWatch);
     this._wantLook = false;
-    this.cursorLook = false;
-    this._cursor.x = this._cursor.y = 0;
+    this._lockPending = false;
+    this._lockRequestId += 1;
     this._lockCooldownUntil = performance.now() + 1300;
     this.keys.clear();
     this.mouse.left = false;
@@ -250,14 +228,6 @@ export class Controls {
       document.exitPointerLock?.();
     }
     this.onLookMode?.('free');
-  }
-
-  /** Centre 60% stays still; edge speed ramps smoothly up to 135 deg/s. */
-  _cursorLook(dt) {
-    if (!this.cursorLook || this.mouse.left || this.mouse.right) return;
-    const edge = (v) => Math.sign(v) * Math.min(1, Math.max(0, (Math.abs(v) - 0.6) / 0.4));
-    this.yaw += edge(this._cursor.x) * ARROW_YAW_RATE * dt;
-    this.pitch -= edge(this._cursor.y) * ARROW_PITCH_RATE * dt;
   }
 
   // ------------------------------------------------------- keyboard look
@@ -341,7 +311,6 @@ export class Controls {
     // Arrow-key look is driven from the frame loop, but never while the chat
     // box has the keyboard.
     if (!typing()) {
-      this._cursorLook(dt);
       this._arrowLook(dt);
     }
 

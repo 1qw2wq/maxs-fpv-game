@@ -754,9 +754,8 @@ html[lang="en"] #tutorial .tut-tip { font-size: 12px; margin-bottom: 9px; paddin
 .lock-title { margin: 0; font-size: 25px; font-weight: 900; letter-spacing: .18em; text-shadow: 0 4px 0 rgba(0, 0, 0, .6); }
 .lock-sub { margin: 0; font-size: 12.5px; letter-spacing: .16em; color: rgba(244, 241, 234, .6); }
 
-/* Pointer lock refused (embedded frame / preview pane): the same slot carries a
-   short how-to-play hint instead of the full-screen "click to lock" prompt, so
-   it must not dim or cover the view the player is steering with the cursor. */
+/* Pointer lock refused: show a retry / open-in-new-tab explanation without
+   obscuring the scene. There is no alternative mouse steering mode. */
 #lockslot.soft {
   background: none;
   backdrop-filter: none;

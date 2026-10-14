@@ -29,7 +29,7 @@ const STEPS = [
   },
   {
     id: 'look', title: '② 视角', key: '鼠标',
-    text: '移动鼠标环顾四周（如果顶部提示写着「光标转向」，就把光标推向左右两侧转身）。',
+    text: '点击画面锁定鼠标，然后移动鼠标环顾四周；按 Esc 释放。',
     tip: '被卡在窗口里没法锁定鼠标时，按住左键拖动也能精确瞄准。',
     test: (s, dt, ctx) => {
       let d = Math.abs(ctx.yaw - s.lastYaw);

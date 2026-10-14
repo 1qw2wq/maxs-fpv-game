@@ -1478,16 +1478,14 @@ function wireControls() {
     if (locked) { app.mouseFreed = false; app.lockRefused = false; }
     updateLockHint();
   };
-  // Explain the fallback once; a top-level tab can still restore normal FPS look.
+  // Report denial without changing the mouse control scheme.
   c.onLookMode = (mode) => {
     if (mode === 'unavailable') {
       app.lockRefused = true;
-      app.hud.toast(t('当前环境无法锁定鼠标：已切换为「光标转向」') + ' · '
-        + t('按住鼠标拖动可精确瞄准，方向键也能转身。按 Esc 可释放光标，点击画面继续。'), 6500);
+      app.hud.toast(t('鼠标锁定失败：点击画面重试；若预览禁止锁定，请在新标签页打开'), 6500);
     }
     // Esc: the mouse is free until the player clicks the view again.
     if (mode === 'free') app.mouseFreed = true;
-    if (mode === 'cursor') app.mouseFreed = false;
     // Every look-mode change redraws the prompt here rather than leaving it to
     // the next frame: a page whose frame loop is paused (a background tab, a
     // guest whose tab the browser is throttling) still has to show that the
@@ -1520,9 +1518,8 @@ const formatCode = (code) => {
   return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 };
 
-// A refused lock cannot be forced from inside an iframe. Keep the game
-// playable in cursor mode, and offer a top-level tab for normal FPS mouse look.
-const noLockHint = () => t('已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）');
+// Only the embedding page can grant sandbox pointer-lock permission.
+const noLockHint = () => t('鼠标锁定失败：点击画面重试；若预览禁止锁定，请在新标签页打开');
 const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠标重新被锁定，按 Esc 再次释放）');
 
 /**
@@ -1536,7 +1533,7 @@ function updateLockHint(alive = true) {
   // The pause menu owns the screen while it is up: no prompt underneath it.
   const live = app.playing && !app.paused && alive && !app.deathShown;
   if (live && !c.canLook && app.lockRefused) {
-    app.hud.setLockHint(true, noLockHint(), t('光标已释放'), true);
+    app.hud.setLockHint(true, noLockHint(), t('无法锁定鼠标'), true);
     return;
   }
   if (live && !c.canLook && app.mouseFreed) {

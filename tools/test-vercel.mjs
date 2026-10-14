@@ -25,9 +25,10 @@ const mime = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'ap
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://test').pathname;
   if (path === '/__harness.html') { res.setHeader('Content-Type', 'text/html'); res.end(harness); return; }
-  if (path === '/__sandbox.html') {
+  if (path === '/__sandbox.html' || path === '/__sandbox-allowed.html') {
     res.setHeader('Content-Type', 'text/html');
-    res.end('<iframe src="/__harness.html" sandbox="allow-scripts allow-same-origin" width="820" height="620"></iframe>');
+    const lockPermission = path === '/__sandbox-allowed.html' ? ' allow-pointer-lock' : '';
+    res.end(`<iframe src="/__harness.html" sandbox="allow-scripts allow-same-origin${lockPermission}" width="820" height="620"></iframe>`);
     return;
   }
   // Same static API shims as vercel.json, deliberately no /ws or /api/poll.
@@ -224,68 +225,102 @@ try {
   await frame.waitForLoadState();
   await frame.evaluate(async () => {
     const { Controls } = await import('/js/controls.js');
-    const config = await (await fetch('/shared/weapons.json')).json();
-    window.controls = new Controls(document.querySelector('canvas'), null, config.combat, {});
+    window.controls = new Controls(document.querySelector('canvas'), null, {}, {});
     controls.enabled = true;
     window.modes = [];
     controls.onLookMode = (mode) => modes.push(mode);
-    controls.onFireDown = () => { window.fired = true; };
-    controls.onReload = () => { window.reloaded = true; };
-    controls.onAbilityDown = () => { window.charged = true; };
     controls.onAbilityCancel = () => { window.cancelled = true; };
+    const c = document.querySelector('canvas');
+    const request = c.requestPointerLock.bind(c);
+    window.attempts = 0;
+    c.requestPointerLock = () => { attempts++; return request(); };
   });
-  await frame.locator('canvas').click({ position: { x: 400, y: 300 } });
-  await frame.waitForFunction(() => controls.cursorLook && controls.lockUnavailable);
+  await frame.locator('canvas').click();
+  await frame.waitForFunction(() => controls.lockUnavailable && !controls._lockPending);
   await frame.evaluate(() => {
     const c = document.querySelector('canvas');
-    const r = c.getBoundingClientRect();
-    c.dispatchEvent(new MouseEvent('mousemove', { clientX: r.right - 1, clientY: r.top + r.height / 2, bubbles: true }));
-    controls._cursorLook(1);
-    if (controls.yaw < 100) throw new Error('No edge steering');
-    c.dispatchEvent(new MouseEvent('mouseleave'));
-    const yaw = controls.yaw;
-    controls._cursorLook(1);
-    if (controls.yaw !== yaw) throw new Error('Steering stuck after mouseleave');
-    c.dispatchEvent(new MouseEvent('mousemove', { movementX: 10, movementY: -5, buttons: 1, bubbles: true }));
-    if (controls.yaw <= yaw || controls.pitch <= 0) throw new Error('No drag aim');
-    c.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
-    c.dispatchEvent(new MouseEvent('mousedown', { button: 2, bubbles: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR' }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft' }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
-    if (!fired || !reloaded || !charged || !controls.mouse.right || !controls.keys.has('Space') || !controls.keys.has('ShiftLeft')) throw new Error('Fallback lost combat controls');
+    const yaw = controls.yaw, pitch = controls.pitch;
+    c.dispatchEvent(new MouseEvent('mousemove', { clientX: 799, clientY: 1, movementX: 200, movementY: 100, buttons: 1, bubbles: true }));
+    controls._arrowLook(1);
+    if (controls.canLook || controls.yaw !== yaw || controls.pitch !== pitch) throw new Error('Denied lock enabled alternative steering');
+    if ('cursorLook' in controls || '_cursorLook' in controls) throw new Error('Cursor steering was not removed');
+    controls.keys.add('KeyW');
+    controls.mouse.left = controls.mouse.right = true;
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
     if (controls.canLook || controls.mouse.left || controls.mouse.right || controls.keys.size || !cancelled) throw new Error('Esc did not release input');
     controls._lockFailed();
     if (controls.canLook) throw new Error('Late pointerlockerror reactivated look after Esc');
-    controls.requestLock();
-    if (!controls.cursorLook) throw new Error('Cannot resume cursor look');
-    controls.keys.add('ArrowLeft');
-    const priorYaw = controls.yaw;
-    controls._arrowLook(0.1);
-    if (controls.yaw === priorYaw) throw new Error('Arrow look failed');
-    window.dispatchEvent(new Event('blur'));
-    if (controls.canLook || controls.mouse.right || controls.keys.size) throw new Error('Blur left input active');
-    if (modes.filter((mode) => mode === 'unavailable').length !== 1) throw new Error('Repeated refusal hints');
   });
-  console.log('PASS: actual sandbox pointer-lock refusal, edge/drag aim, combat input, Esc/resume/blur and late errors');
+  await frame.waitForFunction(() => performance.now() >= controls._lockCooldownUntil);
+  await frame.locator('canvas').click();
+  await frame.waitForFunction(() => attempts === 2 && !controls._lockPending);
+  assert.equal(await frame.evaluate(() => controls.canLook), false);
+  assert.equal(await frame.evaluate(() => modes.filter((mode) => mode === 'unavailable').length), 1);
+  console.log('PASS: denied sandbox lock leaves the mouse free with no steering, supports retries and ignores late errors');
 
   const lockedPage = await page(context);
   await lockedPage.evaluate(async () => {
     const { Controls } = await import('/js/controls.js');
     window.controls = new Controls(document.querySelector('canvas'), null, {}, {});
     controls.enabled = true;
+    const c = document.querySelector('canvas');
+    const request = c.requestPointerLock.bind(c);
+    window.attempts = 0;
+    // Simulate a transient rejection. The next click must still use native
+    // lock, and duplicate requests in the same gesture must be coalesced.
+    c.requestPointerLock = () => ++attempts === 1 ? Promise.reject(new Error('Temporary refusal')) : request();
+    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: false } });
     controls.requestLock();
-    if (controls.lockUnavailable || controls.canLook) throw new Error('Async entry misclassified as a lock refusal');
+    if (attempts || controls.lockUnavailable) throw new Error('Async entry requested lock without activation');
+    delete navigator.userActivation;
+    controls.requestLock();
+    controls.requestLock();
+    if (attempts !== 1) throw new Error('Duplicate pending lock requests');
   });
+  await lockedPage.waitForFunction(() => controls.lockUnavailable && !controls._lockPending);
   await lockedPage.locator('canvas').click();
-  await lockedPage.waitForFunction(() => controls.locked);
-  await lockedPage.mouse.move(440, 330);
-  assert.equal(await lockedPage.evaluate(() => controls.cursorLook), false);
+  await lockedPage.waitForFunction(() => controls.locked && !controls.lockUnavailable);
+  const yaw = await lockedPage.evaluate(() => controls.yaw);
+  await lockedPage.evaluate(() => window.dispatchEvent(new MouseEvent('mousemove', { movementX: 12, movementY: -6 })));
+  await lockedPage.waitForFunction((before) => controls.yaw !== before, yaw);
+  await lockedPage.evaluate(() => {
+    window.fired = window.reloaded = window.charged = false;
+    controls.onFireDown = () => { fired = true; };
+    controls.onReload = () => { reloaded = true; };
+    controls.onAbilityDown = () => { charged = true; };
+    const c = document.querySelector('canvas');
+    c.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
+    c.dispatchEvent(new MouseEvent('mousedown', { button: 2 }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+    if (!fired || !reloaded || !charged || !controls.mouse.right || !controls.keys.has('Space') || !controls.keys.has('ShiftLeft')) throw new Error('Native lock lost combat input');
+  });
   await lockedPage.keyboard.press('Escape');
   await lockedPage.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
-  console.log('PASS: normal pointer lock remains the preferred mode and Esc releases it');
+  await lockedPage.waitForFunction(() => performance.now() >= controls._lockCooldownUntil);
+  await lockedPage.locator('canvas').click();
+  await lockedPage.waitForFunction(() => controls.locked);
+  await lockedPage.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await lockedPage.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
+  assert.equal(await lockedPage.evaluate(() => controls.keys.size || controls.mouse.left || controls.mouse.right), false);
+  console.log('PASS: native lock recovers after rejection, handles mouse/combat input, Esc/relock and blur');
+
+  const allowedPage = await page(context);
+  await allowedPage.goto(origin + '/__sandbox-allowed.html');
+  const allowedFrame = allowedPage.frames().find((f) => f !== allowedPage.mainFrame());
+  await allowedFrame.waitForLoadState();
+  await allowedFrame.evaluate(async () => {
+    const { Controls } = await import('/js/controls.js');
+    window.controls = new Controls(document.querySelector('canvas'), null, {}, {});
+    controls.enabled = true;
+  });
+  await allowedFrame.locator('canvas').click();
+  await allowedFrame.waitForFunction(() => controls.locked && document.pointerLockElement === controls.canvas);
+  await allowedFrame.evaluate(() => controls.releaseLook());
+  await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
+  console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
   assert.deepEqual(await host.evaluate(() => netErrors), []);
   assert.deepEqual(await guest.evaluate(() => netErrors), []);
