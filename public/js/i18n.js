@@ -57,6 +57,10 @@ const EN = {
   '当前没有别人开的房间：点「创建房间」你就是房主': 'Nobody else has a room open — create one and you are the host',
   '在线房间 {n} 个 · 可加入 {join} 个': '{n} room(s) online · {join} joinable',
   '输入房主给你的 8 位房号即可加入同一局；房号错一位都会进不去': 'The 8-digit code the host gave you. One wrong digit and there is no such room.',
+  '输入房主给你的 8 位房号即可加入（网页版：对局在房主的浏览器里运行；点邀请链接也能自动填好房号）':
+    'Enter the 8-digit code the host gave you (web version: the match runs in the host\'s browser, and an invite link fills this in for you)',
+  '网页版联机：点「创建房间」你就是房主，这一局在你的浏览器里运行；部署后点右上角房号可复制邀请链接发给朋友（完全不需要服务器）':
+    'Web multiplayer: hit "Create room" and you are the host — the match runs in your browser. After deploying, click the room code in the top-right corner to copy an invite link for your friends (no server needed at all).',
   '士兵': 'Soldier',
   'AI 数量': 'AI count',
   '单人模式固定开启 AI 机器人；多人模式仅限真人玩家': 'Solo always has AI bots; multiplayer is humans only',
@@ -191,9 +195,12 @@ const EN = {
   '当前环境无法锁定鼠标：已切换为「光标转向」': 'This environment refuses mouse lock: switched to cursor steering',
   '把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；':
     'Push the cursor toward the sides of the screen to turn, and toward the top or bottom to look up or down; ',
-  '按住鼠标拖动可精确瞄准，方向键也能转身。在新标签页打开本页可恢复鼠标锁定。':
-    'hold the mouse to drag-aim, and the arrow keys turn too. Open this page in its own tab to get mouse lock back.',
+  '按住鼠标拖动可精确瞄准，方向键也能转身。按 Esc 可释放光标，点击画面继续。':
+    'hold the mouse to drag-aim, and the arrow keys turn too. Esc gives the mouse back; click to continue.',
   '光标转向模式': 'Cursor steering',
+  '光标已释放': 'Mouse handed back',
+  '已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）':
+    'Mouse handed back — click the view to continue (this environment will not lock the mouse, so continuing uses cursor steering again: push the cursor to the sides to turn, Esc releases it)',
 
   // ------------------------------------------------------------ net / rooms
   '无法连接服务器': 'Cannot reach the server',
@@ -202,6 +209,8 @@ const EN = {
   '连接出错': 'Connection error',
   'WebSocket 超时': 'WebSocket timed out',
   '与服务器断开连接': 'Disconnected from the server',
+  '与房主断开连接：回主菜单用同一个房号重新加入即可':
+    'Disconnected from the host: go back to the menu and rejoin with the same room code',
   '服务器已满': 'The server is full',
   '无法加入该房间': 'Could not join that room',
   '房号不存在：请向房主要正确房号（8 位数字），或自己创建房间':
@@ -223,6 +232,48 @@ const EN = {
   '嵌入引擎不可用（{url}）：{why}': 'The embedded engine is unavailable ({url}): {why}',
   '已取消': 'Cancelled',
   '已加入房间 {code}': 'Joined room {code}',
+  '正在连接公共中转服务器…': 'Connecting to a public relay…',
+  '没有可用的联机通道（公共中转与本地标签页都不可用）':
+    'No way to reach the other players: neither a public relay nor this browser\'s own tabs are available',
+  '缺少房号': 'No room code was given',
+  '与房主失去联系（房主关掉了页面？）': 'Lost contact with the host (did they close the page?)',
+  '与房主中断了一下，正在自动重新加入…': 'The room lost track of you for a moment — rejoining automatically…',
+  '房主那边暂停了（可能切走了标签页）…恢复后会自动继续':
+    'The host is paused (they may have switched tabs)… the match continues by itself once they are back',
+  '房主回来了，继续战斗': 'The host is back — carry on',
+  '房主那边暂时没有声音了，正在等它回来…（画面会停住）':
+    'The host has gone quiet — waiting for it to come back… (the world is frozen)',
+  '与房主失去联系（长时间没有动作，或切走了标签页）：回主菜单用同一个房号重进即可':
+    'Lost contact with the host (you were idle for a long time, or the tab was put in the background): go back to the menu and rejoin with the same room code.',
+  '房号 {code} 没有人在主持（或房主刚离开）': 'Nobody is hosting room {code} (or the host just left)',
+  '中转连接已断开：其他人将收不到这一局': 'The relay dropped: nobody else will receive this match',
+  '中转连接已断开：其他人暂时收不到这一局，正在重连…':
+    'The relay dropped: nobody else can reach this match for the moment — reconnecting…',
+  '中转已连回来，别人现在能收到这一局了': 'The relay is back — the others can reach this match again',
+  '中转一直连不上：你自己还能打，别人暂时进不来':
+    'The relay will not come back: you can keep playing, but nobody else can join until it does',
+  '联机通道断了，正在自动重连…': 'The relay dropped — reconnecting automatically…',
+  '已经重新接上，继续战斗': 'Reconnected — carry on',
+  '很久没有房主的消息了，正在重新连接确认…': 'Nothing from the host for a long while — reconnecting to find out…',
+  '本机房主（浏览器内引擎 + 公共中转）': 'Hosting from this browser (in-page engine + public relay)',
+  '公共中转 · 房号 {code}': 'Public relay · room {code}',
+  '公共中转（房主在本机运行对局）': 'public relay (the host runs the match in their browser)',
+  '没连上公共中转：同一浏览器多开标签页照样能对战':
+    'No public relay reachable: two tabs of this browser can still play each other',
+  '已通过公共中转加入房间（房主：{host}）': 'Joined over the public relay (host: {host})',
+  '房主模式：这一局在你这里运行，把房号发给朋友 · 中转 {host}':
+    'Hosting: this match runs in your browser — send the room code to your friends · relay {host}',
+  '静态托管：单机与多人都不需要服务器——点「创建房间」你就是房主，把 8 位房号发给朋友，他们就能进来（公共中转连接）。':
+    'Static hosting: neither solo nor multiplayer needs a server — hit "Create room" and you are the host; send the 8-digit code to your friends and they can join (over a public relay).',
+  '连不上服务器：单机可以在这里直接开打（引擎在页面里跑），多人则创建房间、把房号发给朋友即可（房主的浏览器运行对局，通过公共中转连接）。想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。':
+    'Cannot reach a server: solo plays right here (the engine runs in this page), and for multiplayer you create a room and send the code to your friends (the host\'s browser runs the match, connected over a public relay). To use your own server, put its address in the box below (e.g. your-app.onrender.com).',
+  '邀请链接里的房号 {code} 已填好，进战场就是加入这一局':
+    'The invite link carried room {code} — deploying now joins that match',
+  '邀请链接已复制：朋友打开就是加入房号 {code}':
+    'Invite link copied: opening it joins room {code}',
+  '房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）':
+    'Room code: {code} (send this to your friends; they enter it under "join with a code")',
+  '（其中 {p} 个由玩家浏览器主持）': ' ({p} of them hosted by a player\'s browser)',
   '房间已创建 · 房号 {code}': 'Room created · code {code}',
   '阵营：{team}': 'Team: {team}',
   '「{want}」正被其他房间占用，本局是「{got}」': '"{want}" is taken by another room, so this round is on "{got}"',

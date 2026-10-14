@@ -1,21 +1,90 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/", "destination": "/public/index.html" },
-    { "source": "/index.html", "destination": "/public/index.html" },
-    { "source": "/colorfixer.html", "destination": "/public/colorfixer.html" },
-    { "source": "/anim-lab.html", "destination": "/public/anim-lab.html" },
-    { "source": "/css/:path*", "destination": "/public/css/:path*" },
-    { "source": "/img/:path*", "destination": "/public/img/:path*" },
-    { "source": "/js/:path*", "destination": "/public/js/:path*" },
-    { "source": "/models/:path*", "destination": "/public/models/:path*" },
-    { "source": "/motions/:path*", "destination": "/public/motions/:path*" },
-    { "source": "/sounds/:path*", "destination": "/public/sounds/:path*" },
-    { "source": "/vendor/:path*", "destination": "/public/vendor/:path*" },
-    { "source": "/engine/:path*", "destination": "/public/engine/:path*" },
-    { "source": "/shared/:path*", "destination": "/public/shared/:path*" },
-    { "source": "/api/health", "destination": "/public/api/health.json" },
-    { "source": "/api/rooms", "destination": "/public/api/rooms.json" },
-    { "source": "/api/characters", "destination": "/public/api/characters.json" }
+    {
+      "source": "/",
+      "destination": "/public/index.html"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/public/index.html"
+    },
+    {
+      "source": "/colorfixer.html",
+      "destination": "/public/colorfixer.html"
+    },
+    {
+      "source": "/anim-lab.html",
+      "destination": "/public/anim-lab.html"
+    },
+    {
+      "source": "/css/:path*",
+      "destination": "/public/css/:path*"
+    },
+    {
+      "source": "/img/:path*",
+      "destination": "/public/img/:path*"
+    },
+    {
+      "source": "/js/:path*",
+      "destination": "/public/js/:path*"
+    },
+    {
+      "source": "/models/:path*",
+      "destination": "/public/models/:path*"
+    },
+    {
+      "source": "/motions/:path*",
+      "destination": "/public/motions/:path*"
+    },
+    {
+      "source": "/sounds/:path*",
+      "destination": "/public/sounds/:path*"
+    },
+    {
+      "source": "/vendor/:path*",
+      "destination": "/public/vendor/:path*"
+    },
+    {
+      "source": "/engine/:path*",
+      "destination": "/public/engine/:path*"
+    },
+    {
+      "source": "/shared/:path*",
+      "destination": "/public/shared/:path*"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/public/api/health.json"
+    },
+    {
+      "source": "/api/rooms",
+      "destination": "/public/api/rooms.json"
+    },
+    {
+      "source": "/api/characters",
+      "destination": "/public/api/characters.json"
+    }
+  ],
+  "headers": [
+    {
+      "//": "Same as public/vercel.json (this is the copy for an empty Root Directory): the page, its JS and styles revalidate every visit so a new upload shows up at once.",
+      "source": "/js/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
   ]
 }

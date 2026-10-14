@@ -256,8 +256,11 @@ class Room:
         if to is None:
             text = json.dumps(msg, separators=(",", ":"))
             for client in list(self.sockets.keys()):
+                # A frame meant for everyone is offered to `send_all` first: the
+                # in-page relay host needs to know it can send this one out once
+                # (see its Sink), while a websocket just takes the string.
                 try:
-                    await client.send_str(text)
+                    await getattr(client, "send_all", client.send_str)(text)
                 except (ConnectionResetError, RuntimeError):
                     pass
             return
@@ -274,7 +277,7 @@ class Room:
         text = json.dumps(base, separators=(",", ":"))
         for client, pid in list(self.sockets.items()):
             try:
-                await client.send_str(text)
+                await getattr(client, "send_all", client.send_str)(text)
                 p = self.match.players.get(pid)
                 if p is not None:
                     await client.send_str(json.dumps(self.match.me_payload(p),

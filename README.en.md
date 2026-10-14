@@ -108,6 +108,44 @@ In multiplayer, players are grouped by an **8-digit room code** and rooms never 
   network you do not trust.
 - Two tabs on one machine play each other just fine.
 
+### Multiplayer on a static host (Vercel and friends, no server at all)
+
+A static upload has no server process, but **multiplayer still works directly**: the room runs in
+the browser of **whoever created it** (the same in-page Pyodide engine solo uses), and the players
+reach each other through a **public MQTT relay** (native browser WebSocket, free, no account, no
+key). So "anyone can be the host", "several people in one match" and "one map used by several
+rooms at once" all hold on the web version by construction:
+
+- **Create a room**: menu → multiplayer → *Create room* → deploy. The page generates the 8-digit
+  code and keeps it in the top-right corner; **clicking that chip copies an invite link**
+  (`https://your-site/?code=1958 0121`) — send that to your friends. The match is running on your
+  machine and you are the host.
+- **Join a room**: friends open the invite link (the code is filled in already) or open the site,
+  choose *Join with code* and type the 8 digits. A code nobody hosts says so — *nobody is hosting
+  room {code}* — instead of hanging on a blank screen.
+- **The host's browser is the authority for that match**: hits, score, respawns and the map are all
+  decided there; the others are clients. That is why **every host can pick their own map and several
+  rooms can run different maps at the same time** — something the Python server cannot do, since
+  `combat.py` holds one world state per process.
+- The menu's **rooms online** line lists every open room, including the ones hosted in other
+  players' browsers (each host broadcast its room on the relay every 4 seconds), and says how many
+  of them are player-hosted.
+- Chat, scoreboard, kill feed and hit markers work exactly as on the LAN. If the host closes the
+  page, everyone else is told *lost contact with the host* and can rejoin another room from the menu.
+- **The relay**: it tries `broker.emqx.io`, then `broker.hivemq.com`, then `test.mosquitto.org`
+  (all over `wss://`). The first one that answers is remembered, so the next visit connects at once.
+  To use your own broker (an internal mosquitto / EMQX / HiveMQ), add `?relay=wss://host:port/mqtt`
+  to the URL, or pin it with `localStorage.setItem('tf.relay.broker', 'wss://…')`.
+- **When no relay is reachable at all** (offline, or a network that blocks them) the page falls back
+  to **BroadcastChannel — this browser's own tabs**: two tabs on one machine can still play each
+  other, and the menu says that is what is in use.
+- **Privacy**: traffic on a public relay is plain text (QoS 0, nothing retained) and a room is
+  protected by its 8-digit code alone — anyone who guesses the code gets in. Play with people you
+  know, or use your own broker. There are no accounts, and nothing is stored anywhere but the relay.
+- Want to try "one host plus several players" on a single machine? Open a few tabs: create the room
+  in the first, join with the code in the others. A real server (next section) is still the better
+  answer when you want a permanent lobby and a shared character library.
+
 ### Running inside a restrictive browser environment
 
 The game needs no plugins, but two browser environments restrict pages and both are handled:
@@ -117,7 +155,10 @@ The game needs no plugins, but two browser environments restrict pages and both 
   the left/right edge to turn, towards the top/bottom edge to look up/down, hold the left button
   and drag for fine aim, arrow keys also turn. Firing, aiming down sights, crouching, jumping,
   reloading and abilities all keep working, and a hint appears at the top of the screen once.
-  **To get normal mouse lock back, open the same address in a new tab.**
+  **Pressing `Esc` always hands the mouse back** (the view switches to *mouse handed back — click
+  the view to continue*); clicking continues steering, and where pointer lock is available the
+  click locks the pointer again. **To get normal mouse lock back, open the same address in a new
+  tab.**
 - **Environments without WebSocket** (HTTP-only proxies, some preview panes): the client falls
   back to a **long-poll** channel (`POST /api/poll`) carrying the same messages. Gameplay is
   unchanged; the menu just notes that polling is in use.
@@ -141,9 +182,11 @@ The game needs no plugins, but two browser environments restrict pages and both 
 | `V` | First / third person camera |
 | `Tab` (hold) | Scoreboard |
 | `Enter` | Chat input (`Esc` cancels) |
-| `Esc` | Release the pointer lock |
+| `Esc` | Hand the mouse back (works in pointer lock *and* in cursor steering) |
 
-Click the screen to lock the pointer again; the first entry into a match needs one click.
+Click the screen to continue: where pointer lock is available it locks again, and in an
+`iframe` / preview pane that refuses it you go back to cursor steering. The first entry into a
+match needs one click before the view turns.
 
 ### The four classes
 
@@ -331,8 +374,10 @@ Vercel functions are request-in / response-out: no WebSocket and no always-on 30
 the game server cannot run there. **But a match does not need one**: `public/engine/*.py` is the
 same code the server runs, and the page pulls it into the browser with **Pyodide** (Python compiled
 to WebAssembly, deployed with the repo in `public/vendor/pyodide/`), driven by
-`public/js/local.js`. A purely static host is therefore **playable as-is**: solo plus bots, with
-the same rules, the same ballistics and the same bot AI as a self-hosted server.
+`public/js/local.js`. A purely static host is therefore **fully playable as-is**: solo plus bots
+*and* multiplayer, where whoever creates the room runs that match in their own browser and the
+players are joined by a public MQTT relay (`public/js/relay.js`) — see *Multiplayer on a static
+host* above.
 
 1. Import the repository in Vercel, pick **Other** as the framework preset and leave the build
    command / output directory empty.
@@ -344,14 +389,17 @@ the same rules, the same ballistics and the same bot AI as a self-hosted server.
 3. Deploy. Open the URL → main menu → *Deploy* under either mode:
    - Solo: the in-page engine starts the match (the browser shows "static host: the match runs in
      the engine embedded in this page").
-   - Multiplayer: needs a real server (Render or Docker, below). Put it in the menu's **server
-     address** field, or add `?server=your-app.onrender.com` to the URL; matches then go over the
-     network and the in-page engine is only a fallback.
+   - Multiplayer: **needs no server either** — *Create room* runs the match in your browser and
+     your friends join with the code / invite link (public MQTT relay). Several rooms can run
+     different maps at the same time. A real server (Render or Docker, below) is only needed for a
+     permanent lobby and a shared character library; put its address in the menu's **server
+     address** field, or add `?server=your-app.onrender.com`.
 
 On a static host the API routes are answered by `public/api/*.json` (`/api/health` returns
 `{"ok":true,"engine":"local"}`, which is how the client knows "this origin has no server, use the
-in-page engine"): the menu works, the room list is empty, the built-in characters are all there,
-and character upload needs a real server (the shim says so). The first visit downloads about 12 MB
+in-page engine"): the menu works, the built-in characters are all there, the room list is gathered
+by the page from the relay (the shim's own list is empty), and character upload needs a real server
+(the shim says so). The first visit downloads about 12 MB
 of Python runtime (cached afterwards) — a few seconds slower, once.
 
 Two traps: **an https page can only talk to an https backend** (browsers refuse `ws://` from
@@ -400,7 +448,8 @@ FPS web game demo/
     │   ├── combat.py           # pure maths: ray-capsule, falloff, hit-box multipliers, movement collision
     │   ├── bots.py             # bot AI (navigation waypoints + aim tolerance)
     │   ├── room.py             # one room: players, score, map voting, message fan-out (no sockets)
-    │   └── host.py             # in-page host: collects room output as JSON for js/local.js
+    │   └── host.py             # in-page host: collects room output as JSON for js/local.js,
+    │                           #   plus RelayHost: a multi-player room that tags every frame
     ├── shared/                 # the single data source shared by Python and JS
     │   ├── weapons.json        # 12 weapons + 4 classes + the global combat constants
     │   ├── map.json            # map A collision boxes / cover / spawns / navigation points
@@ -423,6 +472,8 @@ FPS web game demo/
         ├── config.js           # loads /shared/*.json
         ├── i18n.js             # the Chinese/English dictionary, language switch, DOM translation
         ├── local.js            # in-page engine host: starts Pyodide, drives host.py, feeds frames to main.js
+        ├── relay.js            # web multiplayer: host/client network layers and the room lobby (public MQTT relay)
+        ├── mqtt.js             # a very small MQTT 3.1.1-over-WebSocket client (the relay's transport)
         ├── guns.js             # imported weapon models: facing / scale / hot swap
         ├── toon.js             # toon materials, outlines, procedural textures
         ├── gunfx.js            # per-weapon flash / smoke / casings / camera recoil (reads fx in weapons.json)

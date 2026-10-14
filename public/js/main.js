@@ -16,6 +16,7 @@ import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
 import { LocalNet } from './local.js';
+import { RelayNet, RelayHostNet, RelayLobby, createRoomCode } from './relay.js';
 import { drawPortrait } from './face.js';
 import { flatMat } from './toon.js';
 import { store, session } from './storage.js';
@@ -113,6 +114,18 @@ const app = {
   // there the match is run by the page itself (see local.js).
   backendHere: null,
   localEngine: false,
+  // Set the first time pointer lock is refused here; see updateLockHint().
+  lockRefused: false,
+  // Rooms the menu knows about: the backend's own list, and the rooms other
+  // players are hosting in their browsers (see relay.js RelayLobby).
+  serverRooms: null,
+  relayRooms: [],
+  relayLobby: null,
+  // A room this browser is hosting (its code), and what carried the room's
+  // traffic: 'broker' (the public relay) or 'tab' (this browser's own tabs).
+  relayHostCode: '',
+  relayKind: '',
+  relayLabel: '',
 };
 
 // A handle for the browser console and the automated tests: everything the game
@@ -461,7 +474,15 @@ function setupMenu() {
   app.hud.setServerAddress(app.serverPick || store.get('tf.server') || '');
   app.hud.setRoomMode(app.roomMode, app.roomCode);
   app.hud.setRoomHistory(saved.recentRooms);
+  setupJoinLink();
   app.hud.onRoomChipClick((code, ok) => {
+    if (app.relayHostCode) {
+      // Browser-hosted room: a link is far easier to pass on than 8 digits.
+      app.hud.toast(ok
+        ? t('邀请链接已复制：朋友打开就是加入房号 {code}', { code: formatCode(code) })
+        : t('房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）', { code: formatCode(code) }), 3200);
+      return;
+    }
     app.hud.toast(ok ? `房号 ${code} 已复制，发给朋友吧` : `房号：${code}`, 2400);
   });
   refreshRoomList();
@@ -598,6 +619,29 @@ function serverHttpBase(server) {
 }
 
 /**
+ * `?code=12345678` -- the link a host can hand out. It opens the menu with the
+ * join field already filled, so a friend only has to press deploy. Accepts the
+ * code in the query or the hash, with or without spaces/dashes.
+ */
+function setupJoinLink() {
+  let raw = '';
+  try {
+    const q = new URLSearchParams(location.search);
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    raw = q.get('code') || h.get('code') || q.get('room') || h.get('room') || '';
+  } catch { /* no URL API: nothing to read */ }
+  const code = String(raw).replace(/\D/g, '').slice(0, 8);
+  if (code.length !== 8) return false;
+  app.roomMode = 'join';
+  app.roomCode = code;
+  profile.save({ roomMode: 'join', room: code });
+  app.hud.setRoomMode('join', code);
+  app.hud.toast(t('邀请链接里的房号 {code} 已填好，进战场就是加入这一局',
+    { code: formatCode(code) }), 4200);
+  return true;
+}
+
+/**
  * Where the game server is, before anything has connected. A static deployment
  * (Vercel and friends -- see api.js) has no server of its own, so the address
  * has to come from the player: `?server=host:port` on the URL wins over the one
@@ -636,6 +680,9 @@ function setupServerAddress() {
       // socket to open, the engine runs in this tab instead. A real server
       // never sets this, so a hosted match keeps using the network.
       app.localEngine = !!(j && j.engine === 'local');
+      // Rooms are hosted by players on such a page, so the menu says so
+      // (see hud.setRoomMode).
+      app.hud.setWebHosted(app.localEngine);
     })
     .catch(() => { app.backendHere = false; })
     .then(showStaticHint);
@@ -649,18 +696,29 @@ function setupServerAddress() {
  */
 // Built per call rather than stored as a constant: the nudge itself is
 // translated, so it has to be rebuilt when the language changes.
-const staticHint = () => t('当前是静态托管：对局将由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）。'
-  + '想联机就在下方「服务器地址」填入后端地址（例如 your-app.onrender.com），'
-  + '或按 README「部署」用 Render / Docker 整体部署');
+const staticHint = () => t('连不上服务器：单机可以在这里直接开打（引擎在页面里跑），'
+  + '多人则创建房间、把房号发给朋友即可（房主的浏览器运行对局，通过公共中转连接）。'
+  + '想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。');
+
+/** The menu line a static copy of the page shows: how multiplayer works here. */
+const localEngineHint = () => t('静态托管：单机与多人都不需要服务器——'
+  + '点「创建房间」你就是房主，把 8 位房号发给朋友，他们就能进来（公共中转连接）。');
 
 function showStaticHint() {
   const configured = !!(app.hud.serverAddress || app.serverPick);
   const shown = app.staticHint;
   app.staticHint = false;
-  // A page that runs the engine itself needs no nudge at all: the menu's
-  // deploy button already works.
+  // A page that runs the engine itself needs no "cannot connect" nudge -- its
+  // deploy button works. It does need to be told how multiplayer works, since
+  // there is no server to join.
   if (app.localEngine) {
-    if (shown) app.hud.menuError('');
+    startRelayLobby();
+    if (configured) {
+      if (shown) app.hud.menuError('');
+      return;
+    }
+    app.staticHint = true;
+    app.hud.menuError(localEngineHint());
     return;
   }
   if (!configured && app.backendHere === false) {
@@ -681,10 +739,39 @@ async function refreshRoomList() {
   try {
     const res = await fetch(apiUrl('/api/rooms'), { cache: 'no-store' });
     const data = await res.json();
-    app.hud.setRoomList(data.rooms || []);
+    app.serverRooms = data.rooms || [];
   } catch {
-    app.hud.setRoomList(null);
+    app.serverRooms = null;
   }
+  applyRoomList();
+}
+
+/** What the menu's "N rooms online" line really shows. */
+function applyRoomList() {
+  const rooms = [...(app.serverRooms || []), ...(app.relayRooms || [])]
+    // The room this browser is hosting is not something to join.
+    .filter((r) => !app.relayHostCode || r.code !== app.relayHostCode);
+  // null means "we have no idea", which the HUD words differently from "none".
+  app.hud.setRoomList(rooms.length || app.serverRooms !== null ? rooms : null);
+}
+
+/**
+ * Listen for rooms other players are hosting in their own browsers, and merge
+ * them into the menu list. Only meaningful on a static upload -- a real server
+ * already lists its own rooms -- and quietly absent when no relay is reachable.
+ */
+function startRelayLobby() {
+  if (!app.localEngine || app.relayLobby) return;
+  const lobby = new RelayLobby();
+  app.relayLobby = lobby;
+  lobby.start((rooms) => {
+    app.relayRooms = rooms || [];
+    applyRoomList();
+  }).then((ok) => {
+    // The lobby retries on its own when no relay is reachable yet, so an
+    // unsuccessful first attempt is not a reason to give up on it.
+    if (!ok) console.warn('[trench] no relay for the room list yet');
+  });
 }
 
 /**
@@ -698,17 +785,23 @@ function netHandlers(label) {
     onState: onState,
     onMe: onMe,
     onMessage: onMessage,
-    // Boot progress for the in-page engine, and nothing else: a network
-    // connect has its own, faster feedback in the menu.
-    onNote: (text) => app.hud.menuError(text),
+    // Boot progress for the in-page engine -- and, in a relay room, the little
+    // "the host paused", "rejoining" notices a guest gets mid-match. While the
+    // player is fighting those have to be a toast: the menu behind it is hidden.
+    onNote: (text) => {
+      if (app.playing) app.hud.toast(text, 3400);
+      else app.hud.menuError(text);
+    },
     onClose: () => {
       if (!app.playing) return;
       app.playing = false;
       app.controls.releaseLock();
       app.hud.screen('menu');
-      app.hud.menuError(t('与服务器断开连接'));
+      app.hud.menuError(app.net?.mode === 'relay'
+        ? t('与房主断开连接：回主菜单用同一个房号重新加入即可')
+        : t('与服务器断开连接'));
     },
-    onError: () => app.hud.menuError(t('无法连接服务器（{host}）', { host: label })),
+    onError: (text) => app.hud.menuError(text || t('无法连接服务器（{host}）', { host: label })),
   };
 }
 
@@ -780,6 +873,49 @@ async function connectLocal() {
   return url;
 }
 
+/**
+ * The last candidate for *multiplayer* on a static deployment: no backend of
+ * ours, no socket of ours -- the room runs in the browser of whoever created
+ * it and the two sides talk over a public MQTT broker (relay.js). Several
+ * people can host at once, each with their own code, and each host picks their
+ * own map: there is no shared process left to hold one map for everyone.
+ *
+ * @param {{room?: string}} opts  a room code joins that room; none hosts one
+ */
+async function connectRelay(opts = {}) {
+  const hosting = !opts.room;
+  const code = hosting ? createRoomCode() : String(opts.room).replace(/\D/g, '');
+  const url = `relay://${code}`;
+  if (app.net && (!app.net.connected || app.netUrl !== url)) {
+    app.net.close();
+    app.net = null;
+    app.netUrl = null;
+  }
+  if (!app.net) {
+    const label = hosting
+      ? t('本机房主（浏览器内引擎 + 公共中转）')
+      : t('公共中转 · 房号 {code}', { code: formatCode(code) });
+    app.net = hosting
+      ? new RelayHostNet(netHandlers(label), { code })
+      : new RelayNet(netHandlers(label), { code });
+    app.netUrl = url;
+    try {
+      await app.net.connect('', { code });
+      app.relayKind = app.net.relayKind || '';
+      app.relayLabel = app.net.relayLabel || '';
+      app.relayHostCode = hosting ? code : '';
+    } catch (err) {
+      console.error('[trench] the relay could not be opened', err);
+      app.hud.menuError(err.message || t('联机通道不可用'));
+      app.net.close();
+      app.net = null;
+      app.netUrl = null;
+      throw err;
+    }
+  }
+  return url;
+}
+
 async function deploy(opts) {
   app.hud.menuError('');
 
@@ -807,17 +943,31 @@ async function deploy(opts) {
   // A static origin cannot also be a game server, so it is skipped rather than
   // waited on: the health probe has already said what this origin is.
   if (!app.localEngine) candidates.push(here);
-  candidates.push({ host: t('浏览器内引擎'), local: true });
+  // Solo plays itself; multiplayer needs other people, and on a static upload
+  // the only way to reach them is a room hosted by one of the players.
+  candidates.push(opts.solo
+    ? { host: t('浏览器内引擎'), local: true }
+    : { host: t('公共中转（房主在本机运行对局）'), relay: true });
 
   let url = null;
   let reached = null;
   for (const server of candidates) {
     try {
-      url = server.local ? await connectLocal() : await connectNet(server);
+      url = server.local ? await connectLocal()
+        : server.relay ? await connectRelay(opts)
+          : await connectNet(server);
       reached = server;
       const notes = [];
       if (server.local) {
         notes.push(t('静态托管：对局由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）'));
+      } else if (server.relay) {
+        notes.push(app.net.relayKind === 'tab'
+          ? t('没连上公共中转：同一浏览器多开标签页照样能对战')
+          : (opts.room
+            ? t('已通过公共中转加入房间（房主：{host}）', { host: shortRelayHost(app.relayLabel) })
+            : t('房主模式：这一局在你这里运行，把房号发给朋友 · 中转 {host}',
+              { host: shortRelayHost(app.relayLabel) })));
+        if (opts.room) app.hud.setRoomMode('join', String(opts.room).replace(/\D/g, ''));
       } else if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
         notes.push(t('连不上 {primary}，已改用本页面的服务器（{host}）',
@@ -840,7 +990,7 @@ async function deploy(opts) {
   // The room list, the character library and the upload endpoint now follow the
   // server that actually answered -- on a static deployment that is not this
   // origin, so the absolute form matters.
-  setApiBase(reached.local || reached.host === here.host ? '' : serverHttpBase(reached));
+  setApiBase(reached.local || reached.relay || reached.host === here.host ? '' : serverHttpBase(reached));
   // Remember the loadout locally before the handshake, so the menu comes back
   // exactly as the player left it even if the join fails.
   profile.save({
@@ -921,6 +1071,9 @@ async function onWelcome(m) {
   app.hud.setTeamColors(m.team);
   app.hud.setLoadout(m.cls, m.weapon);
   app.hud.setRoomCode(m.room || '');
+  // A room hosted by this browser is joined with a link, not by typing digits:
+  // hand the chip the link so one click copies something a friend can use.
+  app.hud.setRoomLink(app.relayHostCode && m.room ? joinLink(m.room) : '');
   if (m.room) {
     profile.rememberRoom(m.room, app.deployRoom ? 'join' : 'create');
     app.hud.toast(app.deployRoom
@@ -1034,15 +1187,42 @@ function wireControls() {
   // the controls switch to cursor steering, so explain the new controls once
   // instead of leaving the player with a mouse that seems dead.
   c.onLookMode = (mode) => {
-    if (mode !== 'steer') return;
-    // The hint is held for a few seconds by updateLockHint (which runs every
-    // frame), so this needs no timer of its own.
-    app._steerHintUntil = performance.now() + STEER_HINT_MS;
-    app.hud.toast(t('当前环境无法锁定鼠标：已切换为「光标转向」'), 4200);
+    if (mode === 'steer') {
+      // Remembered: "this environment will not lock the mouse", which changes
+      // what the resume prompt can promise (see updateLockHint).
+      app.lockRefused = true;
+      // The hint is held for a few seconds by updateLockHint (which runs every
+      // frame), so this needs no timer of its own.
+      app._steerHintUntil = performance.now() + STEER_HINT_MS;
+      app.hud.toast(t('当前环境无法锁定鼠标：已切换为「光标转向」'), 4200);
+    }
+    // Every look-mode change redraws the prompt here rather than leaving it to
+    // the next frame: a page whose frame loop is paused (a background tab, a
+    // guest whose tab the browser is throttling) still has to show that the
+    // mouse was handed back and how to pick the fight up again.
+    updateLockHint();
   };
   document.getElementById('game').addEventListener('click', () => {
     if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
   });
+}
+
+/** `wss://broker.emqx.io:8084/mqtt` -> `broker.emqx.io`, for the menu line. */
+const shortRelayHost = (url) => {
+  try { return new URL(url).host; } catch { return url || ''; }
+};
+
+/** The link a relay host can send: it carries the code into the join field. */
+function joinLink(code) {
+  try {
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('code', String(code).replace(/\D/g, ''));
+    return url.toString();
+  } catch {
+    return `${location.href.split(/[?#]/)[0]}?code=${code}`;
+  }
 }
 
 /** 12345678 -> "1234 5678" (mirrors hud.formatRoomCode for the toast text). */
@@ -1052,20 +1232,29 @@ const formatCode = (code) => {
 };
 
 const steerHint = () => t('把光标移向画面左右两侧即可转身，靠近上下边缘抬头 / 低头；')
-  + t('按住鼠标拖动可精确瞄准，方向键也能转身。在新标签页打开本页可恢复鼠标锁定。');
+  + t('按住鼠标拖动可精确瞄准，方向键也能转身。按 Esc 可释放光标，点击画面继续。');
+// Shown for as long as the mouse is free in an environment that refuses pointer
+// lock: the cursor is out and the way back into the fight is a click, so say so
+// instead of leaving the player wondering what happened (that was the bug: Esc
+// used to leave cursor steering on with no way to turn it off).
+const resumeHint = () => t('已释放光标：点击画面继续（本环境不让锁定鼠标，继续后仍是「光标转向」：把光标推向两侧转身，按 Esc 再次释放）');
 const STEER_HINT_MS = 15000;
 
 /**
  * Drives the one prompt slot every frame:
  *  - pointer lock available and not held -> the big "click the screen" prompt;
  *  - pointer lock refused -> the steering hint, for a few seconds after the
- *    switch and then nothing, because by then the player is already playing.
+ *    switch, then the smaller "click to continue" line while the mouse is out.
  */
 function updateLockHint(alive = true) {
   const c = app.controls;
   const live = app.playing && alive && !app.deathShown;
   if (c.steer && live && performance.now() < app._steerHintUntil) {
     app.hud.setLockHint(true, steerHint());
+    return;
+  }
+  if (live && !c.canLook && app.lockRefused) {
+    app.hud.setLockHint(true, resumeHint(), t('光标已释放'));
     return;
   }
   app.hud.setLockHint(live && !c.canLook);
@@ -1215,6 +1404,7 @@ async function onMessage(m) {
       // The room code was wrong (or the room is full): stay on the menu and say
       // exactly what happened instead of leaving the player on a dead screen.
       const why = {
+        lost: t('与房主失去联系（长时间没有动作，或切走了标签页）：回主菜单用同一个房号重进即可'),
         notfound: t('房号不存在：请向房主要正确房号（8 位数字），或自己创建房间'),
         full: t('该房间已满员，换一个房间或自己创建'),
         toomany: t('服务器上房间太多了，稍后再试'),

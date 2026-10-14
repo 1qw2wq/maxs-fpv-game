@@ -1,5 +1,5 @@
 {
   "rooms": [],
   "max": 1,
-  "note": "Static upload (Vercel): no networked rooms exist here. Deploying from this page starts a match in the browser's own engine (see health.json); type a server address to play on a hosted one."
+  "note": "Static upload (Vercel): rooms are hosted by the players themselves (the host's browser runs the match, see public/js/relay.js) and are listed in the page from the relay's lobby topic, not from here. Type a server address to play on a hosted server instead."
 }

@@ -6,5 +6,5 @@
   "maxRooms": 1,
   "players": 0,
   "waiters": 0,
-  "note": "Static upload (Vercel): there is no game server on this origin. /api/health, /api/rooms and /api/characters are answered from these files, and the match itself is run by the page -- public/engine/*.py under Pyodide, driven by public/js/local.js."
+  "note": "Static upload (Vercel): there is no game server on this origin. /api/health, /api/rooms and /api/characters are answered from these files, and the match itself is run by the page -- public/engine/*.py under Pyodide, driven by public/js/local.js. Multiplayer works here too: whoever creates a room runs that match in their own browser and the players reach each other through a public MQTT relay (public/js/relay.js), so any number of rooms can run at once."
 }

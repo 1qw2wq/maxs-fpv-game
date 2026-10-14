@@ -12,6 +12,11 @@
 // LocalNet is a Net with its socket swapped for that room: identical public
 // surface (connect / join / input / fire / sample / lastMe), so main.js and the
 // render loop cannot tell which transport a match arrived on.
+//
+// The same engine also serves *other people* when this page is the host of a
+// relay room (public/js/relay.js, class RelayHostNet): host.py's RelayHost keeps
+// one sink per player, and the three `_engine*` hooks below are all that has to
+// change to turn a local match into a hosted one.
 
 import { Net } from './net.js';
 import { t } from './i18n.js';
@@ -124,6 +129,10 @@ combat.set_map(_registry.get('default') or combat.DEFAULT_MAP_ID)
 # One room at a time lives here; a fresh connect builds a fresh one (local_reset)
 # so a rejoin never inherits the previous match's scoreboard.
 _host = _host_mod.Host()
+# The relay host: the same room, one sink per player, frames tagged with who
+# they belong to (see host.RelayHost). Used when this page hosts multiplayer on
+# a static deployment.
+_relay = _host_mod.RelayHost()
 
 def local_start(text):
     return _host.start(text)
@@ -140,6 +149,28 @@ def local_status():
 def local_reset():
     global _host
     _host = _host_mod.Host()
+
+def relay_start(text, code):
+    return _relay.start(text, code)
+
+def relay_join(sid, text):
+    return _relay.join(sid, text)
+
+def relay_cmd(sid, text):
+    return _relay.command(sid, text)
+
+def relay_leave(sid):
+    return _relay.leave(sid)
+
+def relay_step(ms):
+    return _relay.step(ms)
+
+def relay_status():
+    return _relay.status()
+
+def relay_reset():
+    global _relay
+    _relay = _host_mod.RelayHost()
 `);
 
   const g = py.globals;
@@ -150,6 +181,13 @@ def local_reset():
     step: g.get('local_step'),
     status: g.get('local_status'),
     reset: g.get('local_reset'),
+    relayStart: g.get('relay_start'),
+    relayJoin: g.get('relay_join'),
+    relayCmd: g.get('relay_cmd'),
+    relayLeave: g.get('relay_leave'),
+    relayStep: g.get('relay_step'),
+    relayStatus: g.get('relay_status'),
+    relayReset: g.get('relay_reset'),
   };
 }
 
@@ -175,7 +213,7 @@ export class LocalNet extends Net {
     this._closed = false;
     this._engine = await bootEngine(this.h.onNote);
     if (this._closed) throw new Error(t('已取消'));
-    this._engine.reset();
+    this._engineReset();
     // A fresh match: the previous one's snapshots would otherwise be sampled
     // into the first frames of this one.
     this.snaps.length = 0;
@@ -214,7 +252,9 @@ export class LocalNet extends Net {
     if (this._joined) { this.send(msg); return; }
     this._joined = true;
     try {
-      const frames = JSON.parse(this._engine.start(JSON.stringify(msg)));
+      // A relay room's engine answers with frames tagged by seat (see
+      // relay.js); _ownFrames keeps the ones meant for this player.
+      const frames = this._ownFrames(JSON.parse(this._engineStart(msg)));
       // The tick loop follows the engine's own tickRate, so a slower device
       // steps the same match at the same speed rather than in slow motion.
       const welcome = frames.map((f) => {
@@ -239,8 +279,24 @@ export class LocalNet extends Net {
   /** Diagnostics for the HUD, the console and the tests. */
   status() {
     if (!this._engine) return null;
-    try { return JSON.parse(this._engine.status()); } catch { return null; }
+    try { return JSON.parse(this._engineStatus()); } catch { return null; }
   }
+
+  // ------------------------------------------------------- the engine, wrapped
+  //
+  // Three calls, deliberately small: a relay room (relay.js, RelayHostNet) is
+  // this class with a room that has several players in it, so that is all it
+  // has to replace.
+
+  _engineReset() { this._engine.reset(); }
+  _engineStart(msg) { return this._engine.start(JSON.stringify(msg)); }
+  /** The frames this player should see out of an engine answer. */
+  _ownFrames(frames) { return frames; }
+  _engineCmd(msg) { return this._engine.cmd(JSON.stringify(msg)); }
+  _engineStep(ms) { return this._engine.step(ms); }
+  _engineStatus() { return this._engine.status(); }
+  /** Runs right after each stepped batch; the relay host publishes it here. */
+  _afterStep() {}
 
   // ---------------------------------------------------------------- the tick
 
@@ -259,7 +315,8 @@ export class LocalNet extends Net {
       this._acc -= this._stepMs;
       ticks += 1;
       this._flush();
-      this._eat(this._engine.step(this._stepMs));
+      this._eat(this._engineStep(this._stepMs));
+      this._afterStep();
     }
     // A click between two ticks should not wait for the next frame, so pending
     // input goes out even on a frame that ran no tick.
@@ -273,7 +330,7 @@ export class LocalNet extends Net {
     while (this._queue.length) {
       const msg = this._queue.shift();
       try {
-        this._eat(this._engine.cmd(JSON.stringify(msg)));
+        this._eat(this._engineCmd(msg));
       } catch (err) {
         console.error('[trench] the engine rejected a message', msg, err);
       }

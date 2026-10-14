@@ -101,7 +101,7 @@ export class Hud {
     if (this._deathInfo && !this.el.death.classList.contains('hidden')) {
       this.showDeath(...this._deathInfo);
     }
-    if (this._lockSoft || this._cache.lock) this.setLockHint(this._cache.lock, this._lockNote);
+    if (this._lockSoft || this._cache.lock) this.setLockHint(this._cache.lock, this._lockNote, this._lockTitle || '');
   }
 
   screen(which) {
@@ -170,6 +170,16 @@ export class Hud {
 
   // ------------------------------------------------------------ 联机房间
 
+  /**
+   * Static hosting (Vercel and friends): there is no server, so the room is run
+   * by the player who creates it and the notes below say that instead of
+   * talking about a server handing out codes.
+   */
+  setWebHosted(on) {
+    this._webHosted = !!on;
+    this.setRoomMode(this._roomMode || 'create', this.el.roomInput.value);
+  }
+
   /** 'create' shows no field; 'join' reveals the 8-digit box and focuses it. */
   setRoomMode(mode, code = '') {
     const join = mode === 'join';
@@ -178,9 +188,15 @@ export class Hud {
     this.el.roomJoin.classList.toggle('on', join);
     this.el.roomInput.classList.toggle('hidden', !join);
     if (join) this.el.roomInput.value = formatRoomCode(code);
-    this.el.roomNote.textContent = join
-      ? t('输入房主给你的 8 位房号即可加入同一局；房号错一位都会进不去')
-      : t('创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）');
+    if (join) {
+      this.el.roomNote.textContent = this._webHosted
+        ? t('输入房主给你的 8 位房号即可加入（网页版：对局在房主的浏览器里运行；点邀请链接也能自动填好房号）')
+        : t('输入房主给你的 8 位房号即可加入同一局；房号错一位都会进不去');
+    } else {
+      this.el.roomNote.textContent = this._webHosted
+        ? t('网页版联机：点「创建房间」你就是房主，这一局在你的浏览器里运行；部署后点右上角房号可复制邀请链接发给朋友（完全不需要服务器）')
+        : t('创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）');
+    }
   }
 
   /** Digits the player typed/selected, no spaces. */
@@ -198,7 +214,11 @@ export class Hud {
     }
   }
 
-  /** "2 个房间在线" line under the menu, from /api/rooms. */
+  /**
+   * "N rooms online" line under the menu. The list holds two kinds of room:
+   * those a game server is running, and those some player is hosting in their
+   * own browser (relay.js); only the code matters when joining either.
+   */
   setRoomList(rooms) {
     this._rooms = rooms;
     const list = (rooms || []).filter((r) => r.players > 0);
@@ -207,8 +227,11 @@ export class Hud {
       return;
     }
     const busy = list.filter((r) => r.players < (r.max || 32));
+    const players = list.filter((r) => r.relay).length;
     this.el.roomListNote.textContent = t('在线房间 {n} 个 · 可加入 {join} 个',
-      { n: list.length, join: busy.length }) + t('（用房号加入，房号请向房主要）');
+      { n: list.length, join: busy.length })
+      + (players ? t('（其中 {p} 个由玩家浏览器主持）', { p: players }) : '')
+      + t('（用房号加入，房号请向房主要）');
   }
 
   /** The chip in the HUD: the code to read out to friends. */
@@ -219,9 +242,17 @@ export class Hud {
     if (show) this.el.roomCode.textContent = formatRoomCode(code);
   }
 
+  /**
+   * A room hosted in a player's browser is easier to pass on as a link than as
+   * eight digits, so the chip copies this instead when there is one.
+   */
+  setRoomLink(url) {
+    this._roomLink = url || '';
+  }
+
   onRoomChipClick(handler) {
     this.el.roomChip.addEventListener('click', async () => {
-      const text = this._roomCode || '';
+      const text = this._roomLink || this._roomCode || '';
       if (!text) return;
       let ok = false;
       try {
@@ -248,7 +279,7 @@ export class Hud {
         this.el.roomChip.classList.remove('copied');
         this.el.roomCopy.textContent = t('复制');
       }, 1600);
-      handler?.(text, ok);
+      handler?.(this._roomCode || '', ok);
     });
   }
 
@@ -588,20 +619,23 @@ export class Hud {
   /**
    * The "click the screen to take the mouse" prompt. With `note` it turns into
    * the small top-of-screen hint used instead when pointer lock is refused and
-   * the controls are steering the view from the cursor (see controls.js).
+   * the controls are steering the view from the cursor (see controls.js), or
+   * when the player pressed Esc and the mouse is free with no look mode on.
+   * `heading` overrides the headline for that third state.
    */
-  setLockHint(show, note = '') {
+  setLockHint(show, note = '', heading = '') {
     const soft = !!note;
-    if (this._cache.lock === show && this._cache.lockNote === note) return;
+    if (this._cache.lock === show && this._cache.lockNote === note && this._lockHeading === heading) return;
     this._cache.lock = show;
     this._cache.lockNote = note;
+    this._lockHeading = heading;
     this.el.lock.classList.toggle('hidden', !show);
     this.el.lock.classList.toggle('soft', soft);
     const title = this.el.lock.querySelector('.lock-title');
     const sub = this.el.lock.querySelector('.lock-sub');
     this._lockSoft = soft;
     this._lockNote = note;
-    if (title) title.textContent = soft ? t('光标转向模式') : t('点击画面继续战斗');
+    if (title) title.textContent = heading || (soft ? t('光标转向模式') : t('点击画面继续战斗'));
     if (sub) sub.textContent = soft ? note : t('鼠标将被锁定 · 按 Esc 释放');
   }
 

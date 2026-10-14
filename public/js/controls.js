@@ -91,6 +91,10 @@ export class Controls {
     this.onLookMode = null;
 
     this._lockWatch = null;
+    // A lock request right after the player pressed Esc is refused by Chrome
+    // for about a second; that refusal must not be mistaken for "this page
+    // cannot lock the mouse" (see _lockFailed).
+    this._lockCooldownUntil = 0;
     this._bind();
   }
 
@@ -150,6 +154,8 @@ export class Controls {
       if (e.code === 'Tab') { e.preventDefault(); this.onScoreboard?.(true); return; }
       if (e.code.startsWith('Arrow')) e.preventDefault();
       if (!this.enabled || typing()) return;
+      // Esc always hands the mouse back, in both look modes (see releaseLook).
+      if (e.code === 'Escape') { this.releaseLook(); return; }
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'KeyR') this.onReload?.();
@@ -206,6 +212,10 @@ export class Controls {
    */
   _lockFailed() {
     clearTimeout(this._lockWatch);
+    // Refused because the player just pressed Esc (Chrome holds the mouse for a
+    // moment after): that is not a verdict on this page, so stay out of the way
+    // and let them click again.
+    if (performance.now() < this._lockCooldownUntil) return;
     if (this.steer) return;
     this.steer = true;
     this.mouse.left = false;
@@ -217,6 +227,40 @@ export class Controls {
   releaseLock() {
     clearTimeout(this._lockWatch);
     document.exitPointerLock?.();
+  }
+
+  /**
+   * Esc: give the mouse back.
+   *
+   * The locked case is the browser's own doing -- Esc exits pointer lock and
+   * the pointerlockchange handler cleans up -- except that Chrome then refuses
+   * another lock for about a second, and *that* refusal used to be read as
+   * "pointer lock is unavailable here", which dropped the player into cursor
+   * steering they had not asked for.
+   *
+   * The steered case had no way out at all: Esc does nothing while there is no
+   * lock to exit, so the view kept turning with the cursor and the only exit
+   * was reloading the page. Here it is deliberate: steering off, keys and
+   * buttons released, and the "click to continue" prompt comes back -- clicking
+   * re-locks if this environment allows it, and re-enters steering if it does
+   * not.
+   */
+  releaseLook() {
+    clearTimeout(this._lockWatch);
+    this._lockCooldownUntil = performance.now() + 1300;
+    this.keys.clear();
+    this.mouse.left = false;
+    this.mouse.right = false;
+    this.onAbilityCancel?.();
+    const steered = this.steer;
+    if (steered) {
+      this.steer = false;
+      this.pointerInside = false;
+      this.onLookMode?.('free');
+    }
+    if (this.locked || document.pointerLockElement === this.canvas) {
+      document.exitPointerLock?.();
+    }
   }
 
   // ------------------------------------------------------------ steer look
