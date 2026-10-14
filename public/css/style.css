@@ -253,6 +253,27 @@ body { user-select: none; }
 }
 .mini-btn:hover { border-color: rgba(255, 255, 255, .45); color: #fff; }
 
+/* ------------------------------------------------------------ 界面语言 */
+.lang-chip {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  z-index: 5;
+  min-width: 58px;
+  padding: 9px 14px;
+  font: 800 13px/1 var(--font);
+  letter-spacing: .12em;
+  color: rgba(244, 241, 234, .82);
+  background: rgba(0, 0, 0, .38);
+  border: 2px solid rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.lang-chip:hover { color: #fff; border-color: rgba(255, 255, 255, .45); }
+
+.lang-row { display: flex; gap: 8px; }
+.lang-row .room-btn { flex: 1; padding: 11px 10px; }
+
 .hint { margin: 0; font-size: 11.5px; line-height: 1.7; text-align: center; color: rgba(244, 241, 234, .5); }
 .hint.dim { color: rgba(244, 241, 234, .34); }
 .error { min-height: 18px; margin: 0; font-size: 13px; font-weight: 700; color: var(--danger); }
@@ -576,6 +597,151 @@ body { user-select: none; }
   text-shadow: 0 3px 0 rgba(0, 0, 0, .6);
 }
 
+.mode-btn.suggested {
+  border-color: rgba(255, 207, 92, .55);
+  background: rgba(255, 207, 92, .09);
+  animation: tut-pulse 2.4s ease-in-out infinite;
+}
+@keyframes tut-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 207, 92, .0); }
+  50% { box-shadow: 0 0 0 3px rgba(255, 207, 92, .16); }
+}
+
+.local-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+/* ------------------------------------------------------------ 新手指引 */
+#tutorial {
+  position: fixed; inset: 0; z-index: 30;
+  /* Space kept free above the panel (top bar + the room chip). The panel's
+     height budget is derived from it, so the buttons at its bottom are always
+     on screen: see .tut-panel below. */
+  --tut-top: 92px;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: var(--tut-top) 16px 16px;
+  pointer-events: none;           /* the game stays playable underneath */
+}
+/* In a match the panel moves out of the way: top-right corner, narrow, so the
+   crosshair and the middle of the screen stay clear while the player shoots. */
+#tutorial.in-game {
+  --tut-top: 96px;
+  align-items: flex-start; justify-content: flex-end;
+  padding: var(--tut-top) 18px 16px;
+}
+/* A column: the header, the tip and the buttons are fixed, and only the step
+   list scrolls. The panel used to scroll as a whole, which pushed its bottom --
+   the "start practising" / "done" buttons -- out of sight on any window shorter
+   than the page (a laptop, a preview pane, a zoomed browser), leaving the
+   player with no visible way forward. */
+#tutorial .tut-panel {
+  pointer-events: auto;
+  display: flex; flex-direction: column;
+  width: min(560px, 94vw);
+  max-height: calc(100vh - var(--tut-top) - 16px);
+  overflow: hidden;
+  padding: 16px 18px; border-radius: 14px;
+  background: rgba(8, 11, 18, .93);
+  border: 1px solid rgba(255, 207, 92, .35);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .6);
+  color: rgba(244, 241, 234, .92);
+}
+#tutorial.in-game .tut-panel {
+  width: min(330px, 46vw);
+  max-height: min(56vh, calc(100vh - var(--tut-top) - 16px));
+  padding: 11px 13px;
+  background: rgba(8, 11, 18, .84);
+}
+#tutorial.in-game .tut-list { margin: 9px 0 6px; gap: 5px; }
+#tutorial.in-game .tut-list li { padding: 5px 8px; font-size: 12px; }
+#tutorial.in-game .tut-tip { display: none; }
+#tutorial header {
+  flex: 0 0 auto;                 /* never scrolls away with the steps */
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+}
+#tutorial header b { font-size: 16px; letter-spacing: .16em; color: #ffcf5c; }
+.tut-count { font-size: 12px; letter-spacing: .16em; color: rgba(244, 241, 234, .55); }
+.tut-count.all { color: #7ee08a; }
+#tutorial .tut-list {
+  flex: 1 1 auto; min-height: 0;  /* the one part that gives way when space is tight */
+  overflow-y: auto; overscroll-behavior: contain;
+  list-style: none; margin: 12px 0 8px; padding: 0 4px 0 0;
+  display: flex; flex-direction: column; gap: 7px;
+}
+#tutorial .tut-list::-webkit-scrollbar { width: 8px; }
+#tutorial .tut-list::-webkit-scrollbar-track { background: rgba(255, 255, 255, .04); border-radius: 4px; }
+#tutorial .tut-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 207, 92, .35); border-radius: 4px;
+}
+#tutorial .tut-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 207, 92, .55); }
+#tutorial .tut-list { scrollbar-width: thin; scrollbar-color: rgba(255, 207, 92, .45) rgba(255, 255, 255, .04); }
+#tutorial .tut-list li {
+  display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: baseline;
+  padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, .04);
+  border: 1px solid transparent; font-size: 13px; line-height: 1.5;
+}
+#tutorial .tut-list li.now { background: rgba(255, 207, 92, .12); border-color: rgba(255, 207, 92, .45); }
+#tutorial .tut-list li.done { opacity: .55; }
+#tutorial .tut-list li.done b::after { content: ' ✔'; color: #7ee08a; }
+#tutorial .tut-list b { white-space: nowrap; }
+#tutorial .key {
+  font: 700 11.5px/1.6 var(--mono, monospace); letter-spacing: .06em;
+  padding: 0 6px; border-radius: 5px; color: #ffcf5c; background: rgba(255, 207, 92, .12);
+}
+#tutorial .txt { color: rgba(244, 241, 234, .78); }
+.tut-tip {
+  flex: 0 0 auto;
+  margin: 0 0 12px; padding: 9px 11px; border-radius: 9px; font-size: 12.5px; line-height: 1.6;
+  background: rgba(120, 200, 255, .08); border: 1px solid rgba(120, 200, 255, .22);
+  color: rgba(220, 235, 255, .85);
+}
+#tutorial footer {
+  flex: 0 0 auto;                 /* the way onward stays on screen */
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+#tutorial .ghost-btn, #tutorial .big-btn { font-size: 13px; }
+
+/* The English steps are longer than the Chinese ones; these keep the whole
+   panel (list + buttons) on one screen as it is in Chinese. Scoped to the
+   English page, so the Chinese layout does not move a pixel. */
+html[lang="en"] #tutorial { --tut-top: 68px; }
+html[lang="en"] #tutorial .tut-list { gap: 5px; margin: 9px 0 7px; }
+html[lang="en"] #tutorial .tut-list li { padding: 6px 9px; font-size: 12.4px; line-height: 1.42; }
+html[lang="en"] #tutorial .tut-tip { font-size: 12px; margin-bottom: 9px; padding: 8px 10px; }
+
+/* ------------------------------------------------------- 联机房间（房号） */
+.room-field {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(12, 16, 24, .55);
+  border: 1px solid rgba(255, 255, 255, .09);
+}
+.room-label { font-size: 12.5px; letter-spacing: .16em; color: rgba(244, 241, 234, .62); }
+.room-row { display: flex; gap: 8px; }
+.room-btn {
+  flex: 1; padding: 9px 10px; border-radius: 9px; cursor: pointer;
+  font: 700 14px/1 var(--font); color: rgba(244, 241, 234, .72);
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .12);
+}
+.room-btn:hover { background: rgba(255, 255, 255, .1); }
+.room-btn.on { color: #12151c; background: #ffcf5c; border-color: #ffcf5c; }
+#input-room {
+  padding: 10px 12px; border-radius: 9px; letter-spacing: .3em; text-align: center;
+  font: 700 17px/1 var(--mono, monospace); color: #fff;
+  background: rgba(8, 11, 18, .9); border: 2px solid rgba(255, 207, 92, .55);
+  outline: none;
+}
+#input-room:focus { border-color: #ffcf5c; }
+
+#room-chip {
+  position: absolute; top: 74px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  background: rgba(8, 11, 18, .72); border: 1px solid rgba(255, 207, 92, .45);
+  font-size: 13px; letter-spacing: .12em; color: rgba(244, 241, 234, .8);
+}
+#room-chip b { font-size: 15px; letter-spacing: .22em; color: #ffcf5c; }
+.rc-copy { font-size: 11.5px; color: rgba(244, 241, 234, .5); }
+#room-chip.copied .rc-copy { color: #7ee08a; }
+
 #lockslot {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
@@ -588,7 +754,79 @@ body { user-select: none; }
 .lock-title { margin: 0; font-size: 25px; font-weight: 900; letter-spacing: .18em; text-shadow: 0 4px 0 rgba(0, 0, 0, .6); }
 .lock-sub { margin: 0; font-size: 12.5px; letter-spacing: .16em; color: rgba(244, 241, 234, .6); }
 
+/* Pointer lock refused (embedded frame / preview pane): the same slot carries a
+   short how-to-play hint instead of the full-screen "click to lock" prompt, so
+   it must not dim or cover the view the player is steering with the cursor. */
+#lockslot.soft {
+  background: none;
+  backdrop-filter: none;
+  justify-content: flex-start;
+  padding-top: 82px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, .9);
+}
+#lockslot.soft .lock-title { font-size: 15px; letter-spacing: .14em; color: #ffcf5c; }
+#lockslot.soft .lock-sub { font-size: 12.5px; letter-spacing: .1em; max-width: min(760px, 88vw); line-height: 1.6; }
+
+/* The room strip on the class screen: the host arrived here straight from
+   「创建房间」, so the code and the invite button have to come along. */
+.select-room {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center;
+  margin: 0 auto 14px; padding: 8px 14px; width: fit-content; max-width: 94vw;
+  border: 1px solid rgba(255, 207, 92, .3); border-radius: 999px;
+  background: rgba(8, 11, 18, .72); font-size: 13px;
+}
+.select-room .sr-label { letter-spacing: .18em; font-size: 11px; color: rgba(244, 241, 234, .55); }
+.select-room b { font: 700 17px/1 var(--mono, monospace); letter-spacing: .12em; color: #ffcf5c; }
+.select-room .ghost-btn { font-size: 12.5px; padding: 5px 10px; }
+
+/* -------------------------------------------------- 暂停菜单 / 邀请面板 */
+.pause-panel, .invite-panel {
+  width: min(520px, 92vw);
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: rgba(8, 11, 18, .95);
+  border: 1px solid rgba(255, 207, 92, .35);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .65);
+  color: rgba(244, 241, 234, .92);
+  text-align: center;
+}
+.invite-panel { width: min(640px, 94vw); text-align: left; }
+.pause-title { margin: 0 0 8px; font-size: 28px; font-weight: 900; letter-spacing: .22em; color: #ffcf5c; }
+.pause-note { margin: 0 0 18px; font-size: 13.5px; line-height: 1.7; color: rgba(244, 241, 234, .72); }
+.pause-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.pause-hint { margin: 16px 0 0; font-size: 12px; letter-spacing: .1em; color: rgba(244, 241, 234, .45); }
+.pause-hint b { color: rgba(255, 207, 92, .9); }
+
+/* The prompt slot's optional button (a page that cannot capture the mouse). */
+.lock-action { margin: 10px 0 0; pointer-events: auto; }
+#lockslot.soft .lock-action { margin-top: 12px; }
+
+.invite-title { margin: 0 0 8px; font-size: 20px; letter-spacing: .1em; color: #ffcf5c; }
+.invite-step { margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: rgba(244, 241, 234, .8); }
+.invite-code {
+  width: 100%; min-height: 96px; resize: vertical;
+  font: 12px/1.5 var(--mono, monospace);
+  color: rgba(244, 241, 234, .92); background: rgba(0, 0, 0, .45);
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 10px; padding: 10px 12px;
+  word-break: break-all;
+}
+.invite-code:focus { outline: none; border-color: rgba(255, 207, 92, .55); }
+.invite-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.invite-actions .big-btn.small, .invite-actions .ghost-btn { font-size: 13px; }
+.invite-stun { display: flex; gap: 8px; margin-top: 14px; font-size: 12px; line-height: 1.6; color: rgba(244, 241, 234, .66); }
+.invite-stun input { margin-top: 3px; }
+.invite-status { margin: 10px 0 0; font-size: 12.5px; min-height: 18px; }
+.invite-status.ok { color: #7ee08a; }
+.invite-status.bad { color: var(--danger); }
+.invite-help { margin: 6px 0 0; font-size: 12px; color: rgba(244, 241, 234, .5); }
+.debug-link { color: #ffcf5c; text-decoration: underline dotted; }
+
 /* ------------------------------------------------------------ 覆盖层 */
+/* The pause menu and the invite panel are page-level, not HUD widgets: the menu
+   itself has a "join with an invite code" button, so the panel has to render
+   over the menu too (inside #screen-hud it appeared inside a hidden box). */
+#pause, #invite { position: fixed; z-index: 35; }
+
 .overlay {
   position: absolute;
   inset: 0;
@@ -668,6 +906,11 @@ body { user-select: none; }
 }
 .mode-btn b { font-size: 16px; font-weight: 900; letter-spacing: .1em; }
 .mode-btn span { font-size: 10.5px; font-weight: 700; line-height: 1.5; color: rgba(43, 21, 8, .68); }
+/* English subtitles run a line longer than the Chinese ones, which makes the
+   main menu taller than it needs to be. Scoped to the English page, so the
+   Chinese layout is byte-for-byte what it always was. */
+html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
+
 .mode-btn:hover { filter: brightness(1.07); }
 .mode-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #a45f14; }
 

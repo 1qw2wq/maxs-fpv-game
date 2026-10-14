@@ -207,6 +207,7 @@ STEP_UP_MAX = 0.65
 SPAWN_FLAT = 0.1        # a spawn may only sit this close to the street plane
 SPAWN_JITTER = 0.5      # spread around an authored point; small on purpose
 SPAWN_TRIES = 24
+SPAWN_RUNWAY = 5.0      # metres of walkable ground a spawn would like to have
 ZONE_HEAD = 0.845
 ZONE_TORSO = 0.55
 
@@ -362,6 +363,27 @@ def _spawn_ok(x, z):
     return abs(floor_at(x, z, GROUND_Y) - GROUND_Y) <= SPAWN_FLAT
 
 
+def _spawn_runway(x, z, yaw):
+    """True when the ground ahead of a spawn is walkable for a few metres.
+
+    The authored points are flat and open by construction, but a map can still
+    place a bunker two metres in front of one: the player then spawns nose-first
+    into a wall, and holding W does nothing until they turn around. This is a
+    *preference* -- a walled-in spawn is still used when the map offers nothing
+    better, so no map can be left without a spawn.
+    """
+    rad = math.radians(yaw)
+    fx, fz = math.cos(rad), math.sin(rad)
+    for i in range(1, int(SPAWN_RUNWAY / 0.5) + 1):
+        d = i * 0.5
+        px, pz = x + fx * d, z + fz * d
+        if blocked(px, pz, GROUND_Y):
+            return False
+        if abs(floor_at(px, pz, GROUND_Y) - GROUND_Y) > 1.5:
+            return False
+    return True
+
+
 def _spawn_at(x, z, yaw):
     """A validated spawn standing *on* the local surface, never on a fixed height.
 
@@ -501,6 +523,9 @@ def random_spawn(team, rng):
     def yaw_of(p):
         return float(p.get("yaw", 0.0 if team == 0 else 180.0))
 
+    # Anything valid but walled in is held back as a fallback: a spawn you can
+    # walk out of always beats a spawn you cannot.
+    fallback = None
     for _ in range(SPAWN_TRIES):
         if not own:
             break
@@ -509,8 +534,20 @@ def random_spawn(team, rng):
                   BOUNDS["minX"] + 2, BOUNDS["maxX"] - 2)
         z = clamp(p["z"] + (rng.random() - 0.5) * 2.0 * SPAWN_JITTER,
                   BOUNDS["minZ"] + 2, BOUNDS["maxZ"] - 2)
-        if _spawn_ok(x, z):
-            return _spawn_at(x, z, yaw_of(p))
+        if not _spawn_ok(x, z):
+            continue
+        yaw = yaw_of(p)
+        if _spawn_runway(x, z, yaw):
+            return _spawn_at(x, z, yaw)
+        # Wall straight ahead: keep the spot -- a trench corner is still a fine
+        # spawn -- but face along the open ground instead of into the sandbags.
+        for turn in (45.0, -45.0, 90.0, -90.0):
+            if _spawn_runway(x, z, yaw + turn):
+                return _spawn_at(x, z, yaw + turn)
+        if fallback is None:
+            fallback = (x, z, yaw)
+    if fallback is not None:
+        return _spawn_at(*fallback)
 
     for pt in own + other:
         if _spawn_ok(pt["x"], pt["z"]):

@@ -1,0 +1,6 @@
+# Trench Front - Python dependencies.
+#
+# Only aiohttp: the server is one process that serves the static client, the
+# WebSocket and the authoritative match loop, and every gameplay number lives in
+# shared/*.json rather than in a database.
+aiohttp>=3.9,<4

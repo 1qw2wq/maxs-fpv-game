@@ -10,12 +10,22 @@ import { loadConfig } from './config.js';
 import { World } from './map.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
+import { GunFx, gunStyle, tracerRound } from './gunfx.js';
 import { Controls } from './controls.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
+import { LocalNet } from './local.js';
+import { RelayNet, RelayHostNet, RelayLobby, createRoomCode } from './relay.js';
 import { drawPortrait } from './face.js';
 import { flatMat } from './toon.js';
+import { store, session } from './storage.js';
+import * as profile from './profile.js';
+import { Tutorial } from './tutorial.js';
+import { Peer, parseCode, setStun, getStun } from './p2p.js';
+import { openRoomChannel } from './relay.js';
+import { setApiBase, apiUrl } from './api.js';
+import { t, nameOf, getLang, setLang, onLangChange } from './i18n.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
   BUILTIN_SKINS, DEFAULT_CLASS_SKIN } from './rig.js';
 
@@ -57,6 +67,12 @@ const app = {
   fireAt: 0,
   throwAt: 0,
   tracers: [],
+  // Rounds fired per weapon, this session: per-gun tracer cadence needs a count
+  // ("every third round"), and it is also what keeps the count off the HUD.
+  shotRounds: {},
+  // How many tracers actually left a barrel (a tracer only shows every `every`
+  // rounds), which is what the per-gun cadence is judged on.
+  tracerStats: { spawned: 0 },
   effects: [],
   // {t0} while Q is held on a thrown ability; null otherwise
   charge: null,
@@ -94,26 +110,56 @@ const app = {
   // the host:port the live socket is actually attached to, so a changed server
   // address is detected and reconnects instead of silently reusing the old link
   netUrl: null,
+  // What this origin turned out to be, filled in by the health probe in
+  // setupServerAddress(): `backendHere` is a real game server behind /api/*,
+  // `localEngine` is a static upload that answers /api/health from a file --
+  // there the match is run by the page itself (see local.js).
+  backendHere: null,
+  localEngine: false,
+  // Set the first time pointer lock is refused here; see updateLockHint().
+  // Only then does the prompt mention iframes and offer a tab of its own.
+  lockRefused: false,
+  // Esc paused the match (see togglePause): the world stops, the menu is up.
+  paused: false,
+  // A room opened from the menu before a match exists (see hostNow): the channel
+  // the deploy step then adopts, so the code never changes under the player.
+  roomChannel: null,
+  // Handed to the net at connect time, then cleared.
+  deployChannel: null,
+  // Esc freed the mouse and the player has not clicked back in yet.
+  mouseFreed: false,
+  // A leaving player must not be told off for disconnecting; see leaveMatch().
+  leaving: false,
+  // Rooms the menu knows about: the backend's own list, and the rooms other
+  // players are hosting in their browsers (see relay.js RelayLobby).
+  serverRooms: null,
+  relayRooms: [],
+  relayLobby: null,
+  // A room this browser is hosting (its code), and what carried the room's
+  // traffic: 'broker' (the public relay) or 'tab' (this browser's own tabs).
+  relayHostCode: '',
+  relayKind: '',
+  relayLabel: '',
 };
+
+// A handle for the browser console and the automated tests: everything the game
+// knows, without having to guess at closures. Nothing inside the game reads it,
+// so poking at it can only affect that one session.
+if (typeof window !== 'undefined') window.__trench = { app, profile };
 
 // One id per browser tab, kept in sessionStorage: it survives a refresh but is
 // never shared with another tab. The server uses it to evict the stale socket a
 // reload leaves behind, otherwise that ghost keeps the room occupied and the
 // fresh map pick is downgraded to a between-rounds vote (i.e. ignored).
 function tabSessionId() {
-  let sid = null;
-  try {
-    sid = sessionStorage.getItem('tf.sid');
-  } catch (e) {
-    sid = null;
-  }
+  let sid = session.get('tf.sid');
   if (!sid) {
     sid = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
       : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2);
-    try {
-      sessionStorage.setItem('tf.sid', sid);
-    } catch (e) { /* private mode: fall back to a per-connection id */ }
+    // Denied storage (blocked site data / opaque origin) just means the id is
+    // per-connection instead of per-tab: see storage.js.
+    session.set('tf.sid', sid);
   }
   return sid;
 }
@@ -124,24 +170,40 @@ async function boot() {
   try {
     app.data = await loadConfig();
   } catch (err) {
-    document.querySelector('.boot-text').textContent = `战场数据载入失败：${err.message}`;
+    bootFail(t('战场数据载入失败：{why}', { why: err.message }),
+      t('请确认服务端已启动，并且这个页面是从服务端地址打开的（http://…，不是直接双击 html 文件）。'));
     return;
   }
 
   const canvas = document.getElementById('game');
   app.canvas = canvas;
-  app.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // A browser with WebGL switched off (or a GPU-blocklisted driver) throws
+  // right here. Without this catch that throw escaped boot() as an unhandled
+  // rejection: the loading screen stayed up forever with no clue why.
+  try {
+    app.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  } catch (err) {
+    bootFail(t('无法创建 3D 画面（WebGL）：{why}', { why: err.message }),
+      t('请在浏览器设置里打开「使用硬件加速」「使用图形加速」后重开页面；若仍不行，换 Chrome / Edge / Firefox 试试。'));
+    return;
+  }
   app.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   app.renderer.setSize(innerWidth, innerHeight);
   app.renderer.outputColorSpace = THREE.SRGBColorSpace;
   app.renderer.toneMapping = THREE.NoToneMapping;
+
+  // A driver reset (tab suspended for a long time, GPU driver restart) leaves a
+  // black screen but the game keeps running. Say so instead of looking frozen.
+  canvas.addEventListener('webglcontextlost', () => {
+    app.hud?.toast(t('显卡上下文丢失，正在尝试恢复…'), 4000);
+  });
 
   app.scene = new THREE.Scene();
   app.camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 600);
 
   // The world is built by setMap() on deploy: a model map is 92 MB and has no
   // business delaying a menu the player may never leave.
-  const savedMap = localStorage.getItem('tf.mapId');
+  const savedMap = store.get('tf.mapId');
   app.mapPick = app.data.mapById[savedMap] ? savedMap : app.data.defaultMapId;
   app.hud = new Hud(app.data);
   app.sfx = new Sfx();
@@ -152,6 +214,7 @@ async function boot() {
 
   app.fxGroup = new THREE.Group();
   app.scene.add(app.fxGroup);
+  app.gunfx = new GunFx({ group: app.fxGroup, scene: app.scene });
 
   addEventListener('resize', () => {
     app.renderer.setSize(innerWidth, innerHeight);
@@ -164,10 +227,12 @@ async function boot() {
     hud: app.hud,
     onUse: (skin) => {
       app.loadout.skin = skin?.id || '';
-      app.hud.setSkinNote(skin ? `当前角色：${skin.name || skin.id}` : '');
+      app.hud.setSkinNote(skin ? t('当前角色：{name}', { name: nameOf(skin) || skin.id }) : '');
     },
   });
+  setupServerAddress();
   await refreshCharLibrary();
+  setupLocalPanel();
   for (const skin of Object.values(BUILTIN_SKINS)) app.charMeta.set(skin.id, skin);
 
   // Warm every built-in rig while the player is still on the menu. Textures
@@ -177,9 +242,35 @@ async function boot() {
   for (const skin of Object.values(BUILTIN_SKINS)) ensureTemplate(skin.id, skin);
 
   setupMenu();
+  setupLanguage();
+  setupTutorial();
+  setupPause();
+  setupInvite();
   wireControls();
   app.hud.screen('menu');
   requestAnimationFrame(loop);
+}
+
+/**
+ * The loading screen doubles as the failure screen: it is the only thing on
+ * screen that early, so a message printed here is the difference between
+ * "broken game" and "the browser needs hardware acceleration on".
+ */
+function bootFail(message, hint) {
+  const box = document.querySelector('.boot-text');
+  if (box) box.textContent = message;
+  if (hint) {
+    const p = document.createElement('p');
+    p.className = 'boot-text dim';
+    p.style.marginTop = '14px';
+    p.style.maxWidth = 'min(680px, 86vw)';
+    p.style.lineHeight = '1.7';
+    p.style.textAlign = 'center';
+    p.textContent = hint;
+    box?.parentElement?.appendChild(p);
+  }
+  // Also leave a trace for the console, where the raw error is easier to read.
+  console.error('[trench]', message, hint || '');
 }
 
 // ------------------------------------------------------------ character library
@@ -187,15 +278,15 @@ async function boot() {
 /** Shared characters uploaded by anyone; keyed by server id. */
 async function refreshCharLibrary() {
   try {
-    const res = await fetch('/api/characters');
+    const res = await fetch(apiUrl('/api/characters'));
     const list = (await res.json()).characters || [];
     for (const m of list) app.charMeta.set(m.id, m);
   } catch { /* offline: only the built-in characters are available */ }
 
-  const saved = localStorage.getItem('tf.skinId') || '';
+  const saved = store.get('tf.skinId') || '';
   const meta = app.charMeta.get(saved);
   app.loadout.skin = meta ? meta.id : '';
-  app.hud.setSkinNote(meta ? `当前角色：${meta.name || meta.id}` : '');
+  app.hud.setSkinNote(meta ? t('当前角色：{name}', { name: nameOf(meta) || meta.id }) : '');
 }
 
 // Weak Intel iGPUs (HD 4600 era, 2020 drivers) silently turn a texture's very
@@ -263,13 +354,342 @@ function makeRemoteGirl(cls, team, skinId) {
 
 // --------------------------------------------------------------------- menu
 
+/**
+ * Language switch: a chip in the menu corner, and a pair of buttons on the
+ * settings screen. i18n.js owns the choice (it is applied when the module is
+ * imported, so the first paint is already in the right language); this only
+ * paints the controls and re-renders the bits of the menu that were built
+ * before the switch: the error line, the room list and the local panel.
+ */
+function setupLanguage() {
+  const chip = document.getElementById('lang-toggle');
+  const zh = document.getElementById('lang-zh');
+  const en = document.getElementById('lang-en');
+
+  const paint = () => {
+    const l = getLang();
+    // The chip offers the *other* language, which is what a player looking for
+    // a way out of Chinese wants to see.
+    if (chip) chip.textContent = l === 'en' ? '中文' : 'EN';
+    zh?.classList.toggle('on', l === 'zh');
+    en?.classList.toggle('on', l === 'en');
+  };
+
+  const choose = (lang) => {
+    if (lang === getLang()) { paint(); return; }
+    setLang(lang);
+    app.sfx?.ui();
+    app.hud.menuError('');
+    showStaticHint();
+    refreshRoomList();
+    setupLocalPanel.render();
+    paint();
+  };
+
+  chip?.addEventListener('click', () => choose(getLang() === 'en' ? 'zh' : 'en'));
+  zh?.addEventListener('click', () => choose('zh'));
+  en?.addEventListener('click', () => choose('en'));
+  onLangChange(paint);
+  paint();
+}
+
+/**
+ * Settings screen: show the player exactly what this browser stores, let them
+ * export it, and let them wipe it. The game keeps no server-side profile, so
+ * this panel is the whole story of "my data".
+ */
+function setupLocalPanel() {
+  const note = document.getElementById('local-note');
+  // setupLanguage() re-runs render() when the interface language changes.
+  setupLocalPanel.render = () => {};
+  const exportBtn = document.getElementById('local-export');
+  const resetBtn = document.getElementById('local-reset');
+  if (!note) return;
+  const render = () => {
+    const sum = profile.summary();
+    const st = sum.stats;
+    const lines = [
+      t('名字：{name}', { name: sum.name || t('（未设置）') }),
+      t('最近房号：{code}', { code: sum.room || t('（还没进过房间）') }),
+      t('战绩：{matches} 局 · {kills} 击杀 · {deaths} 阵亡 · 胜 {wins}', {
+        matches: st.matches, kills: st.kills, deaths: st.deaths, wins: st.wins,
+      }),
+      t('新手指引：{state}', { state: sum.tutorialDone ? t('已完成') : t('未完成') }),
+      sum.persistent
+        ? t('存储位置：本机 localStorage（不会上传到服务器，也没有账号系统）')
+        : t('注意：这个环境禁止了本地存储，本次数据只在内存里，刷新即失效'),
+    ];
+    note.innerHTML = lines.join('<br>');
+  };
+  setupLocalPanel.render = render;
+  onLangChange(render);
+  render();
+
+  exportBtn?.addEventListener('click', () => {
+    const data = { exportedAt: new Date().toISOString(), profile: profile.load() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'trench-front-profile.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    app.hud.toast(t('存档已导出到下载文件夹'), 2200);
+  });
+
+  resetBtn?.addEventListener('click', () => {
+    if (!window.confirm(t('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？'))) return;
+    profile.reset();
+    for (const key of ['tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig']) store.remove(key);
+    app.hud.setRoomMode('create', '');
+    app.hud.setRoomHistory([]);
+    app.hud.setServerAddress('');
+    app.hud.el.name.value = '';
+    app.hud.toast(t('本机数据已清空'), 2200);
+    render();
+  });
+}
+
+/**
+ * The beginner walkthrough. Starting it deploys a private solo match with no
+ * bots, so the steps happen in the real game without anyone shooting back. The
+ * deploy path is the ordinary one: only `bots: false` and a marker make it the
+ * practice round.
+ */
+function setupTutorial() {
+  app.tut = new Tutorial({
+    hud: app.hud,
+    onStart: () => {
+      app.hud.screen('select');
+      app.hud.setBotsVisible(false);
+      app.hud.selectClass(app.loadout.cls, 0);
+      app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+    },
+    onFinish: (completed) => {
+      profile.save({ tutorialDone: true });
+      app.hud.menuError('');
+      app.hud.toast(completed ? t('新手指引完成，祝你玩得开心') : t('随时可以在主菜单重新打开新手指引'), 2600);
+    },
+  });
+  // First visit: offer the walkthrough instead of leaving the player to guess.
+  if (!profile.load().tutorialDone) {
+    app.hud.setTutorialHint?.();
+  }
+}
+
+/**
+ * Esc pauses the match and opens a menu that can actually leave it.
+ *
+ * Before this, Esc only handed the mouse back: there was no way out of a match
+ * except reloading the page, and no way to stop playing for a moment without
+ * losing the mouse. The world stops while the menu is up (the frame loop skips
+ * its update, so a solo engine or a hosted room really does pause), the mouse
+ * is free, and the menu offers the three things a player wants: carry on,
+ * change settings, or leave the match.
+ */
+function setupPause() {
+  app.hud.bindPause({
+    onResume: () => togglePause(false),
+    onSettings: () => {
+      app.sfx.resume();
+      app.settings.open();
+    },
+    onInvite: () => openInvite('host'),
+    onLeave: () => leaveMatch(),
+  });
+  // Esc itself: `controls` releases the mouse, then tells us here.
+  app.controls.onEscape = () => {
+    if (!app.playing) return;
+    togglePause(!app.paused);
+  };
+}
+
+function togglePause(on) {
+  const want = on === undefined ? !app.paused : !!on;
+  if (want === app.paused) return;
+  app.paused = want;
+  // A room running in this tab (solo engine or a hosted match) stops with it.
+  if (app.net) app.net.paused = want;
+  if (want) {
+    app.hud.showPause({
+      host: !!app.relayHostCode,
+      note: app.relayHostCode
+        ? t('房号 {code} · 你是房主，这一局在你的浏览器里运行；离开后别人会失去这一局。',
+          { code: formatCode(app.relayHostCode) })
+        : t('按 Esc 打开这个菜单；「继续战斗」回到战场。'),
+    });
+  } else {
+    app.hud.hidePause();
+    // The click (or the Esc key) that got here is a user gesture, which is what
+    // pointer lock needs; if the browser still refuses, the prompt says so.
+    app.controls.requestLock();
+  }
+}
+
+/**
+ * Out of a match, from the pause menu. `leaving` keeps the net's own
+ * "disconnected" handling quiet: nobody should be told off for choosing to
+ * leave. The room stays open for a host (the code still works if they come
+ * back), and a guest simply says goodbye.
+ */
+function leaveMatch() {
+  app.leaving = true;
+  app.paused = false;
+  app.hud.hidePause();
+  app.playing = false;
+  try { app.controls.releaseLook(); } catch { /* nothing to release */ }
+  app.controls.enabled = false;
+  // A hosted room goes with the match: guests are told (the relay's own goodbye)
+  // and the code is retired, so nobody is left knocking on a room whose engine
+  // is no longer running.
+  try { app.roomChannel?.close(); } catch { /* already gone */ }
+  app.roomChannel = null;
+  try { app.net?.close(); } catch { /* already gone */ }
+  app.net = null;
+  app.netUrl = null;
+  const wasHosting = !!app.relayHostCode;
+  app.relayHostCode = '';
+  app.relayKind = '';
+  app.relayLabel = '';
+  app.deathShown = false;
+  app.hud.hideDeath?.();
+  app.hud.setRoomCode('');
+  app.hud.screen('menu');
+  app.hud.toast(wasHosting
+    ? t('已离开对局（房间也关了）：想再来一局就再点「创建房间」')
+    : t('已离开对局'), 3200);
+  app.leaving = false;
+}
+
+// ------------------------------------------- 联机：不用任何服务器的邀请码
+
+/**
+ * Cross-computer multiplayer in two codes and no service at all: the host makes
+ * an invite code (a WebRTC offer, deflated into text), the friend's page turns
+ * it into an answer code, the host pastes that back and the two pages are
+ * connected directly. This is what the "no server" requirement comes down to --
+ * the players themselves are the signalling channel.
+ */
+function setupInvite() {
+  app.hud.bindInvite({
+    onGenerate: async () => {
+      // 「创建房间」 opens the room's channel straight away and the match adopts
+      // that same channel when it deploys, so an invite made here -- while the
+      // player is still picking a class -- keeps working once the fight starts.
+      const ch = inviteChannel();
+      if (!ch) {
+        app.hud.inviteStatus(t('先创建房间（房主才有邀请码）'), false);
+        return;
+      }
+      app.hud.inviteStatus(t('正在生成邀请码…'));
+      try {
+        const code = await ch.createInvite(app.relayHostCode || ch.room || '');
+        app.hud.el.inviteCode.value = code;
+        app.hud.inviteStatus(t('邀请码已生成：把上面这段发给一位朋友（他会得到一个回答码）'), true);
+      } catch (err) {
+        app.hud.inviteStatus(err?.message || t('邀请码生成失败'), false);
+      }
+    },
+    onCopy: async (text) => {
+      if (!text) return;
+      try { await navigator.clipboard.writeText(text); app.hud.inviteStatus(t('已复制'), true); }
+      catch { app.hud.el.inviteCode.select?.(); app.hud.inviteStatus(t('复制失败：请手动选中复制（Ctrl/Cmd+C）'), false); }
+    },
+    onAccept: async (text) => {
+      const ch = inviteChannel();
+      if (!ch) {
+        app.hud.inviteStatus(t('先创建房间（房主才有邀请码）'), false);
+        return;
+      }
+      app.hud.inviteStatus(t('正在配对…'));
+      try {
+        await ch.acceptAnswer(text);
+        app.hud.inviteStatus(t('配对成功：这位朋友已经连上你了，他现在能进这一局'), true);
+        app.hud.toast(t('朋友已直连进来'), 3200);
+      } catch (err) {
+        app.hud.inviteStatus(err?.message || t('回答码用不了'), false);
+      }
+    },
+    onJoin: async (text) => {
+      app.hud.inviteStatus(t('正在连接房主…'));
+      try {
+        const res = await joinByInvite(text);
+        app.hud.el.inviteCode.value = res.answer;
+        app.hud.inviteStatus(t('已接上房主，房号 {code}：把上面这段回答码发回给房主', { code: formatCode(res.room) }), true);
+      } catch (err) {
+        app.hud.inviteStatus(err?.message || t('邀请码用不了'), false);
+      }
+    },
+    onStun: (on) => {
+      // Off by default: with no STUN server the two browsers must see each
+      // other directly, which is exactly "nothing external". On: a public
+      // address-lookup service helps two home networks find each other.
+      setStun(on ? 'stun.l.google.com:19302' : '');
+      store.set('tf.stun', on ? '1' : '');
+      app.hud.inviteStatus(on ? t('已打开跨网络支持（下次生成邀请码时生效）') : t('已关闭跨网络支持：只连同一网络内的朋友'));
+    },
+    onClose: () => app.hud.closeInvite(),
+  });
+  setStun(getStun() || (store.get('tf.stun') ? 'stun.l.google.com:19302' : ''));
+}
+
+/**
+ * Where invite codes are made: the room opened by 「创建房间」 if there is one
+ * (that is the channel the match will adopt), else the running match's own.
+ */
+function inviteChannel() {
+  if (app.roomChannel) return app.roomChannel;
+  if (app.net?.createInvite) return app.net;
+  return null;
+}
+
+function openInvite(mode) {
+  app.hud.openInvite(mode, { room: app.relayHostCode || app.roomCode || '', stun: !!getStun() });
+}
+
+/** Guest side of the invite exchange: learn the room, connect, return an answer. */
+async function joinByInvite(text) {
+  const parsed = await parseCode(text);
+  if (!parsed || parsed.kind !== 'invite') throw new Error(t('这不像一个邀请码：它应以 TFi1 开头（回答码是发给房主的）'));
+  const room = String(parsed.room || '').replace(/\D/g, '');
+  if (room.length !== 8) throw new Error(t('邀请码里的房号不对：请让房主重新生成一个'));
+  app.roomMode = 'join';
+  app.roomCode = room;
+  profile.save({ roomMode: 'join', room });
+  app.hud.setRoomMode('join', room);
+  await connectRelay({ room, solo: false });
+  const res = await app.net.acceptInvite(text);
+  if (res.room) { app.relayHostCode = ''; }
+  app.hud.setRoomCode('');
+  return { room: res.room || room, answer: res.answer };
+}
+
 function setupMenu() {
-  let botCount = 6;
+  // Everything personal lives in this browser only (see profile.js): the name,
+  // the loadout, the room codes and the local stats. No database anywhere.
+  const saved = profile.load();
+  let botCount = saved.soloBots;
   let mode = 'multi';
+  app.roomMode = saved.roomMode;
+  app.roomCode = saved.room;
 
   // Server address: remembered per browser. Empty means "wherever this page
   // came from", which is already correct when everyone opens the host's URL.
-  app.hud.setServerAddress(localStorage.getItem('tf.server') || '');
+  app.hud.setServerAddress(app.serverPick || store.get('tf.server') || '');
+  app.hud.setRoomMode(app.roomMode, app.roomCode);
+  app.hud.setRoomHistory(saved.recentRooms);
+  setupJoinLink();
+  app.hud.onRoomChipClick((code, ok) => {
+    if (app.relayHostCode) {
+      // Browser-hosted room: a link is far easier to pass on than 8 digits.
+      app.hud.toast(ok
+        ? t('邀请链接已复制：朋友打开就是加入房号 {code}', { code: formatCode(code) })
+        : t('房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）', { code: formatCode(code) }), 3200);
+      return;
+    }
+    app.hud.toast(ok ? `房号 ${code} 已复制，发给朋友吧` : `房号：${code}`, 2400);
+  });
+  refreshRoomList();
+  showStaticHint();
 
   const enterSelect = (which) => {
     mode = which;
@@ -278,25 +698,84 @@ function setupMenu() {
     app.hud.setBotsVisible(which === 'solo');
     app.hud.screen('select');
     app.hud.selectClass(app.loadout.cls, 0);
-    app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon);
+    app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+  };
+
+  // Multiplayer is entered through a room code: creating one makes you the
+  // host, joining one requires the code the host handed out. Solo never asks.
+  const multiNeedsCode = () => app.roomMode === 'join';
+  const roomProblem = () => {
+    if (!multiNeedsCode()) return '';
+    const code = app.hud.joinCode;
+    if (code.length !== 8) return t('请输入房主给你的 8 位房号（例如 1234 5678）');
+    return '';
+  };
+  const enterMulti = () => {
+    const problem = roomProblem();
+    if (problem) {
+      app.hud.menuError(problem);
+      app.hud.setRoomMode('join', app.hud.joinCode);
+      return;
+    }
+    app.hud.menuError('');
+    enterSelect('multi');
   };
 
   app.hud.bindMenu({
-    onMulti: () => enterSelect('multi'),
+    onMulti: enterMulti,
     onSolo: () => enterSelect('solo'),
     onSettings: () => {
       app.sfx.resume();
       app.settings.open();
     },
-    onBotCount: (n) => { botCount = n; },
+    onBotCount: (n) => { botCount = n; profile.save({ soloBots: n }); },
+    onRoomMode: (m) => {
+      app.roomMode = m;
+      app.hud.menuError('');
+      app.hud.setRoomMode(m, app.roomCode);
+    },
+    // One click, one room: hosting starts immediately instead of waiting for
+    // the deploy button (and for a broker probe that no longer exists).
+    onHost: async () => {
+      app.hud.menuError('');
+      if (app.relayHostCode) {
+        app.hud.toast(t('房间 {code} 已经开着了：把房号发给朋友，或按 Esc →「邀请朋友」生成跨电脑邀请码',
+          { code: formatCode(app.relayHostCode) }), 4200);
+        return;
+      }
+      app.sfx.ui();
+      const ok = await hostNow();
+      if (!ok) return;
+      enterMulti();
+    },
+    onInvite: () => {
+      app.hud.menuError('');
+      openInvite(app.relayHostCode ? 'host' : 'guest');
+    },
+    onRoomCode: () => app.hud.menuError(''),
+    // The class screen's copy button: same words as the HUD chip.
+    onCopyLink: async () => {
+      const code = app.relayHostCode || app.roomCode || '';
+      if (!code) { app.hud.menuError(t('还没有房间：先点「创建房间」')); return; }
+      const ok = await app.hud.copyRoomLink();
+      app.hud.menuError('');
+      app.hud.toast(ok
+        ? t('邀请链接已复制：朋友打开就是加入房号 {code}', { code: formatCode(code) })
+        : t('房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）', { code: formatCode(code) }), 3200);
+    },
+    onTutorial: () => {
+      app.hud.menuError('');
+      app.tut?.open();
+    },
     onMap: (id) => {
       app.sfx.ui();
       app.mapPick = id;
       app.hud.setMapPick(id);
-      localStorage.setItem('tf.mapId', id);
+      store.set('tf.mapId', id);
     },
   });
   app.hud.buildMaps(app.data.maps, app.mapPick);
+  if (saved.name) app.hud.el.name.value = saved.name;
 
   app.hud.buildSelect(
     (clsId) => {
@@ -307,14 +786,19 @@ function setupMenu() {
     () => {
       const sel = app.hud.selected || { cls: app.loadout.cls, weapon: app.data.weaponsByClass[app.loadout.cls][0].id };
       app.loadout = { ...app.loadout, ...sel };
+      const practice = !!app.tut?.active;
       deploy({
         name: app.hud.playerName,
         cls: sel.cls,
         weapon: sel.weapon,
-        bots: mode === 'solo',
+        // The walkthrough is a solo match with nobody shooting at the player.
+        bots: practice ? false : mode === 'solo',
         botCount: mode === 'solo' ? botCount : 0,
         skin: app.loadout.skin || '',
-        solo: mode === 'solo',
+        solo: practice || mode === 'solo',
+        // Solo is its own private room; multiplayer either hosts (no code) or
+        // joins the code the player typed.
+        room: mode === 'multi' && multiNeedsCode() ? app.hud.joinCode : '',
       });
     },
     () => {
@@ -337,48 +821,237 @@ function setupMenu() {
  */
 function normalizeServer(raw) {
   const text = (raw || '').trim();
-  if (!text) return location.host;
+  const pageSecure = location.protocol === 'https:';
+  if (!text) return { host: location.host, secure: pageSecure };
+  const explicit = /^[a-z][a-z0-9+.-]*:\/\//i.test(text);
   let url;
   try {
-    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
+    url = new URL(explicit ? text : `http://${text}`);
   } catch {
-    throw new Error(`服务器地址无效：${text}`);
+    throw new Error(t('服务器地址无效：{text}', { text }));
   }
+  // A typed full URL knows better than this page does: on an https deployment the
+  // game server has to be https too (the browser blocks a ws:// socket from a
+  // secure page), and its port comes from the scheme rather than from whatever
+  // port this page happens to be served on. A bare address keeps following the
+  // page -- that is what LAN play and the local menu expect.
+  const secure = explicit ? (url.protocol === 'https:' || url.protocol === 'wss:') : pageSecure;
   // URL.hostname keeps IPv6 brackets in some engines and drops them in others,
   // so normalise here rather than assuming either.
   const bare = url.hostname.replace(/^\[|\]$/g, '');
   const host = bare.includes(':') ? `[${bare}]` : bare;
-  return `${host}:${url.port || location.port || '8080'}`;
+  const port = url.port || (explicit ? (secure ? '443' : '80') : (location.port || '8080'));
+  return { host: `${host}:${port}`, secure };
 }
 
-async function deploy(opts) {
-  app.hud.menuError('');
+/** `{host, secure}` -> the http(s) origin the /api/... endpoints live on. */
+function serverHttpBase(server) {
+  return `${server.secure ? 'https' : 'http'}://${server.host}`;
+}
 
-  let host;
+/**
+ * `?code=12345678` -- the link a host can hand out. It opens the menu with the
+ * join field already filled, so a friend only has to press deploy. Accepts the
+ * code in the query or the hash, with or without spaces/dashes.
+ */
+function setupJoinLink() {
+  let raw = '';
   try {
-    host = normalizeServer(app.hud.serverAddress);
-  } catch (err) {
-    app.hud.menuError(err.message);
+    const q = new URLSearchParams(location.search);
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    raw = q.get('code') || h.get('code') || q.get('room') || h.get('room') || '';
+  } catch { /* no URL API: nothing to read */ }
+  const code = String(raw).replace(/\D/g, '').slice(0, 8);
+  if (code.length !== 8) return false;
+  app.roomMode = 'join';
+  app.roomCode = code;
+  profile.save({ roomMode: 'join', room: code });
+  app.hud.setRoomMode('join', code);
+  app.hud.toast(t('邀请链接里的房号 {code} 已填好，进战场就是加入这一局',
+    { code: formatCode(code) }), 4200);
+  return true;
+}
+
+/**
+ * Where the game server is, before anything has connected. A static deployment
+ * (Vercel and friends -- see api.js) has no server of its own, so the address
+ * has to come from the player: `?server=host:port` on the URL wins over the one
+ * remembered from last time, because it is the one that was just pasted in.
+ */
+function setupServerAddress() {
+  let picked = '';
+  let raw = '';
+  try {
+    const q = new URLSearchParams(location.search);
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    raw = (q.get('server') || h.get('server') || '').trim();
+  } catch { /* no URL API: nothing to read */ }
+  if (raw) {
+    try {
+      picked = normalizeServer(raw).host;
+      store.set('tf.server', raw);
+      setApiBase(serverHttpBase(normalizeServer(raw)));
+    } catch (err) {
+      // A typo in the URL must not stop the menu from opening.
+      console.warn('[trench] 忽略无效的 ?server=：', err.message);
+    }
+  }
+  app.serverPick = picked;
+
+  // Is there a game server behind this very origin? Plain static hosting says no,
+  // and then the player deserves to be told that instead of a bare connection
+  // error -- and told what to put in the address box.
+  app.backendHere = null;
+  fetch(apiUrl('/api/health'), { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      app.backendHere = !!(j && j.ok === true);
+      // A static upload carries shim /api/health, /api/rooms and
+      // /api/characters files (see public/api/) and marks itself: there is no
+      // socket to open, the engine runs in this tab instead. A real server
+      // never sets this, so a hosted match keeps using the network.
+      app.localEngine = !!(j && j.engine === 'local');
+      // Rooms are hosted by players on such a page, so the menu says so
+      // (see hud.setRoomMode).
+      app.hud.setWebHosted(app.localEngine);
+    })
+    .catch(() => { app.backendHere = false; })
+    .then(showStaticHint);
+}
+
+/**
+ * The one-line nudge a copy of the page with no game server behind it shows.
+ * That copy still plays -- the engine boots inside the tab (see local.js) -- so
+ * the line is an offer, not a complaint: type an address to play on a hosted
+ * server instead, with other people.
+ */
+// Built per call rather than stored as a constant: the nudge itself is
+// translated, so it has to be rebuilt when the language changes.
+const staticHint = () => t('连不上服务器：单机可以在这里直接开打（引擎在页面里跑），'
+  + '多人则点「创建房间」，把 8 位房号发给朋友（同一个浏览器多开标签页），'
+  + '或用「邀请朋友」的邀请码跨电脑直连——房主的浏览器运行整局，不经过任何服务器。'
+  + '想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。');
+
+/** The menu line a static copy of the page shows: how multiplayer works here. */
+const localEngineHint = () => t('静态托管：单机与多人都不需要服务器——'
+  + '点「创建房间」你就是房主：把 8 位房号发给朋友（同一浏览器多开标签页即可进），'
+  + '或用「邀请朋友」的邀请码让另一台电脑直连过来。');
+
+function showStaticHint() {
+  const configured = !!(app.hud.serverAddress || app.serverPick);
+  const shown = app.staticHint;
+  app.staticHint = false;
+  // A page that runs the engine itself needs no "cannot connect" nudge -- its
+  // deploy button works. It does need to be told how multiplayer works, since
+  // there is no server to join.
+  if (app.localEngine) {
+    startRelayLobby();
+    if (configured) {
+      if (shown) app.hud.menuError('');
+      return;
+    }
+    app.staticHint = true;
+    app.hud.menuError(localEngineHint());
     return;
   }
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${proto}//${host}/ws`;
-  localStorage.setItem('tf.server', app.hud.serverAddress);
+  if (!configured && app.backendHere === false) {
+    app.staticHint = true;
+    app.hud.menuError(staticHint());
+  } else if (configured && shown) {
+    // A server address turned up (remembered, or ?server=): the nudge is stale.
+    app.hud.menuError('');
+  }
+}
 
-  const makeNet = () => new Net({
+/**
+ * How many rooms are running right now, for the menu's hint line. On a static
+ * deployment this has to ask the configured backend: /api/rooms on this origin
+ * is just a 404.
+ */
+async function refreshRoomList() {
+  try {
+    const res = await fetch(apiUrl('/api/rooms'), { cache: 'no-store' });
+    const data = await res.json();
+    app.serverRooms = data.rooms || [];
+  } catch {
+    app.serverRooms = null;
+  }
+  applyRoomList();
+}
+
+/** What the menu's "N rooms online" line really shows. */
+function applyRoomList() {
+  const rooms = [...(app.serverRooms || []), ...(app.relayRooms || [])]
+    // The room this browser is hosting is not something to join.
+    .filter((r) => !app.relayHostCode || r.code !== app.relayHostCode);
+  // null means "we have no idea", which the HUD words differently from "none".
+  app.hud.setRoomList(rooms.length || app.serverRooms !== null ? rooms : null);
+}
+
+/**
+ * Listen for rooms other players are hosting in their own browsers, and merge
+ * them into the menu list. Only meaningful on a static upload -- a real server
+ * already lists its own rooms -- and quietly absent when no relay is reachable.
+ */
+function startRelayLobby() {
+  if (!app.localEngine || app.relayLobby) return;
+  const lobby = new RelayLobby();
+  app.relayLobby = lobby;
+  lobby.start((rooms) => {
+    app.relayRooms = rooms || [];
+    applyRoomList();
+  }).then((ok) => {
+    // The lobby retries on its own when no relay is reachable yet, so an
+    // unsuccessful first attempt is not a reason to give up on it.
+    if (!ok) console.warn('[trench] no relay for the room list yet');
+  });
+}
+
+/**
+ * Open (or reuse) the socket for one address. Throws when the handshake fails,
+ * leaving app.net empty for the next candidate.
+ */
+/** The handlers a match needs, whichever transport ends up carrying it. */
+function netHandlers(label) {
+  return {
     onWelcome: onWelcome,
     onState: onState,
     onMe: onMe,
     onMessage: onMessage,
+    // Boot progress for the in-page engine -- and, in a relay room, the little
+    // "the host paused", "rejoining" notices a guest gets mid-match. While the
+    // player is fighting those have to be a toast: the menu behind it is hidden.
+    onNote: (text) => {
+      if (app.playing) app.hud.toast(text, 3400);
+      else app.hud.menuError(text);
+    },
     onClose: () => {
-      if (!app.playing) return;
+      if (!app.playing || app.leaving) return;
       app.playing = false;
+      app.paused = false;
+      app.hud.hidePause();
       app.controls.releaseLock();
       app.hud.screen('menu');
-      app.hud.menuError('与服务器断开连接');
+      app.hud.menuError(app.net?.mode === 'relay'
+        ? t('与房主断开连接：回主菜单用同一个房号重新加入即可')
+        : t('与服务器断开连接'));
     },
-    onError: () => app.hud.menuError(`无法连接服务器（${host}）`),
-  });
+    onError: (text) => app.hud.menuError(text || t('无法连接服务器（{host}）', { host: label })),
+    // A friend on another computer connected straight to this browser: nobody
+    // else on the page can tell the player that, so say it here.
+    onPeers: (n) => {
+      if (!n) return;
+      const text = t('一位朋友已直连进来（当前 {n} 条直连）', { n });
+      if (app.playing) app.hud.toast(text, 3400);
+      else app.hud.menuError(text);
+    },
+  };
+}
+
+async function connectNet(server) {
+  const proto = server.secure ? 'wss:' : 'ws:';
+  const host = server.host;
+  const url = `${proto}//${host}/ws`;
 
   // A socket already bound to a different address is useless once the menu
   // address changes, so drop it and build a fresh client -- otherwise editing
@@ -389,20 +1062,235 @@ async function deploy(opts) {
     app.netUrl = null;
   }
   if (!app.net) {
-    app.net = makeNet();
+    app.net = new Net(netHandlers(host));
     app.netUrl = url;
     try {
-      await app.net.connect(url);
+      // A page that already knows it is a static upload has no socket to wait
+      // for: the long-poll POST is answered by nothing, and the engine in this
+      // tab is the way in. Nothing is decided until /api/health has answered,
+      // so the full handshake timeout stays for a real server.
+      await app.net.connect(url, { timeoutMs: app.localEngine ? 1500 : undefined });
+      if (app.net.mode === 'poll') {
+        // Only happens where the WebSocket upgrade is refused (strict proxy,
+        // some preview panes). Not an error: the match rides on POSTs instead.
+        console.warn('[trench] WebSocket unavailable, using the HTTP long-poll transport');
+      }
     } catch (err) {
       app.net.close();
       app.net = null;
       app.netUrl = null;
-      app.hud.menuError(`无法连接服务器（${host}）`);
-      return;
+      throw err;
     }
   }
+  return url;
+}
+
+/**
+ * The last candidate on a static deployment: the game server's own code, run by
+ * this page (local.js). Nothing to reach, nothing to configure -- and the same
+ * match logic, so the room, the bots and the ballistics behave exactly like the
+ * ones a hosted server would run.
+ */
+async function connectLocal() {
+  const url = 'local://engine';
+  if (app.net && (!app.net.connected || app.netUrl !== url)) {
+    app.net.close();
+    app.net = null;
+    app.netUrl = null;
+  }
+  if (!app.net) {
+    app.net = new LocalNet(netHandlers(t('浏览器内引擎')));
+    app.netUrl = url;
+    try {
+      await app.net.connect('');
+    } catch (err) {
+      // The menu only says "cannot connect": a boot failure (a missing Pyodide
+      // file, inconsistent engine data) deserves its own console line.
+      console.error('[trench] the in-page engine failed to start', err);
+      app.net.close();
+      app.net = null;
+      app.netUrl = null;
+      throw err;
+    }
+  }
+  return url;
+}
+
+/**
+ * The last candidate for *multiplayer* on a static deployment: no backend of
+ * ours, no socket of ours -- the room runs in the browser of whoever created
+ * it and the two sides talk over a public MQTT broker (relay.js). Several
+ * people can host at once, each with their own code, and each host picks their
+ * own map: there is no shared process left to hold one map for everyone.
+ *
+ * @param {{room?: string}} opts  a room code joins that room; none hosts one
+ */
+async function connectRelay(opts = {}) {
+  const hosting = !opts.room;
+  // Creating a room is its own step now (`hostNow`): if this browser is already
+  // hosting, deploying must join *that* room instead of quietly making a new
+  // one and losing the code the player just sent to their friends.
+  const code = hosting
+    ? (app.relayHostCode || createRoomCode())
+    : String(opts.room).replace(/\D/g, '');
+  const url = `relay://${code}`;
+  if (app.net && (!app.net.connected || app.netUrl !== url)) {
+    app.net.close();
+    app.net = null;
+    app.netUrl = null;
+  }
+  if (!app.net) {
+    const label = hosting
+      ? t('本机房主（浏览器内引擎，别人直接连你）')
+      : t('房号 {code}', { code: formatCode(code) });
+    app.net = hosting
+      ? new RelayHostNet(netHandlers(label), { code })
+      : new RelayNet(netHandlers(label), { code });
+    // The room opened from the menu is the same one the match will use.
+    app.deployChannel = hosting ? app.roomChannel : null;
+    app.netUrl = url;
+    try {
+      await app.net.connect('', { code, channel: app.deployChannel });
+      app.deployChannel = null;
+      app.relayKind = app.net.relayKind || '';
+      app.relayLabel = app.net.relayLabel || '';
+      app.relayHostCode = hosting ? code : '';
+    } catch (err) {
+      console.error('[trench] the relay could not be opened', err);
+      app.hud.menuError(err.message || t('联机通道不可用'));
+      app.net.close();
+      app.net = null;
+      app.netUrl = null;
+      throw err;
+    }
+  }
+  return url;
+}
+
+/**
+ * What the menu's "create a room" button does: open the room *now*, so the code
+ * exists before the match does -- it can be read out, copied as a link, or
+ * turned into an invite code while the player is still picking a class. Waiting
+ * for a broker probe used to make this button look dead for a quarter of a
+ * minute, which is exactly what players reported.
+ */
+async function hostNow() {
+  app.roomMode = 'create';
+  app.roomCode = '';
+  profile.save({ roomMode: 'create' });
+  app.hud.setRoomMode('create');
+  try {
+    if (!app.roomChannel || app.roomChannel.room !== app.relayHostCode || !app.relayHostCode) {
+      const code = app.relayHostCode || createRoomCode();
+      // Just the channel: the code is ready in milliseconds, and the engine
+      // boots later, when the match is actually deployed.
+      app.roomChannel = await openRoomChannel(code, {
+        onMessage: (topic, text) => app.net?._onRelay?.(text),
+      });
+      app.relayHostCode = code;
+      app.relayKind = app.roomChannel.kind;
+      app.relayLabel = app.roomChannel.label;
+    }
+  } catch (err) {
+    app.hud.menuError(err?.message || t('联机通道不可用'));
+    return false;
+  }
+  app.hud.setRoomCode(app.relayHostCode);
+  app.hud.setRoomLink(joinLink(app.relayHostCode));
+  app.hud.toast(t('房间已创建 · 房号 {code}：把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑联机',
+    { code: formatCode(app.relayHostCode) }), 6000);
+  return true;
+}
+
+async function deploy(opts) {
+  app.hud.menuError('');
+
+  let primary;
+  try {
+    primary = normalizeServer(app.hud.serverAddress);
+  } catch (err) {
+    app.hud.menuError(err.message);
+    return;
+  }
+  store.set('tf.server', app.hud.serverAddress);
+
+  // Where the match can come from, in the order it is tried:
+  //   1. the address the player typed (only when there is one),
+  //   2. this page's own server -- the address box is normally left empty, and a
+  //      remembered entry can go stale (the host changed network, the page was
+  //      opened from a different machine), so trying the page itself second
+  //      turns a dead-end "cannot connect" into a working match,
+  //   3. the engine inside this tab, which is the only one of the three a static
+  //      upload (Vercel and friends) can offer.
+  const here = { host: location.host, secure: location.protocol === 'https:' };
+  const typed = !!(app.hud.serverAddress || '').trim();
+  const candidates = [];
+  if (typed) candidates.push(primary);
+  // A static origin cannot also be a game server, so it is skipped rather than
+  // waited on: the health probe has already said what this origin is.
+  if (!app.localEngine) candidates.push(here);
+  // Solo plays itself; multiplayer needs other people, and on a static upload
+  // the only way to reach them is a room hosted by one of the players.
+  candidates.push(opts.solo
+    ? { host: t('浏览器内引擎'), local: true }
+    : { host: t('浏览器内的房间（房主运行对局，朋友直连你）'), relay: true });
+
+  let url = null;
+  let reached = null;
+  for (const server of candidates) {
+    try {
+      url = server.local ? await connectLocal()
+        : server.relay ? await connectRelay(opts)
+          : await connectNet(server);
+      reached = server;
+      const notes = [];
+      if (server.local) {
+        notes.push(t('静态托管：对局由浏览器内嵌引擎运行（单机 + 机器人，无需服务器）'));
+      } else if (server.relay) {
+        notes.push(!opts.room
+          ? (app.net.peers
+            ? t('房主模式：这一局在你这里运行，已有 {n} 条跨电脑直连', { n: app.net.peers })
+            : t('房主模式：这一局在你这里运行——把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑直连'))
+          : (app.net.peers
+            ? t('已直连房主（跨电脑点对点，没有经过任何服务器）')
+            : t('已加入房间：对局在房主的浏览器里运行（同一浏览器的标签页之间直通）')));
+        if (opts.room) app.hud.setRoomMode('join', String(opts.room).replace(/\D/g, ''));
+      } else if (server !== primary) {
+        // Keep what the player typed, but say which server we really reached.
+        notes.push(t('连不上 {primary}，已改用本页面的服务器（{host}）',
+          { primary: primary.host, host: server.host }));
+      }
+      if (app.net.mode === 'poll') {
+        notes.push(t('本环境不支持 WebSocket，已改用 HTTP 轮询传输（对局照常）'));
+      }
+      app.hud.menuError(notes.join(' · '));
+      break;
+    } catch { /* try the next candidate */ }
+  }
+  if (!url) {
+    const failed = candidates.map((c) => c.host).join(' / ');
+    app.hud.menuError(app.backendHere === false
+      ? t('无法连接服务器（{hosts}）· {hint}', { hosts: failed, hint: staticHint() })
+      : t('无法连接服务器（{host}）', { host: failed }));
+    return;
+  }
+  // The room list, the character library and the upload endpoint now follow the
+  // server that actually answered -- on a static deployment that is not this
+  // origin, so the absolute form matters.
+  setApiBase(reached.local || reached.relay || reached.host === here.host ? '' : serverHttpBase(reached));
+  // Remember the loadout locally before the handshake, so the menu comes back
+  // exactly as the player left it even if the join fails.
+  profile.save({
+    name: opts.name, cls: opts.cls, weapon: opts.weapon, skin: opts.skin || '',
+    roomMode: opts.solo ? app.roomMode : (opts.room ? 'join' : 'create'),
+    mapId: opts.map || app.mapPick,
+  });
+  app.deployRoom = opts.room || '';
+  // What the player asked for, so the welcome can explain a server that had to
+  // keep running another room's map instead.
+  app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
-    opts.solo, opts.map || app.mapPick, tabSessionId());
+    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '');
 }
 
 // ----------------------------------------------------------------- map swap
@@ -416,7 +1304,7 @@ async function setMap(mapId) {
   const meta = app.data.mapById[mapId] || app.data.mapById[app.data.defaultMapId];
   if (app.mapId === meta.id && app.world) return;
   app.mapLoading = true;
-  app.hud.showMapLoad(`正在装载地图 · ${meta.name}`);
+  app.hud.showMapLoad(t('正在装载地图 · {name}', { name: nameOf(meta) }));
   try {
     let map = app.mapData.get(meta.id);
     if (!map) {
@@ -426,7 +1314,7 @@ async function setMap(mapId) {
       app.mapData.set(meta.id, map);
     }
     const old = app.world;
-    const next = await World.create(app.scene, map, app.data.combat);
+    const next = await World.create(app.scene, map, app.data.combat, app.renderer);
     app.world = next;
     app.controls.world = next;
     old?.dispose();
@@ -434,10 +1322,11 @@ async function setMap(mapId) {
     // Effects were placed against the old terrain; they mean nothing on the new.
     cancelCharge();
     clearEffects();
+    app.gunfx?.clear();
     // The saved atmosphere belonged to the old map's scene setup.
     app.smokeBase = null;
     app.smokeOn = false;
-    app.hud.setCurrentMap(meta.name);
+    app.hud.setCurrentMap(meta);
   } finally {
     app.mapLoading = false;
     app.hud.hideMapLoad();
@@ -468,23 +1357,69 @@ async function onWelcome(m) {
   app.vmWeapon = firstWeapon.id;
   app.hud.setTeamColors(m.team);
   app.hud.setLoadout(m.cls, m.weapon);
+  app.hud.setRoomCode(m.room || '');
+  // A room hosted by this browser is joined with a link, not by typing digits:
+  // hand the chip the link so one click copies something a friend can use.
+  app.hud.setRoomLink(app.relayHostCode && m.room ? joinLink(m.room) : '');
+  if (m.room) {
+    profile.rememberRoom(m.room, app.deployRoom ? 'join' : 'create');
+    app.hud.toast(app.deployRoom
+      ? t('已加入房间 {code}', { code: formatCode(m.room) })
+      : t('房间已创建 · 房号 {code}', { code: formatCode(m.room) }), 4200);
+    app.hud.setRoomHistory(profile.load().recentRooms);
+  }
   app.hud.screen('game');
-  app.hud.setLockHint(true);
+  // Steering mode needs no prompt: the mouse already turns the view.
+  app.hud.setLockHint(!app.controls.canLook);
   // every match starts in first person
   app.cameraMode = 'fp';
 
   app.controls.reset(m.spawn, m.yaw);
   app.controls.pos.set(m.spawn[0], m.spawn[1], m.spawn[2]);
   resetRemoteWorld();
+  app.gunfx?.clear();
   // Crates that were already standing when we joined arrive with the welcome,
   // so joining mid-round does not miss the medic's and support's boxes.
   for (const fx of m.fx || []) spawnEffect(fx);
 
   app.playing = true;
+  app.matchStartedAt = performance.now();
+  app.tut?.onDeploy();
   app.last = performance.now();
   app.sfx.resume();
-  if (m.botsOn) app.hud.toast('AI 机器人已加入战场', 2600);
-  else app.hud.toast(`阵营：${app.data.teamById[m.team].name}`, 2600);
+  if (m.botsOn) app.hud.toast(t('AI 机器人已加入战场'), 2600);
+  else app.hud.toast(t('阵营：{team}', { team: nameOf(app.data.teamById[m.team]) }), 2600);
+  // One match runs at a time on the server (see combat.py), so a map pick
+  // cannot always be honoured. Say which map this round is on and why, rather
+  // than silently loading something else.
+  if (app.deployPick && m.mapId && app.deployPick !== m.mapId) {
+    const want = app.data.mapById[app.deployPick];
+    const got = app.data.mapById[m.mapId];
+    if (want && got) {
+      app.hud.toast(t('「{want}」正被其他房间占用，本局是「{got}」',
+        { want: nameOf(want), got: nameOf(got) }), 5200);
+    }
+  }
+}
+
+/**
+ * One local stats line per finished match, on this player's machine only.
+ * `me` carries the authoritative kills/deaths the server counted, so the numbers
+ * here are the same ones the scoreboard showed.
+ */
+let _lastRecorded = -1;
+function recordMatchResult(st) {
+  if (st.tick === _lastRecorded) return;
+  _lastRecorded = st.tick;
+  const me = (st.ps || []).find((p) => p.i === app.myId);
+  const won = st.winner === app.myTeam ? 1 : 0;
+  const played = app.matchStartedAt ? performance.now() - app.matchStartedAt : 0;
+  app.matchStartedAt = 0;
+  const stats = profile.bumpStats({
+    matches: 1, wins: won, kills: me ? me.k : 0, deaths: me ? me.d : 0,
+    playMs: Math.max(0, Math.round(played)),
+  }).stats;
+  console.info('[profile] local stats', JSON.stringify(stats));
 }
 
 function resetRemoteWorld() {
@@ -500,13 +1435,14 @@ function resetRemoteWorld() {
 function wireControls() {
   const c = app.controls;
   c.onFireDown = () => { app.clickPending = true; c.requestLock(); };
-  c.onReload = () => { app.net?.reload(); };
+  c.onReload = () => { app.net?.reload(); app.tut?.notify('reload'); };
   c.onAbilityDown = () => {
     if (!app.net || !app.playing) return;
     const me = app.net.lastMe;
     if (!me || !me.alive) return;
     const kind = app.data.classById[me.c].ability;
     // The lobbed abilities are charged on hold; the crates drop where you stand.
+    app.tut?.notify('ability');
     if (kind === 'smoke' || kind === 'flare') beginCharge();
     else { app.sfx.ability(kind); app.net.ability(c.aim()); }
   };
@@ -514,6 +1450,7 @@ function wireControls() {
   c.onAbilityCancel = () => cancelCharge();
   c.onScoreboard = (show) => {
     if (!app.playing) return;
+    if (show) app.tut?.notify('score');
     app._sbOpen = show;
     const st = app.net?.lastState;
     if (!st) return;
@@ -525,18 +1462,88 @@ function wireControls() {
   };
   c.onViewToggle = () => {
     if (!app.playing) return;
+    app.tut?.notify('view');
     app.cameraMode = app.cameraMode === 'fp' ? 'tp' : 'fp';
     app.sfx.ui();
-    app.hud.toast(app.cameraMode === 'tp' ? '第三人称视角' : '第一人称视角', 1200);
+    app.hud.toast(app.cameraMode === 'tp' ? t('第三人称视角') : t('第一人称视角'), 1200);
   };
   // Crouching and standing both click, matching the view toggle's feedback.
   c.onStance = () => app.sfx.ui();
   c.onLockChange = (locked) => {
-    app.hud.setLockHint(app.playing && !locked);
+    if (locked) app.mouseFreed = false;
+    updateLockHint();
+  };
+  // Pointer lock refused (a page embedded in an iframe without the permission,
+  // a sandboxed preview pane): say so once, with the one thing that does help
+  // -- opening this page in a tab of its own -- instead of leaving the player
+  // with a mouse that seems dead.
+  c.onLookMode = (mode) => {
+    if (mode === 'unavailable') {
+      app.lockRefused = true;
+      app.hud.toast(t('这个页面（多半是被嵌在 iframe 里）不允许锁定鼠标：请在新标签页打开本页，鼠标就能正常转视角'), 5200);
+    }
+    // Esc: the mouse is free until the player clicks the view again.
+    if (mode === 'free') app.mouseFreed = true;
+    // Every look-mode change redraws the prompt here rather than leaving it to
+    // the next frame: a page whose frame loop is paused (a background tab, a
+    // guest whose tab the browser is throttling) still has to show that the
+    // mouse was handed back and how to pick the fight up again.
+    updateLockHint();
   };
   document.getElementById('game').addEventListener('click', () => {
     if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
   });
+}
+
+/** `wss://broker.emqx.io:8084/mqtt` -> `broker.emqx.io`, for the menu line. */
+
+/** The link a relay host can send: it carries the code into the join field. */
+function joinLink(code) {
+  try {
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('code', String(code).replace(/\D/g, ''));
+    return url.toString();
+  } catch {
+    return `${location.href.split(/[?#]/)[0]}?code=${code}`;
+  }
+}
+
+/** 12345678 -> "1234 5678" (mirrors hud.formatRoomCode for the toast text). */
+const formatCode = (code) => {
+  const d = String(code || '').replace(/\D/g, '').slice(0, 8);
+  return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
+};
+
+// Shown while the mouse is free in a page that refuses pointer lock: the way
+// back into the fight is a tab of its own, so say that instead of leaving the
+// player clicking a mouse that never comes back.
+const noLockHint = () => t('浏览器不允许这个页面锁定鼠标（多半是 iframe 预览面板）：'
+  + '点上面的「在新标签页打开」就能正常用鼠标转视角。现在可以用方向键转身。');
+// Shown after Esc, in a page that *can* lock the mouse: one click and the view
+// is yours again.
+const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠标重新被锁定，按 Esc 再次释放）');
+
+/**
+ * Drives the one prompt slot every frame:
+ *  - pointer lock available and not held -> the big "click the screen" prompt;
+ *  - pointer lock refused -> the same slot, saying why and offering a tab of
+ *    its own (the button lives in the slot, see hud.setLockHint).
+ */
+function updateLockHint(alive = true) {
+  const c = app.controls;
+  // The pause menu owns the screen while it is up: no prompt underneath it.
+  const live = app.playing && !app.paused && alive && !app.deathShown;
+  if (live && !c.canLook && app.lockRefused) {
+    app.hud.setLockHint(true, noLockHint(), t('无法锁定鼠标'), true);
+    return;
+  }
+  if (live && !c.canLook && app.mouseFreed) {
+    app.hud.setLockHint(true, resumeHint(), t('光标已释放'));
+    return;
+  }
+  app.hud.setLockHint(live && !c.canLook);
 }
 
 // ---------------------------------------------------------------- net events
@@ -552,6 +1559,7 @@ function onState(st) {
   if (st.phase === 'ended') {
     if (!app.resultShown) {
       app.resultShown = true;
+      recordMatchResult(st);
       app.hud.result(st, st.ps, app.myId);
       app.hud.scoreboard(false, [], st, app.myId, app.myTeam);
       app.controls.releaseLock();
@@ -650,7 +1658,7 @@ async function onMessage(m) {
         // wedge can point back at it instead of just flashing everywhere
         if (Array.isArray(m.p)) app.hud.damageDirection(bearingTo(m.p));
         app.sfx.hurt(m.dmg);
-        if (m.zone === 'blast') app.hud.toast('遭受爆炸冲击', 1200);
+        if (m.zone === 'blast') app.hud.toast(t('遭受爆炸冲击'), 1200);
       }
       break;
     }
@@ -661,7 +1669,7 @@ async function onMessage(m) {
         app.sfx.death();
       } else if (m.k.id === app.myId) {
         app.sfx.kill();
-        app.hud.toast(m.head ? '爆头击杀！' : '击杀 +1', 1100);
+        app.hud.toast(m.head ? t('爆头击杀！') : t('击杀 +1'), 1100);
       }
       break;
     }
@@ -678,16 +1686,31 @@ async function onMessage(m) {
     case 'chat':
       app.hud.chatLine(m.n, m.tm, m.m);
       break;
+    case 'joinError': {
+      // The room code was wrong (or the room is full): stay on the menu and say
+      // exactly what happened instead of leaving the player on a dead screen.
+      const why = {
+        lost: t('与房主失去联系（长时间没有动作，或切走了标签页）：回主菜单用同一个房号重进即可'),
+        notfound: t('房号不存在：请向房主要正确房号（8 位数字），或自己创建房间'),
+        full: t('该房间已满员，换一个房间或自己创建'),
+        toomany: t('服务器上房间太多了，稍后再试'),
+      }[m.why] || t('无法加入该房间');
+      app.hud.screen('menu');
+      app.hud.menuError(why);
+      app.hud.setRoomMode('join', app.hud.joinCode);
+      app.playing = false;
+      break;
+    }
     case 'map': {
       // Broadcast between rounds: rebuild the scene, then let the spawn messages
       // that follow (one per player) place everyone on the new ground.
       await setMap(m.id);
       if (Array.isArray(m.spawn)) app.controls.reset(m.spawn, m.yaw);
-      app.hud.toast(`地图切换：${m.name}`, 2600);
+      app.hud.toast(t('地图切换：{name}', { name: nameOf(data.mapById[m.id] || { name: m.name }) }), 2600);
       break;
     }
     case 'full':
-      app.hud.menuError('服务器已满');
+      app.hud.menuError(t('服务器已满'));
       break;
   }
 }
@@ -1173,17 +2196,20 @@ function updateThrowAim(now) {
 const tracerGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 5, 1, true);
 tracerGeo.rotateX(Math.PI / 2);
 
-function spawnTracer(from, to, color) {
+function spawnTracer(from, to, style) {
   const dir = new THREE.Vector3().subVectors(to, from);
   const len = dir.length();
   if (len < 0.4) return;
-  const mat = flatMat(color, { transparent: true, opacity: 0.85, depthWrite: false });
+  const mat = flatMat(style.tracer.color, { transparent: true, opacity: 0.85, depthWrite: false });
   const mesh = new THREE.Mesh(tracerGeo, mat);
   mesh.position.copy(from).addScaledVector(dir, 0.5);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
-  mesh.scale.set(1, 1, len);
+  // The streak keeps the thick/quick character of its gun: a bolt-action traces
+  // a fat, slow line, an SMG a thin one every few rounds.
+  mesh.scale.set(style.tracer.width, style.tracer.width, len);
   app.fxGroup.add(mesh);
-  app.tracers.push({ mesh, start: performance.now(), dur: 70 });
+  app.tracerStats.spawned++;
+  app.tracers.push({ mesh, start: performance.now(), dur: style.tracer.ms });
 }
 
 function updateTracers(now) {
@@ -1234,8 +2260,14 @@ function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, app.last ? (now - app.last) / 1000 : 0.016);
   app.last = now;
-  if (app.playing) tick(dt, now);
+  // Paused (Esc menu): the clock still runs for the effects that are already in
+  // the air, but the match itself is frozen -- no input is sent, and a room
+  // this browser is hosting stops advancing for everybody, which is what a
+  // pause means.
+  if (app.playing && !app.paused) tick(dt, now);
   updateTracers(now);
+  // Muzzle flashes, smoke, brass and the punch decay all ride one clock.
+  app.gunfx?.update(dt);
   updateThrowAim(now);
   updateEffects(now);
   updateSmokeVision();
@@ -1274,6 +2306,16 @@ function tick(dt, now) {
     app.camera.position.copy(eye);
     app.camera.lookAt(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z);
   }
+  // Per-gun camera punch: applied to the rendered camera *after* it has been
+  // aimed, so the aim ray the crosshair and the server share is untouched -- a
+  // Springfield throws the picture around, an MP18 barely moves it.
+  const punch = app.gunfx;
+  if (punch && (punch.punchPitch || punch.punchYaw || punch.punchRoll)) {
+    const D = Math.PI / 180;
+    app.camera.rotateX(punch.punchPitch * D);
+    app.camera.rotateY(punch.punchYaw * D);
+    app.camera.rotateZ(punch.punchRoll * D);
+  }
   // in third person the character body replaces the viewmodel
   app.vm.root.visible = !tp;
   app.camera.fov = THREE.MathUtils.lerp(app.camera.fov, aimFov(me), Math.min(1, dt * 12));
@@ -1308,7 +2350,7 @@ function tick(dt, now) {
   }
 
   const wantShot = w.auto ? app.controls.mouse.left : (app.clickPending && app.controls.mouse.left);
-  if (alive && wantShot && !app.boltWait && app.controls.locked && now >= app.nextShot) {
+  if (alive && wantShot && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
       if (me.reserve > 0) app.net.reload();
@@ -1336,7 +2378,14 @@ function tick(dt, now) {
   syncFpArms();
 
   updateCrosshair(w, suppressed);
-  app.hud.setLockHint(app.playing && !app.controls.locked && alive && !app.deathShown);
+  updateLockHint(alive);
+  app.tut?.update(dt, {
+    speed: app.controls.moveSpeed,
+    yaw: app.controls.yaw,
+    ads: app.controls.ads,
+    crouch: app.controls.crouch,
+    airborne: !app.controls.grounded,
+  });
 }
 
 function aimFov(me) {
@@ -1347,11 +2396,15 @@ function aimFov(me) {
 
 function fireOnce(w, eye, dir) {
   app.net.fire(eye, dir);
+  app.tut?.notify('fire');
   app.fireAt = performance.now();
-  const kick = w.shape === 'bolt' ? 1.35 : w.shape === 'lmg' ? 0.7 : 0.85;
-  app.vm.kick(kick);
+  // Everything about the shot that the player can see or hear comes from the
+  // weapon's own fx block (gunfx.js): recoil, flash, smoke, brass, punch and the
+  // sound's own trim. Two guns of the same shape are meant to feel different.
+  const style = gunStyle(w);
+  app.vm.kick(style.kick.vm);
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
-  app.sfx.shot(w);
+  app.sfx.shot(w, style);
   if (w.shape === 'bolt' && !w.straightPull) {
     // The bolt is worked a beat after the shot -- or, while scoped, exactly when
     // the player drops out of the sights, which is when the cycle really happens.
@@ -1376,7 +2429,9 @@ function fireOnce(w, eye, dir) {
     else muzzle.copy(eye);
     from.copy(muzzle.distanceTo(eye) < 3 ? muzzle : eye);
   }
-  spawnTracer(from, end, 0xffe6a0);
+  app.gunfx.fire(w, from, dir);
+  const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
+  if (tracerRound(style, rounds)) spawnTracer(from, end, style);
 }
 
 function updateCrosshair(w, suppressed) {
@@ -1507,9 +2562,23 @@ function syncFpArms() {
   if (app.vm.armMeshes) app.vm.armMeshes.visible = !ok;
 }
 
+const _shotFrom = new THREE.Vector3();
+const _shotDir = new THREE.Vector3();
+
+/** Server angle convention (yaw 0 = +X, pitch up positive) -> unit vector. */
+function aimFromAngles(out, yawDeg, pitchDeg) {
+  const y = (yawDeg * Math.PI) / 180;
+  const p = (pitchDeg * Math.PI) / 180;
+  const cp = Math.cos(p);
+  return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
+}
+
 function updateRemotePlayers(dt, me) {
   const poses = app.net.sample();
   const seen = new Set();
+  // Distant gunfire is capped per frame: twelve bots firing together must not
+  // turn into a wall of noise.
+  app.remoteShots = 3;
 
   for (const [id, p] of poses) {
     if (id === app.myId) continue;
@@ -1534,8 +2603,29 @@ function updateRemotePlayers(dt, me) {
       app.scene.add(girl.root);
       app.remotes.set(id, girl);
     }
-    girl.setWeapon(app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0]);
+    const rw = app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0];
+    girl.setWeapon(rw);
     girl.setAlive(!!p.alive);
+    // Bit 3 of the state's flag byte is set while this player's trigger is down
+    // (see game.py). It stays set between shots, so the rhythm here is the
+    // weapon's own rate of fire -- a Lewis chatters, a Springfield does not.
+    if (p.alive && (p.flags & 8)) {
+      const now = performance.now();
+      // muzzleWorld exists on both characters (built-in and imported rig); the
+      // guard keeps a future rig without one from spamming the console.
+      if (now >= (girl.nextShot || 0) && girl.muzzleWorld && girl.muzzleWorld(_shotFrom)) {
+        aimFromAngles(_shotDir, p.yaw, p.pitch);
+        app.gunfx?.remote(rw, _shotFrom, _shotDir);
+        const dist = _shotFrom.distanceTo(app.camera.position);
+        if (dist < 90 && app.remoteShots > 0) {
+          app.remoteShots--;
+          app.sfx.shotFar(rw, gunStyle(rw), dist);
+        }
+        girl.nextShot = now + (60000 / (rw?.rpm || 500)) * 0.94;
+      }
+    } else {
+      girl.nextShot = 0;
+    }
     girl.marker.visible = true;
     girl.marker.material.color.set(p.team === app.myTeam ? 0x3ddc6a : 0xff3b30);
 

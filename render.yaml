@@ -1,0 +1,16 @@
+# Render blueprint: connect the repository and this file is all Render needs.
+# Free plan note: the service sleeps after ~15 minutes idle, so the first visit
+# afterwards takes a few seconds to wake up; /api/health is what Render probes.
+services:
+  - type: web
+    name: trench-front
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server/server.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: PYTHONUNBUFFERED
+        value: "1"

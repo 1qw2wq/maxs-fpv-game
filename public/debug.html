@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 调试 · Trench Front</title>
+<style>
+  :root { --bg: #0a0d14; --panel: rgba(255,255,255,.04); --gold: #ffcf5c; --ok: #7ee08a; --bad: #ff7a7a; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 26px 22px 60px;
+    font: 14px/1.6 -apple-system, "Segoe UI", "Noto Sans SC", system-ui, sans-serif;
+    color: rgba(244,241,234,.92); background: var(--bg);
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: .12em; color: var(--gold); }
+  h2 { margin: 26px 0 10px; font-size: 15px; letter-spacing: .14em; color: rgba(244,241,234,.72); }
+  p.sub { margin: 0 0 18px; font-size: 12.5px; color: rgba(244,241,234,.5); }
+  a { color: var(--gold); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+  button {
+    cursor: pointer; font: 700 13px/1 inherit; padding: 9px 14px; border-radius: 9px;
+    color: #14181f; background: var(--gold); border: 1px solid #ffe7a8;
+  }
+  button.ghost { color: rgba(244,241,234,.82); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); }
+  button:disabled { opacity: .55; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.07); vertical-align: top; }
+  th { font-weight: 700; color: rgba(244,241,234,.55); font-size: 11.5px; letter-spacing: .14em; }
+  td.k { width: 34%; color: rgba(244,241,234,.68); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .dim { color: rgba(244,241,234,.45); }
+  td.note { max-width: 520px; word-break: break-word; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  pre {
+    margin: 0; padding: 12px 14px; border-radius: 10px; overflow: auto; max-height: 340px;
+    background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.1); font-size: 12px;
+  }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid rgba(255,255,255,.09); border-radius: 12px; padding: 14px 16px; }
+  .card h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: .12em; color: var(--gold); }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 6px; background: rgba(255,255,255,.08); font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <h1 id="title">API 调试</h1>
+  <p class="sub" id="subtitle"></p>
+  <div class="bar">
+    <button id="run">重新探测</button>
+    <button id="p2p" class="ghost">自测直连（P2P）</button>
+    <button id="copy" class="ghost">复制报告</button>
+    <button id="clear" class="ghost">清空日志</button>
+    <a id="back" href="index.html"><button class="ghost">回到游戏</button></a>
+  </div>
+
+  <h2 id="h-env">这一页在什么环境里</h2>
+  <div class="cols">
+    <div class="card"><h3 id="h-page">页面</h3><table><tbody id="t-page"></tbody></table></div>
+    <div class="card"><h3 id="h-caps">浏览器能力</h3><table><tbody id="t-caps"></tbody></table></div>
+  </div>
+
+  <h2 id="h-api">接口（/api/*）</h2>
+  <table><thead><tr><th id="h-api-1">接口</th><th id="h-api-2">状态</th><th id="h-api-3">耗时</th><th id="h-api-4">返回</th></tr></thead><tbody id="t-api"></tbody></table>
+
+  <h2 id="h-net">联机</h2>
+  <div class="cols">
+    <div class="card"><h3 id="h-net-state">这一页的联机状态</h3><table><tbody id="t-net"></tbody></table></div>
+    <div class="card"><h3 id="h-net-test">直连自测结果</h3><table><tbody id="t-p2p"></tbody></table></div>
+  </div>
+
+  <h2 id="h-logs">日志</h2>
+  <pre id="logs"></pre>
+
+<script type="module" src="js/debug.js"></script>
+</body>
+</html>

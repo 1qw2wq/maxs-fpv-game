@@ -4,12 +4,46 @@
 // looks like a slideshow, so every remote girl is drawn 120 ms in the past,
 // interpolated between the two snapshots that bracket that moment. That single
 // trick removes almost all of the "I hit her but nothing happened" feeling.
+//
+// Transport: /ws is tried first, and if that cannot be opened the client falls
+// back to the HTTP long-poll endpoint (/api/poll), which carries the very same
+// JSON messages over POSTs. A hosted preview or a strict HTTP proxy in front of
+// the game can refuse the WebSocket Upgrade; before this fallback such a page
+// could not join a match at all, it only ever showed 无法连接服务器.
+
+import { t } from './i18n.js';
 
 const TAU = Math.PI * 2;
+const WS_TIMEOUT_MS = 6000;
+const POLL_RETRY_MS = 400;
 
-function lerpAngle(a, b, t) {
+// (the parameter is not called `t`: that name is the translator in every
+// module that imports it, and a local of the same name would shadow it.)
+function lerpAngle(a, b, k) {
   let d = ((b - a + Math.PI) % TAU + TAU) % TAU - Math.PI;
-  return a + d * t;
+  return a + d * k;
+}
+
+/** `ws://host/ws` -> `http://host/api/poll` (and wss -> https). */
+function pollEndpoint(wsUrl) {
+  return wsUrl.replace(/^ws/, 'http').replace(/\/ws(\?.*)?$/, '/api/poll');
+}
+
+function randomSid() {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** `?transport=poll` (or ws) in the page URL forces a transport, for testing. */
+function forcedTransport() {
+  try {
+    return new URLSearchParams(location.search).get('transport');
+  } catch {
+    return null;
+  }
 }
 
 export class Net {
@@ -19,6 +53,9 @@ export class Net {
     this.id = null;
     this.team = 0;
     this.connected = false;
+    // 'ws' or 'poll'; also readable by the caller to tell the player which one
+    // actually carried the match.
+    this.mode = 'ws';
     this.snaps = [];
     this.maxSnaps = 40;
     this.interpDelay = 120;
@@ -27,9 +64,44 @@ export class Net {
     this._pingTimer = null;
     this._lastMe = null;
     this._lastState = null;
+    this._outbox = [];
+    this._closed = false;
+    this._wsTimer = null;
+    this._pollSid = '';
   }
 
-  connect(url) {
+  /**
+   * @param {string} url  ws:// or wss:// address of /ws
+   * @param {{sid?: string, transport?: 'ws'|'poll', timeoutMs?: number}} [opts]
+   *   `timeoutMs` shortens the handshake wait: a page deciding whether it is a
+   *   static deployment can afford 1.5 s, not the 6 s a real match gets.
+   * @returns {Promise<'ws'|'poll'>} the transport that ended up carrying the game
+   */
+  async connect(url, opts = {}) {
+    this._closed = false;
+    // Identity of this poll session. Deliberately fresh per page load: a reload
+    // must look like a new client so the join's own tab id can evict the page
+    // it replaced, instead of colliding with the entry still registered on the
+    // server (which would silently ignore the new join).
+    this._pollSid = opts.sid || randomSid();
+    const force = opts.transport || forcedTransport();
+    if (force === 'poll') {
+      await this._connectPoll(url);
+      return 'poll';
+    }
+    try {
+      await this._connectWs(url, opts.timeoutMs);
+      this.mode = 'ws';
+      return 'ws';
+    } catch (err) {
+      if (this._closed) throw err;
+      this.ws = null;
+      await this._connectPoll(url);
+      return 'poll';
+    }
+  }
+
+  _connectWs(url, timeoutMs) {
     return new Promise((resolve, reject) => {
       let ws;
       try {
@@ -37,19 +109,34 @@ export class Net {
       } catch (err) { reject(err); return; }
       this.ws = ws;
       let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(this._wsTimer);
+        reject(err || new Error(t('无法连接服务器')));
+      };
+      // A proxy that accepts the request but never upgrades leaves this hanging,
+      // so the fallback must not wait forever for an answer that never comes.
+      clearTimeout(this._wsTimer);
+      this._wsTimer = setTimeout(() => fail(new Error(t('WebSocket 超时'))), timeoutMs || WS_TIMEOUT_MS);
 
       ws.onopen = () => {
+        if (settled || this._closed) return;
+        settled = true;
+        clearTimeout(this._wsTimer);
         this.connected = true;
+        this.mode = 'ws';
         this.h.onOpen?.();
         resolve();
       };
       ws.onerror = () => {
-        if (!settled) { settled = true; reject(new Error('无法连接服务器')); }
-        this.h.onError?.('连接出错');
+        if (!settled) { fail(new Error(t('无法连接服务器'))); return; }
+        this.h.onError?.(t('连接出错'));
       };
       ws.onclose = () => {
+        if (!settled) { fail(new Error(t('无法连接服务器'))); return; }
         this.connected = false;
-        this.h.onClose?.();
+        if (this.mode === 'ws') this.h.onClose?.();
       };
       ws.onmessage = (ev) => {
         let msg;
@@ -59,7 +146,89 @@ export class Net {
     });
   }
 
-  _dispatch(m) {
+  // ------------------------------------------------------- long-poll fallback
+
+  async _connectPoll(wsUrl) {
+    this.mode = 'poll';
+    const endpoint = pollEndpoint(wsUrl);
+    // One round-trip before declaring success, so a dead address still fails
+    // loudly instead of looking connected and never playing.
+    const first = await this._pollOnce(endpoint, []);
+    this.connected = true;
+    this.h.onOpen?.();
+    this._dispatchBatch(first, performance.now());
+    this._pollLoop(endpoint);
+  }
+
+  async _pollOnce(endpoint, msgs) {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sid: this._pollSid, msgs }),
+      cache: 'no-store',
+      credentials: 'omit',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data.msgs) ? data.msgs : [];
+  }
+
+  async _pollLoop(endpoint) {
+    let fails = 0;
+    let reported = false;
+    while (!this._closed) {
+      const batch = this._outbox.splice(0, 64);
+      let msgs;
+      try {
+        msgs = await this._pollOnce(endpoint, batch);
+      } catch (err) {
+        if (this._closed) return;
+        // Put the unsent messages back at the front: order is what makes the
+        // join/welcome handshake work.
+        this._outbox.unshift(...batch);
+        fails += 1;
+        // A couple of missed round-trips are normal; only a run of them means
+        // the server is really gone, and then the player is told once. The
+        // loop keeps trying either way, so a restart of the server is picked
+        // up on its own.
+        if (fails >= 6 && this.connected) {
+          this.connected = false;
+          reported = true;
+          this.h.onClose?.();
+        }
+        await sleep(POLL_RETRY_MS);
+        continue;
+      }
+      fails = 0;
+      this.connected = true;
+      if (reported) {
+        reported = false;
+        this.h.onOpen?.();
+      }
+      this._dispatchBatch(msgs, performance.now());
+    }
+  }
+
+  /**
+   * Hand a whole poll response to the message switch. The server queues the
+   * same serialised JSON it would have pushed down the socket, so each entry
+   * needs parsing here; a batch can also hold several snapshots that all
+   * arrived at once, so they get stamped a snapshot apart to keep the
+   * interpolation buffer meaningful.
+   */
+  _dispatchBatch(msgs, now) {
+    msgs.forEach((raw, i) => {
+      let m = raw;
+      if (typeof raw === 'string') {
+        try { m = JSON.parse(raw); } catch { return; }
+      }
+      if (!m || typeof m !== 'object') return;
+      const step = m.t === 'state' ? (msgs.length - 1 - i) * 25 : 0;
+      this._dispatch(m, now - step);
+    });
+  }
+
+  _dispatch(m, at) {
     switch (m.t) {
       case 'welcome':
         this.id = m.id;
@@ -70,7 +239,7 @@ export class Net {
         this._startPing();
         break;
       case 'state':
-        this.snaps.push({ t: performance.now(), s: m });
+        this.snaps.push({ t: at ?? performance.now(), s: m });
         if (this.snaps.length > this.maxSnaps) this.snaps.shift();
         this._lastState = m;
         this.h.onState?.(m);
@@ -98,6 +267,10 @@ export class Net {
   }
 
   send(obj) {
+    if (this.mode === 'poll') {
+      this._outbox.push(obj);
+      return true;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(obj));
       return true;
@@ -107,8 +280,14 @@ export class Net {
 
   // --------------------------------------------------------------- outgoing
 
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid) {
-    this.send({ t: 'join', name, cls, weapon, bots, botCount, skin: skin || '', solo: !!solo, map: mapId, sid: sid || '' });
+  /**
+   * @param {string} room  8-digit code to join, or '' to host a new room
+   */
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
+    this.send({
+      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
+      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+    });
   }
 
   setBots(on, n) {
@@ -190,9 +369,14 @@ export class Net {
   get lastMe() { return this._lastMe; }
 
   close() {
+    this._closed = true;
     clearInterval(this._pingTimer);
     this._pingTimer = null;
-    this.ws?.close();
+    clearTimeout(this._wsTimer);
+    this._wsTimer = null;
+    this.connected = false;
+    try { this.ws?.close(); } catch { /* already gone */ }
+    this.ws = null;
   }
 }
 

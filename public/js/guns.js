@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
+import { fixImportedMaterials } from './lighting.js';
 
 const BASE = 'models/guns/';
 const D2R = Math.PI / 180;
@@ -73,7 +74,14 @@ function deSkin(root) {
 function load(id) {
   let p = cache.get(id);
   if (!p) {
-    p = loader.loadAsync(BASE + id + '.glb').then((g) => { deSkin(g.scene); return g.scene; });
+    p = loader.loadAsync(BASE + id + '.glb').then((g) => {
+      deSkin(g.scene);
+      // These files are PBR with a metallicRoughness map: without an
+      // environment they render black, so the scene's baked environment and a
+      // sane envMapIntensity are what make the gun readable in the viewmodel.
+      fixImportedMaterials(g.scene, { envMapIntensity: 1.15 });
+      return g.scene;
+    });
     cache.set(id, p);
   }
   return p;

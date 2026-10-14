@@ -2,6 +2,8 @@
 // Kept deliberately imperative — the game loop calls these once per frame and
 // they only touch the DOM when a value actually changed.
 
+import { t, nameOf, otherName, descOf, onLangChange, applyDom } from './i18n.js';
+
 const $ = (id) => document.getElementById(id);
 
 export class Hud {
@@ -11,10 +13,17 @@ export class Hud {
       menu: $('screen-menu'), select: $('screen-select'), settings: $('screen-settings'),
       hud: $('screen-hud'), boot: $('boot'),
       name: $('input-name'), server: $('input-server'),
+      roomCreate: $('btn-room-create'), roomJoin: $('btn-room-join'), roomInvite: $('btn-room-invite'),
+      roomInput: $('input-room'), roomNote: $('room-note'), roomHistory: $('room-history'),
+      roomListNote: $('room-list-note'),
+      roomChip: $('room-chip'), roomCode: $('room-code'), roomCopy: $('room-copy'),
+      selectRoom: $('select-room'), selectRoomCode: $('select-room-code'),
+      selectInvite: $('btn-select-invite'), selectCopy: $('btn-select-copy'),
       botRow: $('bot-row'), botCount: $('bot-count'),
       botsLockHint: $('bots-lock-hint'), skinNote: $('skin-note'),
       mapRow: $('map-row'), mapNote: $('map-note'), tbMap: $('tb-map'), mapLoad: $('map-load'),
       modeMulti: $('btn-mode-multi'), modeSolo: $('btn-mode-solo'), modeSettings: $('btn-mode-settings'),
+      modeTutorial: $('btn-mode-tutorial'),
       menuError: $('menu-error'),
 
       classRow: $('class-row'), weaponRow: $('weapon-row'), weaponTitle: $('weapon-title'),
@@ -38,7 +47,16 @@ export class Hud {
       sbHead0: $('sb-head-0'), sbHead1: $('sb-head-1'), sbBody0: $('sb-body-0'), sbBody1: $('sb-body-1'),
       result: $('result-panel'), resultTitle: $('result-title'),
       result0: $('result-0'), result1: $('result-1'), resultMvp: $('result-mvp'),
-      lock: $('lockslot'),
+      lock: $('lockslot'), lockAction: $('lockslot')?.querySelector('.lock-action'),
+      openTab: $('btn-open-tab'),
+      pause: $('pause'), pauseNote: $('pause-note'),
+      pauseResume: $('btn-pause-resume'), pauseSettings: $('btn-pause-settings'),
+      pauseInvite: $('btn-pause-invite'), pauseLeave: $('btn-pause-leave'),
+      invite: $('invite'), inviteTitle: $('invite-title'), inviteStep: $('invite-step'),
+      inviteCode: $('invite-code'), inviteStatus: $('invite-status'), inviteHelp: $('invite-help'),
+      inviteGen: $('btn-invite-gen'), inviteCopy: $('btn-invite-copy'),
+      inviteAccept: $('btn-invite-accept'), inviteJoin: $('btn-invite-join'),
+      inviteClose: $('btn-invite-close'), inviteStun: $('invite-stun'),
     };
     this._cache = {};
     // true while a thrown ability is being charged, when the chip bar doubles as
@@ -48,6 +66,53 @@ export class Hud {
     this._deathSel = { cls: 'assault', weapon: null };
     this._vignetteTimer = null;
     this._hitDirTimer = null;
+    // Inputs kept for re-rendering when the language changes mid-session: the
+    // panel, the cards and the scoreboard are all built from them.
+    this._maps = null;
+    this._mapPick = null;
+    this._rooms = null;
+    this._teamId = 0;
+    this._deathInfo = null;
+    this._lastScoreboard = null;
+    this._lastResult = null;
+    this._lockNote = '';
+    this._lockSoft = false;
+    onLangChange(() => this.relang());
+  }
+
+  /**
+   * Re-draw everything this HUD built in code after the language changed.
+   * Static markup is handled by i18n.applyDom(); this is the dynamic half.
+   */
+  relang() {
+    applyDom();
+    this.setTutorialHint();
+    this.setTeamColors(this._teamId);
+    this.setRoomList(this._rooms);
+    this.setRoomMode(this._roomMode || 'create', this.el.roomInput.value);
+    if (this._maps) this.buildMaps(this._maps, this._mapPick);
+    if (this._mapMeta) this.setCurrentMap(this._mapMeta);
+    for (const [id, cls] of Object.entries(this.data.classById)) {
+      const card = this.classCards?.[id]?.card;
+      if (card) this._fillClassCard(card, cls);
+    }
+    if (this.selected) {
+      this.selectClass(this.selected.cls, 0);
+      this.pickWeapon(this.selected.cls, this.selected.weapon);
+    }
+    // the class and ability names in the bottom-left corner are written by
+    // setLoadout, which normally only runs when the loadout changes
+    if (this._loadout) this.setLoadout(...this._loadout);
+    if (this._lastScoreboard) {
+      this._renderScoreboard(this._lastScoreboard[0], this._lastScoreboard[1], this._lastScoreboard[2]);
+    }
+    if (this._lastResult && !this.el.result.classList.contains('hidden')) {
+      this.result(...this._lastResult);
+    }
+    if (this._deathInfo && !this.el.death.classList.contains('hidden')) {
+      this.showDeath(...this._deathInfo);
+    }
+    if (this._lockSoft || this._cache.lock) this.setLockHint(this._cache.lock, this._lockNote, this._lockTitle || '');
   }
 
   screen(which) {
@@ -59,18 +124,42 @@ export class Hud {
   }
 
   setTeamColors(teamId) {
-    const t = this.data.teamById[teamId];
-    document.documentElement.style.setProperty('--team-me', t.color);
-    this.el.teamNote.innerHTML = `本局阵营：<b style="color:${t.color}">${t.name}</b>`;
+    const tm = this.data.teamById[teamId] || this.data.teamById[0];
+    document.documentElement.style.setProperty('--team-me', tm.color);
+    this._teamId = teamId;
+    this.el.teamNote.innerHTML = t('本局阵营：<b style="color:{color}">{team}</b>',
+      { color: tm.color, team: nameOf(tm) });
   }
 
   // ------------------------------------------------------------ menu screen
 
-  bindMenu({ onMulti, onSolo, onSettings, onBotCount, onMap }) {
+  bindMenu({ onMulti, onSolo, onSettings, onBotCount, onMap, onRoomMode, onRoomCode, onTutorial,
+             onHost, onInvite, onCopyLink }) {
     this.el.modeMulti.addEventListener('click', onMulti);
     this.el.modeSolo.addEventListener('click', onSolo);
     this.el.modeSettings.addEventListener('click', onSettings);
+    this.el.modeTutorial.addEventListener('click', onTutorial);
     this.el.name.addEventListener('keydown', (e) => { if (e.key === 'Enter') onMulti(); });
+    // "Create a room" opens one *right here* -- the code appears before the
+    // match does, so it can be sent to friends while the class is being picked.
+    // It used to be a mode toggle only, and clicking it looked like nothing
+    // happened until a match was deployed.
+    this.el.roomCreate.addEventListener('click', () => onHost?.());
+    this.el.roomJoin.addEventListener('click', () => {
+      onRoomMode?.('join');
+      this.el.roomInput.focus();
+    });
+    this.el.roomInvite?.addEventListener('click', () => onInvite?.());
+    this.el.selectInvite?.addEventListener('click', () => onInvite?.());
+    this.el.selectCopy?.addEventListener('click', () => onCopyLink?.());
+    // Digits only, and it accepts a pasted "1234 5678": the field shows what was
+    // typed, the value is normalised when it is read.
+    this.el.roomInput.addEventListener('input', () => {
+      const digits = this.el.roomInput.value.replace(/\D/g, '').slice(0, 8);
+      this.el.roomInput.value = digits.length > 4 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
+      onRoomCode?.(digits);
+    });
+    this.el.roomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') onMulti(); });
     this.el.mapRow.addEventListener('click', (e) => {
       const b = e.target.closest('.map-btn');
       if (!b || b.classList.contains('on')) return;
@@ -85,7 +174,8 @@ export class Hud {
   }
 
   get playerName() {
-    return this.el.name.value.trim().slice(0, 16) || '士兵';
+    // The default callsign follows the language; the server takes any 16 chars.
+    return this.el.name.value.trim().slice(0, 16) || t('士兵');
   }
 
   /** Raw server address box text; empty means "use the current page address". */
@@ -95,6 +185,129 @@ export class Hud {
 
   setServerAddress(v) {
     this.el.server.value = v || '';
+  }
+
+  // ------------------------------------------------------------ 联机房间
+
+  /**
+   * Static hosting (Vercel and friends): there is no server, so the room is run
+   * by the player who creates it and the notes below say that instead of
+   * talking about a server handing out codes.
+   */
+  setWebHosted(on) {
+    this._webHosted = !!on;
+    this.setRoomMode(this._roomMode || 'create', this.el.roomInput.value);
+  }
+
+  /** 'create' shows no field; 'join' reveals the 8-digit box and focuses it. */
+  setRoomMode(mode, code = '') {
+    const join = mode === 'join';
+    this._roomMode = mode;
+    this.el.roomCreate.classList.toggle('on', !join);
+    this.el.roomJoin.classList.toggle('on', join);
+    this.el.roomInput.classList.toggle('hidden', !join);
+    if (join) this.el.roomInput.value = formatRoomCode(code);
+    if (join) {
+      this.el.roomNote.textContent = this._webHosted
+        ? t('输入房主给你的 8 位房号即可加入（网页版：对局在房主的浏览器里运行；点邀请链接也能自动填好房号）')
+        : t('输入房主给你的 8 位房号即可加入同一局；房号错一位都会进不去');
+    } else {
+      this.el.roomNote.textContent = this._webHosted
+        ? t('网页版联机：点「创建房间」你就是房主，这一局在你的浏览器里运行；部署后点右上角房号可复制邀请链接发给朋友（完全不需要服务器）')
+        : t('创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）');
+    }
+  }
+
+  /** Digits the player typed/selected, no spaces. */
+  get joinCode() {
+    return this.el.roomInput.value.replace(/\D/g, '').slice(0, 8);
+  }
+
+  /** Previously used codes, offered as autocomplete on the join field. */
+  setRoomHistory(codes) {
+    this.el.roomHistory.innerHTML = '';
+    for (const c of codes || []) {
+      const opt = document.createElement('option');
+      opt.value = formatRoomCode(c);
+      this.el.roomHistory.appendChild(opt);
+    }
+  }
+
+  /**
+   * "N rooms online" line under the menu. The list holds two kinds of room:
+   * those a game server is running, and those some player is hosting in their
+   * own browser (relay.js); only the code matters when joining either.
+   */
+  setRoomList(rooms) {
+    this._rooms = rooms;
+    const list = (rooms || []).filter((r) => r.players > 0);
+    if (!list.length) {
+      this.el.roomListNote.textContent = t('当前没有别人开的房间：点「创建房间」你就是房主');
+      return;
+    }
+    const busy = list.filter((r) => r.players < (r.max || 32));
+    const players = list.filter((r) => r.relay).length;
+    this.el.roomListNote.textContent = t('在线房间 {n} 个 · 可加入 {join} 个',
+      { n: list.length, join: busy.length })
+      + (players ? t('（其中 {p} 个由玩家浏览器主持）', { p: players }) : '')
+      + t('（用房号加入，房号请向房主要）');
+  }
+
+  /** The chip in the HUD: the code to read out to friends. */
+  setRoomCode(code) {
+    this._roomCode = code || '';
+    const show = !!code;
+    this.el.roomChip.classList.toggle('hidden', !show);
+    if (show) this.el.roomCode.textContent = formatRoomCode(code);
+    // The class screen shows the same room: the host got there from 「创建房间」
+    // and must be able to pass the code on (or invite a friend) before deploying.
+    this.el.selectRoom?.classList.toggle('hidden', !show);
+    if (this.el.selectRoomCode) this.el.selectRoomCode.textContent = show ? formatRoomCode(code) : '--------';
+  }
+
+  /**
+   * A room hosted in a player's browser is easier to pass on as a link than as
+   * eight digits, so the chip copies this instead when there is one.
+   */
+  setRoomLink(url) {
+    this._roomLink = url || '';
+  }
+
+  /** Copy the room link (or the code) and say whether it worked. */
+  async copyRoomLink() {
+    const text = this._roomLink || this._roomCode || '';
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+      } catch { return false; }
+    }
+  }
+
+  onRoomChipClick(handler) {
+    this.el.roomChip.addEventListener('click', async () => {
+      if (!(this._roomLink || this._roomCode)) return;
+      const ok = await this.copyRoomLink();
+      this.el.roomChip.classList.toggle('copied', ok);
+      this.el.roomCopy.textContent = ok ? t('已复制') : t('复制失败');
+      clearTimeout(this._roomCopyTimer);
+      this._roomCopyTimer = setTimeout(() => {
+        this.el.roomChip.classList.remove('copied');
+        this.el.roomCopy.textContent = t('复制');
+      }, 1600);
+      handler?.(this._roomCode || '', ok);
+    });
   }
 
   /** Bot controls only ever apply to solo: multiplayer is humans only. */
@@ -107,9 +320,19 @@ export class Hud {
     this.el.skinNote.textContent = text || '';
   }
 
+  /** First visit: point at the walkthrough instead of letting them guess. */
+  setTutorialHint() {
+    const btn = this.el.modeTutorial;
+    if (!btn) return;
+    btn.classList.add('suggested');
+    const span = btn.querySelector('span');
+    if (span) span.textContent = t('第一次玩？从这里开始 · 60 秒学会操作与联机房号');
+  }
+
   // ------------------------------------------------------------ map picker
 
   buildMaps(maps, currentId) {
+    this._maps = maps;
     this.el.mapRow.innerHTML = '';
     this._mapBtns = {};
     for (const m of maps) {
@@ -117,7 +340,7 @@ export class Hud {
       b.type = 'button';
       b.className = 'map-btn';
       b.dataset.id = m.id;
-      b.innerHTML = `<b>${esc(m.name)}</b><span>${esc(m.desc || m.nameEn || '')}</span>`;
+      b.innerHTML = `<b>${esc(nameOf(m))}</b><span>${esc(descOf(m) || '')}</span>`;
       this.el.mapRow.appendChild(b);
       this._mapBtns[m.id] = b;
     }
@@ -125,11 +348,12 @@ export class Hud {
   }
 
   setMapPick(id) {
+    this._mapPick = id;
     for (const [mid, b] of Object.entries(this._mapBtns || {})) {
       b.classList.toggle('on', mid === id);
     }
     const m = this.data.mapById[id];
-    if (m) this.el.mapNote.textContent = `${m.nameEn} · ${m.desc || ''}`;
+    if (m) this.el.mapNote.textContent = [nameOf(m), descOf(m)].filter(Boolean).join(' · ');
   }
 
   /** Full-screen veil while a model map streams in — a 92 MB GLB is not instant. */
@@ -142,10 +366,13 @@ export class Hud {
     this.el.mapLoad.classList.add('hidden');
   }
 
-  setCurrentMap(name) {
+  /** The map chip in the top bar; the row is kept so relang() can redraw it. */
+  setCurrentMap(map) {
+    this._mapMeta = typeof map === 'string' ? { name: map } : (map || null);
+    const name = nameOf(this._mapMeta) || '';
     if (this._cache.mapName !== name) {
       this._cache.mapName = name;
-      this.el.tbMap.textContent = name || '';
+      this.el.tbMap.textContent = name;
     }
   }
 
@@ -172,31 +399,7 @@ export class Hud {
 
       const cv = document.createElement('canvas');
       card.appendChild(cv);
-
-      const nm = document.createElement('div');
-      nm.className = 'cc-name';
-      nm.textContent = cls.name;
-      card.appendChild(nm);
-
-      const en = document.createElement('div');
-      en.className = 'cc-en';
-      en.textContent = cls.nameEn.toUpperCase();
-      card.appendChild(en);
-
-      const role = document.createElement('div');
-      role.className = 'cc-role';
-      role.textContent = cls.role;
-      card.appendChild(role);
-
-      const tag = document.createElement('div');
-      tag.className = 'cc-tag';
-      tag.textContent = cls.tagline;
-      card.appendChild(tag);
-
-      const stats = document.createElement('div');
-      stats.className = 'cc-stats';
-      stats.innerHTML = `<span>HP <b>${cls.maxHp}</b></span><span>机动 <b>×${cls.speedMult.toFixed(2)}</b></span>`;
-      card.appendChild(stats);
+      this._fillClassCard(card, cls);
 
       card.addEventListener('click', () => onPick(cls.id));
       row.appendChild(card);
@@ -207,10 +410,37 @@ export class Hud {
     this.el.back.addEventListener('click', onBack);
   }
 
+  /**
+   * One class card's text, in the current language. Split out of buildSelect so
+   * a language change can redraw the cards without rebuilding the canvases
+   * (the portraits are drawn into them by main.js).
+   */
+  _fillClassCard(card, cls) {
+    const line = (name, text) => {
+      let el = card.querySelector('.' + name);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = name;
+        card.appendChild(el);
+      }
+      el.textContent = text;
+      return el;
+    };
+    line('cc-name', nameOf(cls));
+    // the second line carries the other language's name, so the card always
+    // shows both spellings whatever the interface is set to
+    line('cc-en', otherName(cls).toUpperCase());
+    line('cc-role', descOf(cls, 'role'));
+    line('cc-tag', descOf(cls, 'tagline'));
+    const stats = line('cc-stats', '');
+    stats.innerHTML = `<span>HP <b>${cls.maxHp}</b></span>`
+      + `<span>${t('机动')} <b>×${cls.speedMult.toFixed(2)}</b></span>`;
+  }
+
   selectClass(clsId, teamId) {
     for (const [id, c] of Object.entries(this.classCards)) c.card.classList.toggle('on', id === clsId);
     const cls = this.data.classById[clsId];
-    this.el.weaponTitle.textContent = `${cls.name} · 主武器`;
+    this.el.weaponTitle.textContent = `${nameOf(cls)} · ${t('主武器')}`;
     const row = this.el.weaponRow;
     row.innerHTML = '';
     this.weaponCards = {};
@@ -218,27 +448,34 @@ export class Hud {
       const card = document.createElement('div');
       card.className = 'weapon-card';
       card.style.setProperty('--tc', cls.themeColor);
-      const bars = [
-        ['伤害', w.dmg / 100],
-        ['射速', w.rpm / 950],
-        ['弹匣', w.mag / 105],
-        ['精准', 1 - w.spreadDeg / 2.6],
-        ['射程', (w.falloffMaxM || w.rangeM) / 125],
-      ].map(([label, v]) => `
-        <div class="wc-bar"><span>${label}</span><i><b style="width:${Math.round(Math.max(0.05, Math.min(1, v)) * 100)}%"></b></i></div>
-      `).join('');
-      card.innerHTML = `
-        <div class="wc-name">${w.name}</div>
-        <div class="wc-en">${w.nameEn.toUpperCase()}</div>
-        <div class="wc-desc">${w.desc}</div>
-        ${bars}
-        ${w.lethalBody ? `<span class="wc-tag">${Math.round(w.lethalMinM || 0)}-${Math.round(w.lethalMaxM || 0)}m 躯干致命</span>` : ''}
-        ${w.auto ? '<span class="wc-tag">全自动</span>' : '<span class="wc-tag">半自动/栓动</span>'}
-      `;
+      this._fillWeaponCard(card, w);
       card.addEventListener('click', () => this.pickWeapon(clsId, w.id));
       row.appendChild(card);
       this.weaponCards[w.id] = card;
     }
+  }
+
+  /** One weapon card, in the current language (see _fillClassCard). */
+  _fillWeaponCard(card, w) {
+    const bars = [
+      [t('伤害'), w.dmg / 100],
+      [t('射速'), w.rpm / 950],
+      [t('弹匣'), w.mag / 105],
+      [t('精准'), 1 - w.spreadDeg / 2.6],
+      [t('射程'), (w.falloffMaxM || w.rangeM) / 125],
+    ].map(([label, v]) => `
+        <div class="wc-bar"><span>${label}</span><i><b style="width:${Math.round(Math.max(0.05, Math.min(1, v)) * 100)}%"></b></i></div>
+      `).join('');
+    card.innerHTML = `
+        <div class="wc-name">${esc(nameOf(w))}</div>
+        <div class="wc-en">${esc(otherName(w).toUpperCase())}</div>
+        <div class="wc-desc">${esc(descOf(w))}</div>
+        ${bars}
+        ${w.lethalBody ? `<span class="wc-tag">${t('{a}-{b}m 躯干致命', {
+          a: Math.round(w.lethalMinM || 0), b: Math.round(w.lethalMaxM || 0),
+        })}</span>` : ''}
+        ${w.auto ? `<span class="wc-tag">${t('全自动')}</span>` : `<span class="wc-tag">${t('半自动/栓动')}</span>`}
+      `;
   }
 
   pickWeapon(clsId, weaponId) {
@@ -249,10 +486,12 @@ export class Hud {
   // ------------------------------------------------------------------ HUD
 
   setLoadout(clsId, weaponId) {
+    // remembered so a language change can redraw the class and ability names
+    this._loadout = [clsId, weaponId];
     const cls = this.data.classById[clsId];
     const w = this.data.weaponById[weaponId];
-    this.el.hpCls.textContent = cls.name;
-    this.el.abName.textContent = cls.abilityName;
+    this.el.hpCls.textContent = nameOf(cls);
+    this.el.abName.textContent = descOf(cls, 'abilityName');
     this.el.ammoMax.textContent = `/${w.mag}`;
     this._hpMax = cls.maxHp;
     this._magMax = w.mag;
@@ -397,18 +636,122 @@ export class Hud {
   }
 
   toast(text, ms = 2200) {
-    const t = this.el.eventToast;
-    t.textContent = text;
-    t.classList.remove('hidden');
+    const box = this.el.eventToast;
+    box.textContent = text;
+    box.classList.remove('hidden');
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => t.classList.add('hidden'), ms);
+    this._toastTimer = setTimeout(() => box.classList.add('hidden'), ms);
   }
 
-  setLockHint(show) {
-    if (this._cache.lock !== show) {
-      this._cache.lock = show;
-      this.el.lock.classList.toggle('hidden', !show);
-    }
+  /**
+   * The "click the screen to take the mouse" prompt. With `note` it turns into
+   * the small top-of-screen hint used instead when pointer lock is refused and
+   * the controls are steering the view from the cursor (see controls.js), or
+   * when the player pressed Esc and the mouse is free with no look mode on.
+   * `heading` overrides the headline for that third state.
+   */
+  setLockHint(show, note = '', heading = '', action = false) {
+    const soft = !!note;
+    if (this._cache.lock === show && this._cache.lockNote === note && this._lockHeading === heading
+      && this._lockAction === !!action) return;
+    this._cache.lock = show;
+    this._cache.lockNote = note;
+    this._lockHeading = heading;
+    this._lockAction = !!action;
+    this.el.lock.classList.toggle('hidden', !show);
+    this.el.lock.classList.toggle('soft', soft);
+    const title = this.el.lock.querySelector('.lock-title');
+    const sub = this.el.lock.querySelector('.lock-sub');
+    this._lockSoft = soft;
+    this._lockNote = note;
+    if (title) title.textContent = heading || (soft ? t('光标转向模式') : t('点击画面继续战斗'));
+    if (sub) sub.textContent = soft ? note : t('鼠标将被锁定 · 按 Esc 释放');
+    this.el.lockAction?.classList.toggle('hidden', !action);
+  }
+
+  // --------------------------------------------------------------- 暂停菜单
+
+  /** Buttons of the pause menu; `onInvite` is only offered to a host. */
+  bindPause({ onResume, onSettings, onLeave, onInvite } = {}) {
+    this.el.pauseResume?.addEventListener('click', () => onResume?.());
+    this.el.pauseSettings?.addEventListener('click', () => onSettings?.());
+    this.el.pauseLeave?.addEventListener('click', () => onLeave?.());
+    this.el.pauseInvite?.addEventListener('click', () => onInvite?.());
+    this.el.openTab?.addEventListener('click', () => {
+      // A page that cannot lock the mouse is almost always an embedded one, and
+      // a tab of its own is the one thing that fixes it for good.
+      window.open(location.href, '_blank', 'noopener');
+    });
+  }
+
+  /**
+   * `info` is what the pause menu says about the match you are in: the room
+   * code, how many guests, which map. Optional.
+   */
+  showPause(info = {}) {
+    if (!this.el.pause) return;
+    this.el.pause.classList.remove('hidden');
+    this.el.pauseNote.textContent = info.note || t('按 Esc 打开这个菜单；「继续战斗」回到战场。');
+    // The invite button only means something to the player running the room.
+    this.el.pauseInvite?.classList.toggle('hidden', !info.host);
+  }
+
+  hidePause() {
+    this.el.pause?.classList.add('hidden');
+  }
+
+  get paused() { return !!this.el.pause && !this.el.pause.classList.contains('hidden'); }
+
+  // ------------------------------------------- 邀请码（不用任何服务器联机）
+
+  /**
+   * The invite panel has two jobs and they look almost the same, so it is one
+   * box with a mode: a host *makes* invite codes and pastes the answers, a
+   * guest *pastes* an invite and copies the answer back out. `mode`:
+   *   'host'  - buttons: 生成邀请码 / 复制 / 完成配对
+   *   'guest' - buttons: 加入 / 复制
+   */
+  bindInvite({ onGenerate, onCopy, onAccept, onJoin, onClose, onStun } = {}) {
+    this.el.inviteGen?.addEventListener('click', () => onGenerate?.());
+    this.el.inviteCopy?.addEventListener('click', () => onCopy?.(this.el.inviteCode?.value || ''));
+    this.el.inviteAccept?.addEventListener('click', () => onAccept?.(this.el.inviteCode?.value || ''));
+    this.el.inviteJoin?.addEventListener('click', () => onJoin?.(this.el.inviteCode?.value || ''));
+    this.el.inviteClose?.addEventListener('click', () => onClose?.());
+    this.el.inviteStun?.addEventListener('change', () => onStun?.(!!this.el.inviteStun.checked));
+  }
+
+  openInvite(mode, { room = '', stun = false } = {}) {
+    if (!this.el.invite) return;
+    this._inviteMode = mode;
+    const host = mode === 'host';
+    this.el.invite.classList.remove('hidden');
+    this.el.inviteTitle.textContent = host ? t('邀请朋友（不同电脑，不用任何服务器）') : t('用邀请码加入');
+    this.el.inviteStep.textContent = host
+      ? t('把邀请码发给一位朋友（聊天、邮件都行）；他那一页会给出回答码，粘回下面按「完成配对」即可。')
+      : t('把房主给你的邀请码粘到下面，按「加入」；之后把你得到的回答码发回给房主。');
+    this.el.inviteGen?.classList.toggle('hidden', !host);
+    this.el.inviteAccept?.classList.toggle('hidden', !host);
+    this.el.inviteJoin?.classList.toggle('hidden', host);
+    this.el.inviteCode.value = '';
+    this.el.inviteCode.placeholder = host
+      ? t('生成后邀请码会出现在这里，也可以把朋友的回答码粘进来')
+      : t('把邀请码粘到这里（以 TFi1 开头）');
+    this.el.inviteCount = 0;
+    this.el.inviteStun.checked = !!stun;
+    this.el.inviteHelp.textContent = host
+      ? t('房号 {code} · 同一个浏览器多开标签页不需要邀请码，直接用房号即可', { code: formatRoomCode(room) })
+      : '';
+    this.inviteStatus('');
+  }
+
+  closeInvite() { this.el.invite?.classList.add('hidden'); }
+
+  get inviteOpen() { return !!this.el.invite && !this.el.invite.classList.contains('hidden'); }
+
+  inviteStatus(text, ok = true) {
+    if (!this.el.inviteStatus) return;
+    this.el.inviteStatus.textContent = text || '';
+    this.el.inviteStatus.className = 'invite-status' + (text ? (ok ? ' ok' : ' bad') : '');
   }
 
   // -------------------------------------------------------------- kill feed
@@ -422,7 +765,7 @@ export class Hud {
     div.innerHTML = `
       <span class="who" style="color:${this.data.teamById[k.tm].color}">${esc(k.n)}</span>
       ${headshot ? '<span class="hs">✦</span>' : ''}
-      <span class="wep">${esc(w ? w.name : weaponId)}</span>
+      <span class="wep">${esc(w ? nameOf(w) : weaponId)}</span>
       <span class="who" style="color:${this.data.teamById[v.tm].color}">${esc(v.n)}</span>
     `;
     this.el.killfeed.appendChild(div);
@@ -444,7 +787,7 @@ export class Hud {
     const inp = document.createElement('input');
     inp.type = 'text';
     inp.maxLength = 120;
-    inp.placeholder = '说点什么…  Enter 发送 · Esc 取消';
+    inp.placeholder = t('说点什么…  Enter 发送 · Esc 取消');
     Object.assign(inp.style, {
       position: 'fixed', left: '50%', bottom: '120px', transform: 'translateX(-50%)',
       width: 'min(560px,80vw)', padding: '12px 16px', font: '700 15px/1 var(--font)',
@@ -455,10 +798,18 @@ export class Hud {
     this._chatInput = inp;
     document.exitPointerLock?.();
     inp.focus();
+    // Runs exactly once: removing the focused box fires a blur, and blur is
+    // also a close path, so without this guard the second call removed an
+    // already-detached node -- that threw NotFoundError *before* onSend(), so
+    // pressing Enter wiped the box and silently dropped the message instead of
+    // sending it.
+    let closed = false;
     const done = (send) => {
+      if (closed) return;
+      closed = true;
       const v = inp.value.trim();
-      inp.remove();
       this._chatInput = null;
+      inp.remove();
       if (send && v) onSend(v);
     };
     inp.addEventListener('keydown', (e) => {
@@ -472,9 +823,10 @@ export class Hud {
   // ------------------------------------------------------------ death panel
 
   showDeath(killerName, weaponName, curCls, curWeapon) {
+    this._deathInfo = [killerName, weaponName, curCls, curWeapon];
     this.el.deathBy.innerHTML = killerName
-      ? `被 <b>${esc(killerName)}</b> 用 ${esc(weaponName || '')} 击倒`
-      : '你被击倒了';
+      ? t('被 <b>{killer}</b> 用 {weapon} 击倒', { killer: esc(killerName), weapon: esc(weaponName || '') })
+      : t('被击倒');
     // Default the picker to the loadout the player is already carrying. Without
     // this every plain redeploy silently forced 突击兵 + its first weapon, which
     // is what made the gun on screen stop matching the HUD.
@@ -484,14 +836,14 @@ export class Hud {
     this.el.deathLoadout.innerHTML = '';
     const info = document.createElement('div');
     info.className = 'dl-sub';
-    info.textContent = '阵亡期间可更换兵种与武器';
+    info.textContent = t('阵亡期间可更换兵种与武器');
     this.el.deathLoadout.appendChild(info);
 
     for (const cls of this.data.classes) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'dl-btn';
-      b.textContent = cls.name;
+      b.textContent = nameOf(cls);
       b.dataset.cls = cls.id;
       b.onclick = () => {
         this._deathSel.cls = cls.id;
@@ -518,7 +870,7 @@ export class Hud {
       b.type = 'button';
       b.className = 'dl-btn';
       b.style.width = '100%';
-      b.textContent = w.name;
+      b.textContent = nameOf(w);
       b.dataset.weapon = w.id;
       b.onclick = () => { this._deathSel.weapon = w.id; this._markDeath(); };
       row.appendChild(b);
@@ -547,12 +899,12 @@ export class Hud {
     const b = this.el.respawn;
     if (seconds > 0) {
       b.disabled = true;
-      b.textContent = `重新部署 (${seconds})`;
-      this.el.deathCount.innerHTML = `<b>${seconds}</b> 秒后可重新部署`;
+      b.textContent = t('重新部署 ({s})', { s: seconds });
+      this.el.deathCount.innerHTML = `<b>${seconds}</b> ${t('秒后可重新部署')}`;
     } else {
       b.disabled = false;
-      b.textContent = `重新部署 · ${this.data.classById[this._deathSel.cls].name}`;
-      this.el.deathCount.textContent = '可以重新部署了';
+      b.textContent = t('重新部署 · {cls}', { cls: nameOf(this.data.classById[this._deathSel.cls]) });
+      this.el.deathCount.textContent = t('可以重新部署了');
       b.onclick = onRespawn;
     }
   }
@@ -574,11 +926,12 @@ export class Hud {
   }
 
   _renderScoreboard(players, state, myId) {
+    this._lastScoreboard = [players, state, myId];
     for (let t = 0; t < 2; t++) {
       const team = this.data.teamById[t];
       const head = t === 0 ? this.el.sbHead0 : this.el.sbHead1;
       const body = t === 0 ? this.el.sbBody0 : this.el.sbBody1;
-      head.textContent = `${team.name}  ${state.s[t]}`;
+      head.textContent = `${nameOf(team)}  ${state.s[t]}`;
       head.style.background = `linear-gradient(90deg, ${team.color}55, transparent)`;
       head.style.color = team.color;
 
@@ -587,7 +940,7 @@ export class Hud {
         .sort((a, b) => b.k - a.k || a.d - b.d);
       body.innerHTML = rows.map((p) => `
         <tr class="${p.i === myId ? 'me' : ''}${p.al ? '' : ' dead'}">
-          <td>${esc(p.n)}<div class="sb-cls">${this.data.classById[p.c].name}</div></td>
+          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}</div></td>
           <td class="k">${p.k}</td>
           <td class="d">${p.d}</td>
         </tr>
@@ -598,17 +951,18 @@ export class Hud {
   // ----------------------------------------------------------------- result
 
   result(state, players, myId) {
+    this._lastResult = [state, players, myId];
     const win = state.winner;
-    const t = this.data.teamById[win];
-    this.el.resultTitle.textContent = win < 0 ? '平局' : `${t.name} 胜利`;
-    this.el.resultTitle.style.color = win < 0 ? '#fff' : t.color;
+    const tm = this.data.teamById[win];
+    this.el.resultTitle.textContent = win < 0 ? t('平局') : t('{team} 胜利', { team: nameOf(tm) });
+    this.el.resultTitle.style.color = win < 0 ? '#fff' : tm.color;
     this.el.result0.textContent = state.s[0];
     this.el.result1.textContent = state.s[1];
     const top = [...players].sort((a, b) => b.k - a.k).slice(0, 5);
     this.el.resultMvp.innerHTML = top.map((p, i) => `
       <div class="mvp-row">
         <span>${i + 1}. <span style="color:${this.data.teamById[p.tm].color}">${esc(p.n)}</span>
-        <span style="opacity:.6;font-size:11px"> · ${this.data.classById[p.c].name}</span></span>
+        <span style="opacity:.6;font-size:11px"> · ${esc(nameOf(this.data.classById[p.c]))}</span></span>
         <b>${p.k} / ${p.d}</b>
       </div>
     `).join('');
@@ -624,4 +978,10 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+/** 12345678 -> "1234 5678": a code people can read out loud. */
+export function formatRoomCode(code) {
+  const d = String(code || '').replace(/\D/g, '').slice(0, 8);
+  return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 }

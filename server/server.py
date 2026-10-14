@@ -14,33 +14,58 @@ because the console codepage may be GBK.
 import asyncio
 import ipaddress
 import json
+import re
 import random
 import socket
 import sys
 import time
 import webbrowser
-from collections import Counter
+from collections import deque
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public"
-SHARED = ROOT / "shared"
+# The match rules and the room class live under public/ so that a static
+# deployment (Vercel) carries them too: an offline match in the browser runs
+# this very code under Pyodide. Nothing here is a copy.
+ENGINE = PUBLIC / "engine"
+SHARED = PUBLIC / "shared"
 CHARS = SHARED / "characters"
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(ENGINE))
 
 from combat import (COMBAT, DEFAULT_MAP_ID, MAP_BY_ID, map_meta,  # noqa: E402
                     set_map, validate_shared_data)
 from game import Match  # noqa: E402
+import room as room_mod  # noqa: E402
+from room import (MAX_PLAYERS, ROOM_CODE_RE, ROOM_MIN_AGE,  # noqa: E402
+                   ROOM_TTL, ROOM_TTL_SOLO, Room)
+
+# The room class lives with the rules (public/engine/) so the same code also
+# runs inside the browser's offline match; point its hooks at this process.
+room_mod.other_live_rooms = lambda r: ROOMS.values()
+room_mod.known_skin = lambda cid: known_skin(cid)
+room_mod.log = lambda line: log(line)
 
 # All interfaces: the host machine is reachable on 127.0.0.1 *and* on its LAN
 # address, so other people on the same network can simply open the URL printed
-# at startup.
-HOST = "0.0.0.0"
-START_PORT = 8080
-MAX_PLAYERS = 32
+# at startup. A hosting platform overrides both with environment variables
+# (PORT is what Render/Railway/Fly/Heroku all inject); HOST stays 0.0.0.0 by
+# default because a container that binds 127.0.0.1 is unreachable from outside.
+import os
+
+HOST = os.environ.get("TRENCH_HOST") or os.environ.get("HOST") or "0.0.0.0"
+# An explicit port (env or --port) is honoured exactly and never probed: a
+# platform routes one public port to it, so silently moving would be a 502.
+_ENV_PORT = os.environ.get("PORT")
+try:
+    ENV_PORT = int(_ENV_PORT) if _ENV_PORT else None
+except ValueError:
+    ENV_PORT = None
+START_PORT = ENV_PORT or 8080
+PORT_SPAN = 1 if ENV_PORT else 20      # local dev still walks 8080, 8081, ...
 MAX_MSG = 8192
 CHAR_MAX_BYTES = 24 * 1024 * 1024
 CHAR_SUFFIXES = {".glb", ".gltf"}
@@ -235,186 +260,160 @@ async def upload_character(request):
     return web.json_response({"ok": True, "meta": entry})
 
 
-class Lobby:
-    def __init__(self):
-        self.match = Match()
-        self.sockets = {}          # websocket -> player id
-        self.by_pid = {}           # player id -> websocket
-        # Per-tab session id -> websocket. A refresh opens the new socket before
-        # the old one has finished closing, so the lobby briefly holds two
-        # connections from the same tab; this lets the new one evict its ghost.
-        self.sessions = {}
-        self.bots_on = False
-        self.bot_target = 6
-        # Map voting: one vote per connected human, settled during the gap
-        # between rounds. Bots do not vote.
-        self.votes = {}            # player id -> map id
-        self.map_id = DEFAULT_MAP_ID
+# ---------------------------------------------------------------- rooms
+#
+# A room is one match: its own players, bots, scores, map vote and sockets,
+# addressed by an 8-digit code the host hands out. Solo play is simply a room
+# nobody else is told about. Rooms live in memory only and are reclaimed once
+# they have been empty for ROOM_TTL (ROOM_TTL_SOLO for practice rooms), so
+# nothing needs a database.
 
-    # ------------------------------------------------------------- membership
+MAX_ROOMS = 24
+# How long an *empty* room survives. A multiplayer room is kept a couple of
+# minutes so a refresh (or a quick alt-tab reload) lands back in it, but
+# practice rooms are private by construction, so they go almost immediately --
+# otherwise a few abandoned matches would fill MAX_ROOMS and lock everyone else
+# out of hosting at all.
 
-    def join(self, ws, msg):
-        if ws in self.sockets:
+
+rooms = room_mod               # the module the Room class lives in
+ROOMS = {}                 # code -> Room
+CLIENT_ROOM = {}           # connection -> Room (websocket or PollClient)
+SESSIONS = {}              # per-tab id -> (Room, connection), for reload eviction
+
+
+
+
+def normalize_room_code(raw):
+    """'1234 5678' / '1234-5678' / 12345678 -> '12345678', otherwise ''."""
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        raw = "%08d" % int(raw)
+    if not isinstance(raw, str):
+        return ""
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) != 8:
+        return ""
+    return digits if ROOM_CODE_RE.match(digits) else ""
+
+
+def _new_room_code():
+    for _ in range(400):
+        code = "%08d" % random.randint(10000000, 99999999)
+        if code not in ROOMS:
+            return code
+    return ""
+
+
+def _reclaim_one_idle():
+    """Free the most idle empty room. False if every room is occupied.
+
+    Hitting the cap must not mean "come back later" while a dozen rooms sit
+    empty for two minutes: the oldest empty one is worth less than the player
+    standing in the menu right now.
+    """
+    idle = [r for r in ROOMS.values() if not r.sockets]
+    if not idle:
+        return False
+    victim = min(idle, key=lambda r: r.empty_since if r.empty_since is not None else r.created)
+    ROOMS.pop(victim.code, None)
+    log("room  reclaimed idle %s for a new room (rooms=%d)" % (victim.code, len(ROOMS)))
+    return True
+
+
+def resolve_room(msg):
+    """(room, error) for an incoming join: an existing code or a fresh room."""
+    code = normalize_room_code(msg.get("room"))
+    if not code:
+        # No code: the host (or a solo player) is starting a room of their own.
+        if len(ROOMS) >= MAX_ROOMS and not _reclaim_one_idle():
+            return None, "toomany"
+        code = _new_room_code()
+        if not code:
+            return None, "toomany"
+        room = ROOMS[code] = Room(code)
+        room.private = bool(msg.get("solo"))
+        log("room  created %s%s (rooms=%d)"
+            % (code, " private" if room.private else "", len(ROOMS)))
+        return room, None
+    room = ROOMS.get(code)
+    if room is None:
+        log("room  join refused, unknown code %s" % code)
+        return None, "notfound"
+    return room, None
+
+
+def _evict_session(sid, keep):
+    """Drop whatever connection this tab id still holds, in any room.
+
+    A refresh opens its replacement socket before the old one has finished
+    closing, so the lobby briefly holds two connections from the same tab. The
+    id lives in sessionStorage: it survives a refresh yet differs per tab, so
+    two tabs on one machine still count as two separate players.
+    """
+    if not sid:
+        return
+    prev = SESSIONS.get(sid)
+    if prev is None:
+        return
+    room, client = prev
+    if client is keep:
+        return
+    room.leave(client)
+    CLIENT_ROOM.pop(client, None)
+    asyncio.ensure_future(_close_ws(client))
+
+
+async def leave_everywhere(client):
+    """Disconnect a connection, wherever it joined (used by the reaper)."""
+    room = CLIENT_ROOM.pop(client, None)
+    if room is None:
+        return
+    room.leave(client)
+    for sid, (_r, c) in list(SESSIONS.items()):
+        if c is client:
+            SESSIONS.pop(sid, None)
+
+
+async def handle_client_message(client, data):
+    """One decoded message from a player, whatever carried it here.
+
+    Shared by the WebSocket handler and the HTTP long-poll fallback so both
+    transports are the same game: join, ping, bot flaps and every gameplay
+    action take the identical path. A connection is routed to its room here and
+    nowhere else, which is what lets one process host several matches.
+    """
+    if not isinstance(data, dict):
+        return
+    kind = data.get("t")
+    if kind == "join":
+        _evict_session(str(data.get("sid") or "")[:40], client)
+        room, why = resolve_room(data)
+        if room is None:
+            await _send_direct(client, {"t": "joinError", "why": why})
             return
-        if self.match.human_count() >= MAX_PLAYERS:
-            asyncio.ensure_future(ws.send_str(json.dumps({"t": "full"})))
+        welcome = room.join(client, data)
+        if welcome is None:
             return
-        # Evict this tab's stale socket before counting the room. A refresh
-        # connects before the previous connection finishes closing, so without
-        # this the ghost keeps the lobby "occupied" and the fresh pick is quietly
-        # demoted to a between-rounds vote -- which is why reloading to change
-        # the map sometimes had no effect at all. The id lives in sessionStorage:
-        # it survives a refresh yet differs per tab, so two tabs on one machine
-        # still count as two separate players.
-        sid = str(msg.get("sid") or "")[:40]
+        if welcome.get("t") == "joinError":
+            await _send_direct(client, welcome)
+            return
+        CLIENT_ROOM[client] = room
+        sid = str(data.get("sid") or "")[:40]
         if sid:
-            old = self.sessions.get(sid)
-            if old is not None and old is not ws:
-                self.leave(old)
-                asyncio.ensure_future(_close_ws(old))
-            self.sessions[sid] = ws
-        raw_name = str(msg.get("name", "")).strip()[:16]
-        name = raw_name or ("Soldier%02d" % (self.match.next_id,))
-        # only ids that exist in the manifest are accepted: the field ends up in
-        # every client's roster payload
-        skin = str(msg.get("skin") or "")
-        if skin and not known_skin(skin):
-            skin = ""
-        # A map change only ever happens between rounds, so a join can never
-        # teleport someone mid-fight. The one exception is the first player in
-        # an empty lobby, who picks the map outright.
-        fresh = not self.sockets
-        want = msg.get("map")
-        if want not in MAP_BY_ID:
-            want = self.map_id
-        # Solo balancing flag; the last join wins and it clears when the lobby
-        # empties, so a normal multi match is never affected.
-        self.match.solo = bool(msg.get("solo"))
-        if fresh:
-            self._apply_map(want)
-        p = self.match.add_player(name, ws, cls=str(msg.get("cls", "assault")),
-                                  weapon=msg.get("weapon"), skin=skin)
-        self.votes[p["id"]] = want
-        self.sockets[ws] = p["id"]
-        self.by_pid[p["id"]] = ws
-        if self.match.solo and msg.get("bots"):
-            self.bots_on = True
-            self.bot_target = int(msg.get("botCount", 6))
-        else:
-            # Bots are a solo-only feature: a multiplayer join clears any AI
-            # already in play, so a human match can never field bots.
-            if self.bots_on:
-                self.match.drop_bots()
-            self.bots_on = False
-        if self.bots_on:
-            self.match.fill_bots(self.bot_target)
-        meta = map_meta(self.map_id)
-        log("join  id=%d name=%s team=%d cls=%s skin=%s map=%s players=%d"
-            % (p["id"], name.encode("ascii", "replace").decode(), p["team"], p["cls"],
-               p["skin"] or "-", meta["id"], len(self.match.players)))
-        return {
-            "t": "welcome", "id": p["id"], "team": p["team"], "name": name,
-            "mapId": meta["id"], "map": meta["file"], "mapName": meta["name"],
-            "scene": meta["scene"], "cfg": COMBAT, "tickRate": COMBAT["tickRate"],
-            "spawn": [round(v, 2) for v in p["pos"]], "yaw": p["yaw"],
-            "cls": p["cls"], "weapon": p["weapon"], "skin": p["skin"],
-            "botsOn": self.bots_on,
-            # Crates already standing, so joining mid-round still shows them.
-            "fx": self.match.standing_crates(),
-        }
-
-    def leave(self, ws):
-        pid = self.sockets.pop(ws, None)
-        if pid is None:
-            return
-        for sid, sock in list(self.sessions.items()):
-            if sock is ws:
-                self.sessions.pop(sid, None)
-        self.by_pid.pop(pid, None)
-        self.votes.pop(pid, None)
-        self.match.remove_player(pid)
-        if self.match.human_count() == 0:
-            self.match.drop_bots()
-            self.bots_on = False
-            self.match.solo = False
-            self.votes.clear()
-        log("leave id=%d players=%d" % (pid, len(self.match.players)))
-
-    # ------------------------------------------------------------- map voting
-
-    def _apply_map(self, map_id):
-        """Swap the live map; caller decides who needs respawning."""
-        mid, _meta = set_map(map_id)
-        self.map_id = mid
-
-    def _resolve_vote(self):
-        """Highest-vote map; ties broken at random. Current map on no votes."""
-        live = {pid: m for pid, m in self.votes.items() if pid in self.by_pid}
-        if not live:
-            return self.map_id
-        counts = Counter(live.values())
-        top = max(counts.values())
-        return random.choice([m for m, n in counts.items() if n == top])
-
-    def on_new_round(self):
-        """Settle the vote as a round ends. Returns the events to deliver."""
-        pick = self._resolve_vote()
-        if pick == self.map_id:
-            return []
-        self._apply_map(pick)
-        self.match.effects = []
-        meta = map_meta(self.map_id)
-        out = [{"to": None, "msg": {
-            "t": "map", "id": meta["id"], "name": meta["name"],
-            "map": meta["file"], "mapName": meta["name"], "scene": meta["scene"],
-            "mapId": meta["id"],
-        }}]
-        for p in self.match.players.values():
-            out.extend(self.match._spawn(p))
-        log("map   round over -> %s (%s)" % (meta["id"], meta["nameEn"]))
-        return out
-
-    # ------------------------------------------------------------- transport
-
-    async def _send(self, ws, payload):
-        try:
-            await ws.send_str(json.dumps(payload, separators=(",", ":")))
-        except (ConnectionResetError, RuntimeError, asyncio.CancelledError):
-            pass
-
-    async def deliver(self, ev):
-        to = ev.get("to")
-        msg = ev.get("msg")
-        if not msg:
-            return
-        if to is None:
-            text = json.dumps(msg, separators=(",", ":"))
-            for ws in list(self.sockets.keys()):
-                try:
-                    await ws.send_str(text)
-                except (ConnectionResetError, RuntimeError):
-                    pass
-            return
-        ws = self.by_pid.get(to)
-        if ws is not None:
-            await self._send(ws, msg)
-
-    async def broadcast_state(self):
-        base = self.match.status()
-        base["ps"] = self.match.players_payload()
-        text = json.dumps(base, separators=(",", ":"))
-        for ws, pid in list(self.sockets.items()):
-            try:
-                await ws.send_str(text)
-                p = self.match.players.get(pid)
-                if p is not None:
-                    await ws.send_str(json.dumps(self.match.me_payload(p),
-                                                 separators=(",", ":")))
-            except (ConnectionResetError, RuntimeError):
-                pass
+            SESSIONS[sid] = (room, client)
+        await room._send(client, welcome)
+        return
+    room = CLIENT_ROOM.get(client)
+    if room is not None:
+        await room.handle(client, data)
 
 
-LOBBY = Lobby()
+async def _send_direct(client, payload):
+    """Answer a connection that is not (or not yet) in a room."""
+    try:
+        await client.send_str(json.dumps(payload, separators=(",", ":")))
+    except (ConnectionResetError, RuntimeError, asyncio.CancelledError):
+        pass
 
 
 async def ws_handler(request):
@@ -427,62 +426,199 @@ async def ws_handler(request):
                     data = json.loads(msg.data)
                 except ValueError:
                     continue
-                if not isinstance(data, dict):
-                    continue
-                kind = data.get("t")
-                if kind == "join":
-                    welcome = LOBBY.join(ws, data)
-                    if welcome:
-                        await LOBBY._send(ws, welcome)
-                    continue
-                if kind == "ping":
-                    await LOBBY._send(ws, {"t": "pong", "c": data.get("c", 0)})
-                    pid = LOBBY.sockets.get(ws)
-                    p = LOBBY.match.players.get(pid) if pid is not None else None
-                    if p is not None:
-                        try:
-                            rtt = float(data.get("rtt") or 0.0)
-                        except (TypeError, ValueError):
-                            rtt = 0.0
-                        # Clamped hard: an inflated self-reported ping would
-                        # widen the lag-compensation rewind window in the
-                        # sender's favour.
-                        p["ping"] = max(0.0, min(240.0, rtt))
-                    continue
-                if ws not in LOBBY.sockets:
-                    continue
-                if kind == "bots":
-                    # Solo-only, same rule as join: never let a multiplayer
-                    # lobby spawn bots through this path either.
-                    if not LOBBY.match.solo:
-                        continue
-                    LOBBY.bots_on = bool(data.get("on"))
-                    LOBBY.bot_target = int(data.get("n", LOBBY.bot_target))
-                    if LOBBY.bots_on:
-                        LOBBY.match.fill_bots(LOBBY.bot_target)
-                    else:
-                        LOBBY.match.drop_bots()
-                    continue
-                pid = LOBBY.sockets[ws]
-                for ev in LOBBY.match.handle(pid, data):
-                    await LOBBY.deliver(ev)
+                await handle_client_message(ws, data)
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
-        LOBBY.leave(ws)
+        await leave_everywhere(ws)
+        _forget_client(ws)
     return ws
+
+
+# ----------------------------------------------------------- long-poll transport
+#
+# Not every environment lets a browser open a WebSocket: a hosted preview that
+# proxies the port can, and a plain HTTP reverse proxy in front of the game may
+# refuse the Upgrade. The client tries /ws first and falls back to this, which
+# carries exactly the same JSON messages over ordinary POSTs.
+#
+# The trick that keeps the rest of the server untouched: PollClient looks enough
+# like a websocket (an object with async send_str and close) for the lobby, the
+# match and every reply path to use it verbatim. Each POST hands over whatever
+# the client has queued, then holds the response until something is available --
+# so the game still gets pushed state at the normal rate instead of polling.
+
+POLL_TIMEOUT = 1.5        # seconds a poll may wait for the first message
+POLL_MAX_BATCH = 64       # messages per response
+POLL_IDLE = 12.0          # no poll for this long -> treat as disconnected
+POLL_MAX_WAITERS = 64     # poll clients allowed at once
+
+
+class PollClient:
+    def __init__(self, sid):
+        self.sid = sid
+        self.out = deque(maxlen=256)
+        self.wake = asyncio.Event()
+        self.seen = time.monotonic()
+
+    async def send_str(self, text):
+        self.out.append(text)
+        self.wake.set()
+
+    async def close(self):
+        self.out.clear()
+        self.wake.set()
+
+    def drain(self):
+        batch = []
+        while self.out and len(batch) < POLL_MAX_BATCH:
+            batch.append(self.out.popleft())
+        if not self.out:
+            self.wake.clear()
+        return batch
+
+
+POLL_CLIENTS = {}
+
+
+def _poll_id(raw):
+    if not isinstance(raw, str):
+        return ""
+    return "".join(c for c in raw if c.isalnum() or c in "-_")[:40]
+
+
+async def poll(request):
+    try:
+        data = await request.json()
+    except (ValueError, TypeError):
+        return web.json_response({"ok": False, "error": "bad json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "bad body"}, status=400)
+
+    sid = _poll_id(data.get("sid"))
+    if not sid:
+        return web.json_response({"ok": False, "error": "missing sid"}, status=400)
+    client = POLL_CLIENTS.get(sid)
+    if client is None:
+        if len(POLL_CLIENTS) >= POLL_MAX_WAITERS:
+            return web.json_response({"ok": False, "error": "too many pollers"}, status=503)
+        client = POLL_CLIENTS[sid] = PollClient(sid)
+    client.seen = time.monotonic()
+
+    # Everything the client queued since the last poll travels with this one.
+    for item in list(data.get("msgs") or [])[:POLL_MAX_BATCH]:
+        await handle_client_message(client, item)
+
+    batch = client.drain()
+    if not batch:
+        # Nothing to say yet: hold the request open for a moment so state
+        # arrives immediately instead of up to a poll interval late.
+        try:
+            await asyncio.wait_for(client.wake.wait(), timeout=POLL_TIMEOUT)
+        except asyncio.TimeoutError:
+            pass
+        batch = client.drain()
+    return web.json_response({"ok": True, "msgs": batch})
+
+
+def _forget_client(client):
+    CLIENT_ROOM.pop(client, None)
+    for sid, (_room, c) in list(SESSIONS.items()):
+        if c is client:
+            SESSIONS.pop(sid, None)
+
+
+async def room_reaper():
+    """Reclaim rooms that have been empty for a while, and log the census."""
+    while True:
+        await asyncio.sleep(10.0)
+        now = time.monotonic()
+        for code, room in list(ROOMS.items()):
+            if now - room.created < ROOM_MIN_AGE:
+                continue
+            if room.sockets:
+                room.empty_since = None
+                continue
+            if room.empty_since is None:
+                room.empty_since = now
+            ttl = ROOM_TTL_SOLO if room.private else ROOM_TTL
+            if now - room.empty_since > ttl:
+                ROOMS.pop(code, None)
+                log("room  reclaimed %s (rooms=%d)" % (code, len(ROOMS)))
+
+
+async def poll_reaper():
+    """Drop poll clients that stopped asking (closed tab, lost network)."""
+    while True:
+        await asyncio.sleep(3.0)
+        now = time.monotonic()
+        for sid, client in list(POLL_CLIENTS.items()):
+            if now - client.seen > POLL_IDLE:
+                POLL_CLIENTS.pop(sid, None)
+                await leave_everywhere(client)
+                _forget_client(client)
+                log("poll  dropped stale sid=%s" % sid)
+
+
+async def health(request):
+    """Liveness for a hosting platform: proves the match loop is actually up.
+
+    Deliberately cheap and dependency-free -- it is polled every few seconds by
+    the platform's own health checker.
+    """
+    return web.json_response({
+        "ok": True,
+        "rooms": len(ROOMS),
+        "maxRooms": MAX_ROOMS,
+        "players": sum(r.match.human_count() for r in ROOMS.values()),
+        "maps": len(MAP_BY_ID),
+        "tickRate": COMBAT["tickRate"],
+        "waiters": len(POLL_CLIENTS),
+    })
+
+
+async def list_rooms(request):
+    """Open rooms, so the menu can show what is running without a database."""
+    rooms = sorted((r.as_meta() for r in ROOMS.values()), key=lambda m: (-m["players"], m["code"]))
+    return web.json_response({"rooms": rooms, "max": MAX_ROOMS})
 
 
 async def index(request):
     return web.FileResponse(PUBLIC / "index.html")
 
 
+# Content that is stable for a session: the 33 MB of models, the sounds and the
+# vendored three.js. Served with a short max-age (and aiohttp's ETag, so the
+# revalidation after it is a 304) because re-downloading all of it on every visit
+# is what makes a hosted deployment feel slow. Code, JSON and HTML keep the
+# no-store treatment above: they are small, and editing them must be visible on
+# the very next reload.
+CACHEABLE_PREFIXES = ("/models/", "/sounds/", "/vendor/", "/img/", "/motions/")
+CACHE_MAX_AGE = 600
+
+
 @web.middleware
 async def no_store(request, handler):
-    resp = await handler(request)
+    if request.method == "OPTIONS":
+        # Preflight for the JSON POSTs (the polling fallback): answer it here so
+        # every route has one, and let the real handlers stay untouched.
+        resp = web.Response()
+    else:
+        resp = await handler(request)
     if not isinstance(resp, web.WebSocketResponse):
-        resp.headers["Cache-Control"] = "no-store, must-revalidate"
-        resp.headers["Pragma"] = "no-cache"
+        if resp.status == 200 and request.path.startswith(CACHEABLE_PREFIXES):
+            resp.headers["Cache-Control"] = "public, max-age=%d" % CACHE_MAX_AGE
+        else:
+            resp.headers["Cache-Control"] = "no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+        # The game can be opened from a preview pane whose page has an opaque
+        # origin (sandboxed iframe). Without this header that frame refuses to
+        # run its own module scripts or read its own JSON files, so nothing
+        # loads at all. Nothing here is authenticated or cookie based, so a
+        # wildcard gives away nothing the LAN demo does not already expose.
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
 
 
@@ -491,6 +627,9 @@ def create_app():
     app = web.Application(middlewares=[no_store], client_max_size=1 << 25)
     # /ws must be registered before the static catch-all.
     app.router.add_get("/ws", ws_handler)
+    app.router.add_post("/api/poll", poll)
+    app.router.add_get("/api/rooms", list_rooms)
+    app.router.add_get("/api/health", health)
     app.router.add_get("/api/characters", list_characters)
     app.router.add_post("/api/character", upload_character)
     app.router.add_static("/shared/", SHARED, show_index=False)
@@ -512,24 +651,51 @@ async def game_loop():
         else:
             nxt = time.monotonic()
         last = time.monotonic()
-        phase_before = LOBBY.match.phase
-        LOBBY.match.tick(tick_ms)
+        # Every room gets its own authoritative tick; the sockets, scores, bots
+        # and map votes are all room-scoped, so matches cannot bleed into each
+        # other. Empty rooms cost one dictionary lookup.
+        for room in list(ROOMS.values()):
+            phase_before = room.match.phase
+            room.match.tick(tick_ms)
+            for ev in room.match.drain():
+                await room.deliver(ev)
+            # The gap between rounds is the only moment the map may change:
+            # players are already being respawned, so a swap is never felt
+            # mid-fight (and _apply_map refuses while another room is live).
+            if phase_before == "ended" and room.match.phase == "live":
+                for ev in room.on_new_round():
+                    await room.deliver(ev)
         n += 1
-        for ev in LOBBY.match.drain():
-            await LOBBY.deliver(ev)
-        # The gap between rounds is the only moment the map may change: players
-        # are already being respawned, so a swap is never felt mid-fight.
-        if phase_before == "ended" and LOBBY.match.phase == "live":
-            for ev in LOBBY.on_new_round():
-                await LOBBY.deliver(ev)
         if n % state_every == 0:
-            await LOBBY.broadcast_state()
+            for room in list(ROOMS.values()):
+                await room.broadcast_state()
         spent = (time.monotonic() - last) * 1000.0
         if spent > tick_ms * 4:
             log("WARN tick took %.1fms" % spent)
 
 
+def _flag_value(name):
+    """`--port 9000` / `--port=9000` from argv, or None."""
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return None
+
+
 async def main():
+    global START_PORT, PORT_SPAN
+    cli_port = _flag_value("--port")
+    if cli_port:
+        try:
+            START_PORT = int(cli_port)
+            PORT_SPAN = 1          # explicit: never silently move
+        except ValueError:
+            log("ERROR --port needs a number, got %r" % cli_port)
+            raise SystemExit(2)
+
     problems = validate_shared_data()
     if problems:
         for p in problems:
@@ -549,7 +715,7 @@ async def main():
 
     site = None
     port = None
-    for candidate in range(START_PORT, START_PORT + 20):
+    for candidate in range(START_PORT, START_PORT + PORT_SPAN):
         try:
             site = web.TCPSite(runner, HOST, candidate)
             await site.start()
@@ -558,18 +724,25 @@ async def main():
         except OSError:
             continue
     if site is None:
-        log("ERROR no free port in range %d-%d" % (START_PORT, START_PORT + 19))
+        log("ERROR no free port in range %d-%d" % (START_PORT, START_PORT + PORT_SPAN - 1))
         raise SystemExit(1)
 
     asyncio.ensure_future(game_loop())
+    asyncio.ensure_future(poll_reaper())
+    asyncio.ensure_future(room_reaper())
     log("ready -> http://127.0.0.1:%d" % port)
-    ips = lan_ips()
-    for ip in ips:
-        log("LAN   -> http://%s:%d" % (ip, port))
-    if not ips:
-        log("LAN   -> no non-loopback IPv4 found; check ipconfig")
-    log("share the LAN url above; allow python through the firewall if asked")
-    log("open two browser tabs on that URL for a real match; enable bots for solo play")
+    if ENV_PORT:
+        # Deployed: the platform terminates TLS and proxies to this port, so a
+        # LAN address would only confuse the log.
+        log("deployed on port %d (PORT env); health at /api/health" % port)
+    else:
+        ips = lan_ips()
+        for ip in ips:
+            log("LAN   -> http://%s:%d" % (ip, port))
+        if not ips:
+            log("LAN   -> no non-loopback IPv4 found; check ipconfig")
+        log("share the LAN url above; allow python through the firewall if asked")
+        log("open two browser tabs on that URL for a real match; enable bots for solo play")
     print("Serving on http://127.0.0.1:%d  (Ctrl+C to stop)" % port)
     sys.stdout.flush()
 

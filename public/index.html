@@ -20,6 +20,7 @@
 <!-- ================================ 主菜单 ================================ -->
 <section id="screen-menu" class="screen">
   <div class="menu-bg"></div>
+  <button id="lang-toggle" class="lang-chip" type="button" title="界面语言 / Interface language">EN</button>
   <div class="menu-inner">
     <h1 class="logo">
       <span class="logo-cn">堑壕前线</span>
@@ -38,6 +39,20 @@
         <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
       </label>
       <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p>
+
+      <div class="room-field">
+        <span class="room-label">联机房间</span>
+        <div class="room-row">
+          <button id="btn-room-create" class="room-btn on" type="button">创建房间</button>
+          <button id="btn-room-join" class="room-btn" type="button">输入房号加入</button>
+          <button id="btn-room-invite" class="room-btn" type="button">用邀请码加入</button>
+        </div>
+        <input id="input-room" class="hidden" type="text" inputmode="numeric" maxlength="9"
+               placeholder="8 位房号，例如 1234 5678" autocomplete="off" list="room-history">
+        <datalist id="room-history"></datalist>
+      </div>
+      <p id="room-note" class="hint dim">创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）</p>
+      <p id="room-list-note" class="hint dim"></p>
 
       <div class="bot-row hidden" id="bot-row">
         <span>AI 数量</span>
@@ -66,12 +81,16 @@
         <button id="btn-mode-settings" class="mode-btn" type="button">
           <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
         </button>
+        <button id="btn-mode-tutorial" class="mode-btn" type="button">
+          <b>新手指引</b><span>60 秒学会移动 / 射击 / 联机房号</span>
+        </button>
       </div>
 
       <p id="skin-note" class="hint dim"></p>
 
       <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
-      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩</p>
+      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
+      <p class="hint dim"><a class="debug-link" href="debug.html">API 调试页</a>：看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步</p>
     </div>
     <p id="menu-error" class="error"></p>
     <p class="hint dim">角色出现白块 / 黑块（头发、衣服、鞋子变色）？<a href="/colorfixer.html">打开颜色修复者 ColorFixer</a></p>
@@ -86,6 +105,15 @@
       <h2>选择你的兵种</h2>
       <p>堑壕里的每个人都有位置 —— 挑一个，然后活下去。</p>
     </header>
+
+    <!-- A hosted room exists before the match does, so the code and the way to
+         invite somebody travel with the player to this screen. -->
+    <div id="select-room" class="select-room hidden">
+      <span class="sr-label">房号</span>
+      <b id="select-room-code">--------</b>
+      <button id="btn-select-invite" class="ghost-btn small" type="button">邀请朋友</button>
+      <button id="btn-select-copy" class="ghost-btn small" type="button">复制邀请链接</button>
+    </div>
 
     <div class="class-row" id="class-row"></div>
 
@@ -156,6 +184,24 @@
       <div id="rig-shared" class="rig-shared"></div>
     </div>
 
+    <div class="rig-shared-block">
+      <h3 class="rig-h3">界面语言</h3>
+      <div class="lang-row">
+        <button id="lang-zh" class="room-btn" type="button">中文</button>
+        <button id="lang-en" class="room-btn" type="button">English</button>
+      </div>
+      <p class="hint dim">语言将立即生效并记住。</p>
+    </div>
+
+    <div class="rig-shared-block">
+      <h3 class="rig-h3">本地存档（只存在这台电脑上）</h3>
+      <p id="local-note" class="hint dim"></p>
+      <div class="local-actions">
+        <button id="local-export" class="ghost-btn" type="button">导出存档</button>
+        <button id="local-reset" class="ghost-btn" type="button">清空本机数据</button>
+      </div>
+    </div>
+
     <footer class="select-foot">
       <button id="rig-back" class="ghost-btn" type="button">返回主页</button>
       <button id="rig-reset" class="ghost-btn" type="button">重置</button>
@@ -184,6 +230,11 @@
     </div>
   </div>
 
+  <div id="room-chip" class="hidden" title="点击复制房号">
+    <span class="rc-label">房号</span><b id="room-code">--------</b>
+    <span id="room-copy" class="rc-copy">复制</span>
+  </div>
+
   <div id="crosshair">
     <i class="ch ch-t"></i><i class="ch ch-b"></i><i class="ch ch-l"></i><i class="ch ch-r"></i>
     <b class="ch-dot"></b>
@@ -198,7 +249,12 @@
   <div id="lockslot" class="hidden">
     <p class="lock-title">点击画面继续战斗</p>
     <p class="lock-sub">鼠标将被锁定 · 按 Esc 释放</p>
+    <p class="lock-action hidden">
+      <button id="btn-open-tab" class="big-btn small" type="button">在新标签页打开</button>
+    </p>
   </div>
+
+
 
   <div id="killfeed"></div>
   <div id="chat-log"></div>
@@ -262,6 +318,46 @@
 
 </section>
 
+  <!-- Pause menu and invite panel. They used to sit inside the HUD screen,
+       which meant "join with an invite code" on the menu opened a panel inside
+       a hidden box -- invisible and unclickable. They belong to the page itself. -->
+  <!-- Esc: pause. Leaving a match used to mean reloading the page. -->
+  <div id="pause" class="overlay hidden">
+    <div class="pause-panel">
+      <h2 class="pause-title">已暂停</h2>
+      <p class="pause-note" id="pause-note"></p>
+      <div class="pause-actions">
+        <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>
+        <button id="btn-pause-settings" class="ghost-btn" type="button">设置</button>
+        <button id="btn-pause-invite" class="ghost-btn" type="button">邀请朋友</button>
+        <button id="btn-pause-leave" class="ghost-btn" type="button">离开对局</button>
+      </div>
+      <p class="pause-hint">按 <b>Esc</b> 或点「继续战斗」回到战场</p>
+    </div>
+  </div>
+
+  <!-- Cross-computer multiplayer without any server: two codes, passed by hand. -->
+  <div id="invite" class="overlay hidden">
+    <div class="invite-panel">
+      <h2 class="invite-title" id="invite-title"></h2>
+      <p class="invite-step" id="invite-step"></p>
+      <textarea id="invite-code" class="invite-code" spellcheck="false" placeholder=""></textarea>
+      <div class="invite-actions">
+        <button id="btn-invite-gen" class="big-btn small" type="button">生成邀请码</button>
+        <button id="btn-invite-copy" class="ghost-btn" type="button">复制</button>
+        <button id="btn-invite-accept" class="big-btn small hidden" type="button">完成配对</button>
+        <button id="btn-invite-join" class="big-btn small hidden" type="button">加入</button>
+        <button id="btn-invite-close" class="ghost-btn" type="button">关闭</button>
+      </div>
+      <label class="invite-stun">
+        <input id="invite-stun" type="checkbox">
+        <span>跨网络（不同家里的宽带）：加上公共 STUN 服务器，帮助两端互相找到对方（不经过它传输）</span>
+      </label>
+      <p class="invite-status" id="invite-status"></p>
+      <p class="invite-help" id="invite-help"></p>
+    </div>
+  </div>
+
 <div id="boot" class="screen">
   <p class="boot-text">正在装载战场数据…</p>
 </div>
@@ -270,6 +366,11 @@
   <p class="boot-text">正在装载地图…</p>
 </div>
 
+<script type="module">
+  // Static markup is translated before the app boots; main.js runs the rest.
+  import { applyDom } from './js/i18n.js';
+  applyDom();
+</script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

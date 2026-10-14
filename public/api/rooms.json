@@ -1,0 +1,5 @@
+{
+  "rooms": [],
+  "max": 1,
+  "note": "Static upload (Vercel): rooms are hosted by the players themselves (the host's browser runs the match, see public/js/relay.js) and are found by their room code or their invite code -- no service lists them. Type a server address to play on a hosted server instead."
+}
