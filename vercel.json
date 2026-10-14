@@ -18,7 +18,6 @@
       "destination": "/public/anim-lab.html"
     },
     {
-      "//": "Any other page in public/ (the API debug page, and whatever gets added later): a whitelist here meant a new .html file 404'd on the deployed site until someone remembered to edit this file.",
       "source": "/(.*)\\.html",
       "destination": "/public/$1.html"
     },
@@ -73,7 +72,6 @@
   ],
   "headers": [
     {
-      "//": "The /api/* answers are files here and change with every upload: never let a browser keep an old one.",
       "source": "/api/(.*)",
       "headers": [
         {
@@ -83,7 +81,6 @@
       ]
     },
     {
-      "//": "Same as public/vercel.json (this is the copy for an empty Root Directory): the page, its JS and styles revalidate every visit so a new upload shows up at once.",
       "source": "/js/(.*)",
       "headers": [
         {
