@@ -327,7 +327,7 @@ export class Hud {
     if (!btn) return;
     btn.classList.add('suggested');
     const span = btn.querySelector('span');
-    if (span) span.textContent = t('第一次玩？从这里开始 · 60 秒学会操作与联机房号');
+    if (span) span.textContent = t('第一次玩？从这里开始 · 学会手榴弹与据点控制');
   }
 
   // ------------------------------------------------------------ map picker
@@ -514,7 +514,9 @@ export class Hud {
     const c = this._cache;
     if (c.s0 !== state.s[0]) { this.el.tbScore0.textContent = state.s[0]; c.s0 = state.s[0]; }
     if (c.s1 !== state.s[1]) { this.el.tbScore1.textContent = state.s[1]; c.s1 = state.s[1]; }
-    if (c.limit !== state.limit) { this.el.tbLimit.textContent = state.limit; c.limit = state.limit; }
+    const rule = state.gameMode === 'control' ? t('据点控制') : t('团队死斗');
+    const limitText = `${state.limit} · ${rule}`;
+    if (c.limitText !== limitText) { this.el.tbLimit.textContent = limitText; c.limitText = limitText; }
     const remain = Math.max(0, Math.ceil(state.endsIn / 1000));
     if (c.remain !== remain) {
       c.remain = remain;

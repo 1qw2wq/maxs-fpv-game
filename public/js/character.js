@@ -436,7 +436,7 @@ export function createGirl(cls, team, data) {
   const st = {
     phase: Math.random() * 6.28,
     t: Math.random() * 10,
-    crouch: 0,
+    crouch: 0, gait: 0,
     weapon: null,
     dead: false,
   };
@@ -481,6 +481,8 @@ export function createGirl(cls, team, data) {
     },
 
     destroy() {
+      shadow.geometry.dispose();shadow.material.dispose();
+      marker.geometry.dispose();marker.material.dispose();
       root.removeFromParent();
     },
 
@@ -500,7 +502,8 @@ export function createGirl(cls, team, data) {
       // big visual drop would put the rendered head inside the torso hitbox.
       st.crouch += ((s.crouch ? 1 : 0) - st.crouch) * Math.min(1, dt * 12);
 
-      const swing = run ? (s.sprint ? 0.78 : 0.5) : 0.06;
+      st.gait += ((run ? 1 : 0)-st.gait)*(1-Math.exp(-12*dt));
+      const swing = .06 + ((s.sprint ? .78 : .5)-.06)*st.gait;
       const ph = st.phase;
       const breathe = Math.sin(st.t * 1.9) * 0.012;
 
@@ -515,12 +518,12 @@ export function createGirl(cls, team, data) {
       legs.R.foot.rotation.x = -Math.sin(ph) * swing * 0.55;
 
       bob.position.y = -st.crouch * 0.20
-        + Math.abs(Math.sin(ph)) * (run ? (s.sprint ? 0.045 : 0.028) : 0)
+        + Math.abs(Math.sin(ph)) * st.gait * (s.sprint ? 0.045 : 0.028)
         + breathe * 0.25;
       bob.rotation.z = Math.sin(ph) * swing * 0.035;
       bob.rotation.y = -Math.sin(ph) * swing * 0.10;
 
-      torsoG.rotation.x = st.crouch * 0.28 + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008;
+      torsoG.rotation.x = st.crouch * 0.28 + (.02 + st.gait*.08) + Math.sin(st.t * 1.9) * 0.008;
       torsoG.rotation.z = Math.sin(ph) * swing * 0.05;
 
       // Read the same gun-local sockets as first person instead of a fixed

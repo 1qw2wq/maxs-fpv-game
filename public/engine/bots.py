@@ -328,6 +328,19 @@ def think(match, p, dt_ms):
     elif retreat and visible:
         dx, dz = p["pos"][0] - visible["pos"][0], p["pos"][2] - visible["pos"][2]
         speed_mult = 0.7
+    elif match.control is not None and match.control.points and (not visible or distance > 10):
+        candidates = [point for point in match.control.points if point['owner'] != p['team'] or point['contested'] or point['attacking'] not in (-1,p['team'])]
+        if not candidates:
+            candidates = match.control.points
+        # Small squad bias spreads bots across objectives rather than one blob.
+        target = min(candidates,key=lambda point: dist3(p['pos'],point['p'])+(0 if ord(point['id'])%3 == p['id']%3 else 12))
+        if math.hypot(p['pos'][0]-target['p'][0],p['pos'][2]-target['p'][2]) < 1.8:
+            dx, dz, speed_mult = 0, 0, 0
+        else:
+            dx, dz = _route_direction(p,target['p'],now)
+            speed_mult = .85
+        if not visible and abs(dx)+abs(dz) > .01:
+            p['yaw'] = _turn_yaw(p['yaw'],math.degrees(math.atan2(dz,dx)),TURN_DEG_PER_SEC*dt)
     elif visible:
         dx, dz = visible["pos"][0] - p["pos"][0], visible["pos"][2] - p["pos"][2]
         if distance < ideal * 0.5:

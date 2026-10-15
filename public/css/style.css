@@ -1026,3 +1026,18 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 #grenade-chip .ab-cd { width:130px; }
 #flash-veil { position:fixed; inset:0; background:#fff4d8; opacity:0; pointer-events:none; z-index:80; }
 @media (prefers-reduced-motion:reduce) { #flash-veil { background:#909397; } }
+
+.rules-field { margin:12px 0; } .rules-field select { padding:10px; color:#eef2f5; background:#192333; border:1px solid #65788d; border-radius:7px; } .rules-field small { color:#b8c8d8; line-height:1.5; }
+#objective-hud { position:absolute; top:85px; left:50%; transform:translateX(-50%); text-align:center; width:min(440px,95vw); pointer-events:none; }
+#objective-mode { color:#ffe08a; font-size:12px; text-shadow:0 1px 3px #000; }
+#objective-cards { display:flex; justify-content:center; gap:8px; margin-top:5px; }
+.objective-card { position:relative; min-width:100px; border:1px solid var(--point-color); border-radius:9px; background:#101926df; padding:6px 9px; text-align:left; box-shadow:0 2px 8px #0004; }
+.objective-card b { color:var(--point-color); font-size:21px; margin-right:10px; }.objective-distance { font-size:11px; color:#d2deec; }.objective-card small { display:block; font-size:10px; color:#e4ecf4; }
+.objective-progress { height:3px; background:#ffffff20; margin-top:5px; }.objective-progress i { display:block; height:100%; }
+#objective-status { font-size:11px; margin:5px 0; color:#f2e9c6; text-shadow:0 1px 3px #000,0 1px 5px #000; }
+
+/* One actionable lesson while playing; full checklist remains in the menu. */
+#tutorial { z-index:40; }
+#tutorial.in-game .tut-list li { display:none; }
+#tutorial.in-game .tut-list li.now { display:flex; }
+#tutorial.in-game .tut-tip { display:block; font-size:11px; line-height:1.5; }

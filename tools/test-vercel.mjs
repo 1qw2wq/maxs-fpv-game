@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { testEffects } from './test-effects.mjs';
 import { testGrenades } from './test-grenades.mjs';
+import { testGameplay, testLiveControl } from './test-gameplay.mjs';
 import { testHands } from './test-hands.mjs';
 import { testCamera } from './test-camera.mjs';
 import { testArsenal } from './test-arsenal.mjs';
@@ -74,8 +75,8 @@ async function setup(p, role, code) {
     await net.connect('', { code });
   }, { role, code });
 }
-async function join(p, name, code = '') {
-  await p.evaluate(({ name, code }) => net.join(name, 'assault', 'mp18', false, 0, '', false, 'somme', '', code), { name, code });
+async function join(p, name, code = '', gameMode = 'tdm') {
+  await p.evaluate(({ name, code, gameMode }) => net.join(name, 'assault', 'mp18', false, 0, '', false, 'somme', '', code, gameMode), { name, code, gameMode });
   await p.waitForFunction(() => net.id !== null, { timeout: 15000 });
 }
 async function chatBetween(sender, receiver, message) {
@@ -95,7 +96,7 @@ try {
   const host = await page(context);
   const guest = await page(context);
   await setup(host, 'host', '12345678');
-  await join(host, 'Host');
+  await join(host, 'Host', '', 'control');
   await setup(guest, 'guest', '12345678');
   await join(guest, 'Guest', '12345678');
   await guest.waitForFunction(() => net._lastState?.ps?.length === 2);
@@ -143,6 +144,8 @@ try {
   await remoteContext.route('**/*', (route) => route.request().url().startsWith(origin) ? route.continue() : route.abort());
   const remote = await page(remoteContext);
   await setup(remote, 'guest', '12345678');
+  await host.evaluate(()=>net._engine.py.runPython('_relay.room.match.control.points[0]["owner"]=0'));
+  await host.waitForFunction(()=>net._lastState.s[0]===1);
   const invite = await host.evaluate(() => net.createInvite());
   const answer = await remote.evaluate(async (code) => (await net.acceptInvite(code)).answer, invite);
   assert.equal(await remote.evaluate(() => net.peers), 0, 'an unanswered invite is not a connected peer');
@@ -154,6 +157,12 @@ try {
   await chatBetween(remote, host, 'real-webrtc-guest');
   await chatBetween(host, remote, 'real-webrtc-host');
   console.log('PASS: real WebRTC invite/answer, open-channel acknowledgement, join/state/chat across isolated contexts');
+  for(const seat of [host,guest,remote]) {
+    await seat.waitForFunction(()=>net._lastState.gameMode==='control'&&net._lastState.objectives.points.length===3);
+    assert.equal(await seat.evaluate(()=>welcomes[0].gameMode),'control');
+    assert.equal(await seat.evaluate(()=>net._lastState.objectives.points[0].owner),0);
+  }
+  console.log('PASS: point-control mode/flags propagate over real WebRTC; guest TDM requests cannot override host rules');
   await remote.evaluate(()=>net.grenade({x:0,y:0.2,z:1},'smoke',.7));
   const remoteId=await remote.evaluate(()=>net.id);
   await host.waitForFunction(id=>messages.some(m=>m.t==='fx'&&m.fx?.by===id&&m.fx.k==='smoke'&&m.fx.path?.length>2),remoteId);
@@ -335,11 +344,13 @@ try {
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
+  await testGameplay(context, origin);
   await testGrenades(context, origin);
   await testCamera(context, origin);
   await testArsenal(context, origin);
   await testHands(context, origin);
   await testEffects(context, origin);
+  await testLiveControl(context, origin);
 
   assert.deepEqual(await host.evaluate(() => netErrors), []);
   assert.deepEqual(await guest.evaluate(() => netErrors), []);

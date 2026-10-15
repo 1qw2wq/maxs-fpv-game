@@ -8,7 +8,33 @@
       "desc": "1916 · 战壕与无人区",
       "file": "/shared/map.json",
       "scene": null,
-      "descEn": "1916 · trenches and no man's land"
+      "descEn": "1916 · trenches and no man's land",
+      "controlPoints": [
+        {
+          "id": "A",
+          "p": [
+            -21.5,
+            0,
+            -15.5
+          ]
+        },
+        {
+          "id": "B",
+          "p": [
+            3.5,
+            0,
+            -0.5
+          ]
+        },
+        {
+          "id": "C",
+          "p": [
+            21.5,
+            0,
+            16.5
+          ]
+        }
+      ]
     },
     {
       "id": "italy",
@@ -26,7 +52,33 @@
           -33.259
         ]
       },
-      "descEn": "Mediterranean town · close-quarters streets"
+      "descEn": "Mediterranean town · close-quarters streets",
+      "controlPoints": [
+        {
+          "id": "A",
+          "p": [
+            -21.5,
+            -0.2,
+            -24.5
+          ]
+        },
+        {
+          "id": "B",
+          "p": [
+            -1.5,
+            0,
+            2.5
+          ]
+        },
+        {
+          "id": "C",
+          "p": [
+            22.5,
+            0,
+            16.5
+          ]
+        }
+      ]
     }
   ]
 }

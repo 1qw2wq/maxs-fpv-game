@@ -42,6 +42,9 @@ export class Controls {
     this.yaw = 0;          // degrees, 0 = +X
     this.pitch = 0;        // degrees, + = up
     this.grounded = true;
+    this._jumpHeld = false;
+    this._jumpBuffer = 0;
+    this._coyote = 0;
 
     this.keys = new Set();
     this.mouse = { left: false, right: false };
@@ -227,6 +230,7 @@ export class Controls {
     this._lockRequestId += 1;
     this._lockCooldownUntil = performance.now() + 1300;
     this.keys.clear();
+    this._jumpHeld=false;this._jumpBuffer=this._coyote=0;
     this.mouse.left = false;
     this.mouse.right = false;
     this.onAbilityCancel?.();
@@ -262,7 +266,9 @@ export class Controls {
     this.yaw = yaw ?? this.yaw;
     this.pitch = 0;
     this.vy = 0;
+    this.grounded = true;
     this.vel.set(0, 0, 0);
+    this._jumpHeld=false;this._jumpBuffer=this._coyote=0;
   }
 
   get eyeY() {
@@ -312,6 +318,9 @@ export class Controls {
 
     if (!alive || !this.enabled) {
       this.moveSpeed = 0;
+      this.vel.set(0,0,0);
+      this._jumpBuffer = this._coyote = 0;
+      this._jumpHeld = false;
       return;
     }
     // Arrow-key look is driven from the frame loop, but never while the chat
@@ -321,10 +330,11 @@ export class Controls {
     }
 
     let fx = 0, fz = 0;
-    if (k.has('KeyW')) fx += 1;
-    if (k.has('KeyS')) fx -= 1;
-    if (k.has('KeyD')) fz += 1;
-    if (k.has('KeyA')) fz -= 1;
+    const canMove = !typing();
+    if (canMove && k.has('KeyW')) fx += 1;
+    if (canMove && k.has('KeyS')) fx -= 1;
+    if (canMove && k.has('KeyD')) fz += 1;
+    if (canMove && k.has('KeyA')) fz -= 1;
     const len = Math.hypot(fx, fz);
     if (len > 0) { fx /= len; fz /= len; }
 
@@ -338,22 +348,24 @@ export class Controls {
     const wishX = Math.cos(yawRad) * fx - Math.sin(yawRad) * fz;
     const wishZ = Math.sin(yawRad) * fx + Math.cos(yawRad) * fz;
 
-    const accel = this.grounded ? 46 : 13;
-    const target = new THREE.Vector3(wishX * speed, 0, wishZ * speed);
-    const dvx = (target.x - this.vel.x) * Math.min(1, accel * dt);
-    const dvz = (target.z - this.vel.z) * Math.min(1, accel * dt);
-    this.vel.x += dvx;
-    this.vel.z += dvz;
-    if (len === 0 && this.grounded) {
-      const damp = Math.min(1, 15 * dt);
-      this.vel.x -= this.vel.x * damp;
-      this.vel.z -= this.vel.z * damp;
-    }
+    // Exponential response is consistent at 30/60/144 Hz. A single release
+    // curve brakes without the old double damping or instant low-FPS snaps.
+    const accel = this.grounded ? (len === 0 ? 22 : 18) : 5.5;
+    const blend = 1-Math.exp(-accel*dt);
+    this.vel.x += (wishX*speed-this.vel.x)*blend;
+    this.vel.z += (wishZ*speed-this.vel.z)*blend;
+    if (len === 0 && Math.hypot(this.vel.x,this.vel.z)<0.015) this.vel.set(0,0,0);
 
-    // gravity + jump
-    if (this.grounded && k.has('Space')) {
+    // Edge-triggered jump with a small buffer and coyote window. Holding Space
+    // no longer auto-bounces on every landing; chat/blur cannot queue a jump.
+    const jump=canMove && k.has('Space');
+    this._jumpBuffer = jump && !this._jumpHeld ? .12 : Math.max(0,this._jumpBuffer-dt);
+    this._jumpHeld = jump;
+    this._coyote = this.grounded ? .1 : Math.max(0,this._coyote-dt);
+    if (this._jumpBuffer > 0 && this._coyote > 0) {
       this.vy = this.combat.jumpSpeed;
       this.grounded = false;
+      this._jumpBuffer = this._coyote = 0;
     }
     this.vy -= this.combat.gravity * dt;
 

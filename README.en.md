@@ -1,6 +1,6 @@
 # Trench Front 堑壕前线
 
-A WW1-themed browser FPS: online team deathmatch over WebSocket, four classes (Assault / Medic /
+A WW1-themed browser FPS with team deathmatch and point control, four classes (Assault / Medic /
 Support / Scout), three weapons each, and every playable character is an **anime-style girl**
 (semi-realistic proportions, roughly 5.7 heads tall).
 
@@ -310,6 +310,42 @@ physics tested on both maps, both ramp axes, thin walls and bounds. Joining mid-
 remaining lifetime of existing smoke/fire and in-flight grenades. All effects are procedural and
 run with the existing Vercel-only browser engine: no new backend, asset service or broker.
 
+### Point control (new match rules)
+
+Choose **Match rules → Point control** before Solo or hosting Multiplayer. Deathmatch remains
+available and is the default. Guests always inherit the host's rules; choosing something else
+locally cannot switch a running room. Both Somme and Italy have three authored, navigable points:
+**A / B / C**. Their flags, circles and HUD cards show ownership, capture progress, contests,
+direction and distance.
+
+- Stand within **5 m**, on the same floor and with an unobstructed line to the flag. A solo capture
+  takes **5 seconds**; two teammates capture faster (extra players do not stack beyond two).
+- Both teams inside contest the point: neither side advances. Enemy-owned flags must first be
+  neutralized, then captured. Abandoned partial progress recovers; captured flags stay owned.
+- Control **all three flags for 15 continuous seconds** to win. Contesting or beginning an enemy
+  neutralization resets this final hold, even before ownership changes. The HUD shows the countdown.
+- Kills still count in individual stats, but **cannot win this mode**. At the eight-minute timeout,
+  the team owning more flags wins; equal ownership is a draw. New rounds reset flags and respawn
+  players. Solo bots route toward objectives, capture them and defend against pressure.
+
+The existing static/browser-host transports carry rules and objective snapshots, including for
+late joins. No extra server, broker or deployment service is needed.
+
+### Lighting and character movement
+
+Neutral filmic highlight rolloff, cooler daylight/fog, balanced sky fill and a softer rim improve
+readability without adding an expensive full-scene shadow pass. Imported characters use soft lit
+materials with a modest painted-albedo fill; **original texture maps, tints and alpha/cutout rules
+are preserved**. The Italy scenery keeps its baked lighting. Shared-texture contact shadows now
+stay on the floor and fade/spread when characters jump, with no duplicate shadow discs.
+
+Movement acceleration/braking is frame-rate independent; release is responsive rather than icy.
+Jumping has a **120 ms buffer / 100 ms coyote window**, and holding Space no longer auto-bounces.
+Chat cannot keep a character moving. Direction changes preserve animation stride phase and use
+sector hysteresis; slow/crouched movement has a slower cadence, fallback gaits ease in/out, and
+remote avatars turn smoothly along the shortest angle. Native pointer lock remains the only mouse
+look scheme; there is no drag or cursor steering fallback.
+
 ### The four classes
 
 | Class | Role | Ability | Weapons |
@@ -327,13 +363,14 @@ you cannot fire the next round with the sights up.
 
 ### Three ways in
 
-The three buttons in the main menu:
+The main-menu options (match rules are selected separately):
 
 | Mode | What it does |
 | --- | --- |
-| Multiplayer | Online team deathmatch, humans only by default; the *AI bots* switch adds 4 / 6 / 8 / 12 of them |
+| Multiplayer | Host or join human-only deathmatch / point control; no bots |
 | Solo | You plus AI teammates against AI enemies; bots are forced on and the switch becomes a read-only indicator |
 | Setup | Import a skinned glTF/GLB, map its bones to the game's joints, tune the pose and upload it for everyone |
+| Tutorial | Private, bot-free practice with 11 action-based lessons |
 
 Bots go through exactly the same server-authoritative firing path as human players; there is no
 special-case AI logic.
@@ -345,8 +382,11 @@ straight from your browser.
 
 The *Tutorial* button in the main menu (it blinks gently on a fresh profile) walks you through the
 whole loop: move → turn with the mouse → fire → aim → reload → crouch / jump → use an ability →
-scoreboard / chat → room codes. Each step only ticks when you **actually perform it**, and the
-panel tells you what to do next. The practice match is solo (no bots, nobody shoots at you), you
+**cycle and throw a grenade → capture a real point** → scoreboard / view → room codes (11 lessons). Each step only ticks when you **actually perform it**, and the
+panel tells you what to do next. The practice match is private Somme point control (no bots, nobody shoots at you). Ability and
+grenade lessons require an accepted host effect, and capture requires authoritative ownership;
+cycling alone or a cancelled/rejected throw cannot complete them. During play only the current
+lesson is expanded. Press Enter on the final room-code lesson to finish and return to the menu. You
 can skip it at any time or restart it from the panel, and finishing it is remembered on this
 machine (`tf.profile`) so it stops offering itself.
 
@@ -611,7 +651,7 @@ FPS web game demo/
         ├── hud.js              # all the DOM / HUD logic
         ├── audio.js            # procedural WebAudio sound (no audio files)
         ├── net.js              # WebSocket client (with long-poll fallback) + remote-player interpolation
-        ├── tutorial.js         # the nine-step tutorial, driven by real input
+        ├── tutorial.js         # 11 real-input lessons including G/B grenades and point capture
         ├── storage.js          # safe localStorage / sessionStorage wrapper (falls back to memory)
         └── main.js             # orchestration and the main loop
 ```
@@ -670,3 +710,10 @@ FPS web game demo/
 - **Anime rendering**: four-band `MeshToonMaterial` steps, inverted-hull outlines and a hair
   highlight band; no real-time shadows (a dark disc under the feet stands in), and every face and
   portrait is drawn procedurally on a canvas with no image assets.
+
+
+Gameplay regressions: `python tools/test-control.py` covers 19 point-rule, room-authority,
+restart and real-map/bot cases, alongside the existing AI and grenade tests. The browser runner
+adds 21 movement/tutorial/material/shadow checks, real WebRTC mode and owned-flag late joins,
+and a real menu → deploy → G/B lesson → WASD captures → interrupted hold → all-point victory →
+round restart flow. Run `node tools/test-vercel.mjs` for the full suite.

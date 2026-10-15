@@ -251,6 +251,7 @@ function detachCapeFromArms(scene) {
 
 /** Everything createExternalGirl needs, derived once per uploaded model. */
 export function prepareTemplate(scene) {
+  fixImportedMaterials(scene, {lightUnlit:true});
   detachCapeFromArms(scene);
   const fit = fitToHeight(scene);
   return { scene, normScale: fit.scale, baseOffsetY: fit.baseOffsetY };
@@ -940,7 +941,10 @@ export function createExternalGirl({ template, meta, data, team }) {
   function sectorOf(dx, dz) {
     root.getWorldQuaternion(_mQ);
     _mL.set(dx, 0, dz).applyQuaternion(_mQ.invert());
-    let idx = Math.round(Math.atan2(-_mL.x, _mL.z) / DEG / 45) % 8;
+    const angle=Math.atan2(-_mL.x,_mL.z)/DEG;
+    const current=RUN_SECTORS.indexOf(motion.id);
+    if(current>=0 && Math.abs(((angle-current*45+540)%360)-180)<30)return current;
+    let idx = Math.round(angle / 45) % 8;
     if (idx < 0) idx += 8;
     return idx;
   }
@@ -951,12 +955,14 @@ export function createExternalGirl({ template, meta, data, team }) {
     const clip = run[id] || run[RUN_SECTORS[0]];
     if (!clip) return;
     if (!motion.mixer) motion.mixer = new THREE.AnimationMixer(rig);
-    const rate = THREE.MathUtils.clamp(speed / 7, 0.85, 1.5);
+    const rate = THREE.MathUtils.clamp(speed / 4.8, 0.25, 1.5);
     const next = motion.mixer.clipAction(clip);
     if (motion.action === next) {
       next.setEffectiveTimeScale(rate);
     } else {
+      const phase=motion.action ? (motion.action.time/motion.action.getClip().duration)%1 : 0;
       next.reset();
+      next.time=phase*clip.duration;
       next.enabled = true;
       next.setEffectiveTimeScale(rate);
       next.setEffectiveWeight(1);
@@ -1157,6 +1163,8 @@ export function createExternalGirl({ template, meta, data, team }) {
     },
 
     destroy() {
+      shadow.geometry.dispose();shadow.material.dispose();
+      marker.geometry.dispose();marker.material.dispose();
       root.removeFromParent();
     },
 

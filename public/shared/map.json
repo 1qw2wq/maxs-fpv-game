@@ -6,12 +6,12 @@
   "groundY": 0,
   "style": {
     "skyTop": "#5b7fa8",
-    "skyBottom": "#e0b98a",
-    "fog": "#c9a882",
-    "fogNear": 35,
-    "fogFar": 145,
-    "sunColor": "#ffd9a0",
-    "ambientColor": "#6b7fa8",
+    "skyBottom": "#d6deeb",
+    "fog": "#b6c0c7",
+    "fogNear": 50,
+    "fogFar": 175,
+    "sunColor": "#fff0cf",
+    "ambientColor": "#a4b8cb",
     "mud": "#6b5a44"
   },
   "spawns": {

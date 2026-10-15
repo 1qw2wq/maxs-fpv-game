@@ -39,6 +39,11 @@
       "stepHz": 120,
       "grenadeCharges": 2,
       "grenadeCdMs": 24000
+    },
+    "control": {
+      "radius": 5,
+      "captureMs": 5000,
+      "holdAllMs": 15000
     }
   },
   "teams": [

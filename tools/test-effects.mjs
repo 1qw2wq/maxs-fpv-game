@@ -180,7 +180,15 @@ export async function testEffects(context, origin) {
   await game.locator('#btn-mode-solo').click();
   await game.locator('#btn-deploy').click();
   await game.waitForFunction(() => window.__trench?.app.playing && window.__trench.app.net.lastMe?.alive, null, { timeout: 45000 });
-  await game.evaluate(() => window.__trench.app.net._engine.py.runPython('_host.room.match.drop_bots(); _host.room.bots_on = False'));
+  await game.evaluate(() => {
+    const { app } = window.__trench;
+    app.net._engine.py.runPython('_host.room.match.drop_bots(); _host.room.bots_on = False');
+    // Software WebGL can skip an entire short reload while drawing scenery.
+    // Keep the real map collisions/input, but spend rendering time on the
+    // weapon/arms/effects this fixture actually asserts.
+    app.world.group.visible = false;
+    app.renderer.setPixelRatio(.35);
+  });
   await game.locator('#game').click({ position: { x: 500, y: 300 } });
   await game.waitForFunction(() => window.__trench.app.controls.locked);
   await game.mouse.down();

@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { part, toonMat, flatMat, concreteTexture, sandbagTexture, mudTexture, plankTexture, wireTexture, shift } from './toon.js';
-import { sceneStyle, applyEnvironment, fixImportedMaterials } from './lighting.js';
+import { sceneStyle, applyEnvironment, fixImportedMaterials, createContactShadow } from './lighting.js';
 
 const PLAYER_RADIUS = 0.35;
 const STEP_UP_MAX = 0.65;
@@ -197,16 +197,16 @@ export class World {
     // built with fog disabled, so distance fog alone would never hide it.
     this.sky = sky;
 
-    const sun = new THREE.DirectionalLight(new THREE.Color(s.sunColor), 2.15);
+    const sun = new THREE.DirectionalLight(new THREE.Color(s.sunColor), 1.9);
     sun.position.set(-38, 46, 26);
     this.group.add(sun);
 
-    const rim = new THREE.DirectionalLight(new THREE.Color('#8fb6ff'), 0.85);
+    const rim = new THREE.DirectionalLight(new THREE.Color('#b3d0ff'), 0.55);
     rim.position.set(40, 18, -34);
     this.group.add(rim);
 
-    this.group.add(new THREE.AmbientLight(new THREE.Color(s.ambientColor), 1.15));
-    this.group.add(new THREE.HemisphereLight(new THREE.Color(s.skyTop), new THREE.Color(s.mud), 0.7));
+    this.group.add(new THREE.AmbientLight(new THREE.Color(s.ambientColor), 0.42));
+    this.group.add(new THREE.HemisphereLight(new THREE.Color(s.skyBottom), new THREE.Color(s.mud), 1.25));
   }
 
   /** A model map: the GLB is the visuals, the boxes above are the collision. */
@@ -372,23 +372,5 @@ export class World {
   }
 }
 
-/** Fake contact shadow: a dark disc, because real shadow maps are not worth it here. */
-export function contactShadow(radius = 0.42) {
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
-  const g = cv.getContext('2d');
-  const grd = g.createRadialGradient(32, 32, 2, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(0,0,0,.55)');
-  grd.addColorStop(0.6, 'rgba(0,0,0,.26)');
-  grd.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 64, 64);
-  const tex = new THREE.CanvasTexture(cv);
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(radius * 2, radius * 2),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
-  );
-  m.rotation.x = -Math.PI / 2;
-  m.renderOrder = 1;
-  return m;
-}
+/** Soft shared-texture contact shadow; lighting.js grounds/fades it each frame. */
+export function contactShadow(radius = 0.5) { return createContactShadow(radius); }

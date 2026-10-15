@@ -18,6 +18,7 @@ from combat import (
 )
 import combat
 import bots as bots_mod
+from objectives import ControlPoints
 from throwing import GRENADES, simulate as simulate_throw
 
 # One sampled position per tick, kept long enough to cover the deepest rewind.
@@ -143,6 +144,9 @@ class Match:
         # Effect ids are separate from player ids: a crate is taken back down by
         # id, and player ids get reused as people come and go.
         self.next_eid = 1
+        self.mode = "tdm"
+        self.control = None
+        self.end_reason = ""
         self.scores = [0, 0]
         self.start_ms = None
         self.phase = "waiting"
@@ -159,6 +163,12 @@ class Match:
         self.solo = False
         # Kept apart from self.rng so the miss coin-flip never shifts spawn luck.
         self.hit_rng = random.Random(90210)
+
+    def set_mode(self, mode, map_id=None):
+        self.mode = "control" if mode == "control" else "tdm"
+        self.control = ControlPoints(map_id or combat.CUR_MAP_ID) if self.mode == "control" else None
+        self.scores = [0, 0]
+        self.end_reason = ""
 
     # ------------------------------------------------------------------ roster
 
@@ -458,10 +468,10 @@ class Match:
             killer["kills"] = max(0, killer["kills"] - 1)
         else:
             killer["kills"] += 1
-        if killer["team"] != victim["team"]:
+        if killer["team"] != victim["team"] and self.mode == "tdm":
             self.scores[killer["team"]] += 1
             if self.scores[killer["team"]] >= int(COMBAT["scoreLimit"]):
-                self._end(killer["team"])
+                self._end(killer["team"], "kills")
         return [{"to": None, "msg": {
             "t": "kill",
             "k": {"id": killer["id"], "n": killer["name"], "c": killer["cls"], "tm": killer["team"]},
@@ -470,7 +480,8 @@ class Match:
             "score": list(self.scores),
         }}]
 
-    def _end(self, winner):
+    def _end(self, winner, reason="time"):
+        self.end_reason = reason
         self.phase = "ended"
         self.winner = winner
         self.ended_at = now_ms()
@@ -599,7 +610,7 @@ class Match:
         if flight is None:
             return []
         spec = GRENADES[kind]
-        fx = dict(k=kind, team=p["team"], by=p["id"], eid=self.next_eid,
+        fx = dict(k=kind, slot="grenade", team=p["team"], by=p["id"], eid=self.next_eid,
                   r=spec["radius"], dur=spec["dur"], **flight)
         if kind == "incendiary":
             # The shell bursts at the path endpoint; its fuel spills onto the
@@ -740,21 +751,23 @@ class Match:
             if self.start_ms is None:
                 self.start_ms = now
             if now - self.start_ms >= float(COMBAT["matchMs"]):
-                self._end(0 if self.scores[0] >= self.scores[1] else 1)
+                winner = -1 if self.scores[0] == self.scores[1] else (0 if self.scores[0] > self.scores[1] else 1)
+                self._end(winner)
         elif self.phase == "ended" and now - self.ended_at > 10000.0:
+            self.set_mode(self.mode)
+            self.effects = []
             self.scores = [0, 0]
             self.start_ms = now
             self.phase = "live"
             self.winner = -1
+            # A new round resets every body immediately, including players
+            # who died near the last round's end (no extra respawn wait).
             for p in self.players.values():
-                if p["alive"]:
-                    self._spawn(p)
-                else:
-                    p["respawn_at"] = now
+                self.outbox.extend(self._spawn(p))
 
         for p in self.players.values():
             if not p["alive"] and now >= p["respawn_at"] + 8000.0 and self.phase == "live":
-                self._spawn(p)
+                self.outbox.extend(self._spawn(p))
             if not p["alive"]:
                 continue
             if p["reload_end"] > 0:
@@ -829,6 +842,11 @@ class Match:
             if p["bot"]:
                 self.outbox.extend(bots_mod.think(self, p, dt_ms))
 
+        if self.control is not None and self.phase == "live":
+            self.scores, winner = self.control.tick(self.players, dt_ms)
+            if winner >= 0:
+                self._end(winner, "all_points")
+
         # One position sample per player per tick, which is what _hist_pos
         # rewinds through when a shot arrives.
         for p in self.players.values():
@@ -847,7 +865,8 @@ class Match:
             remaining = max(0.0, float(COMBAT["matchMs"]) - (now_ms() - self.start_ms))
         return {
             "t": "state", "tick": self.tick_count, "phase": self.phase,
-            "s": list(self.scores), "limit": int(COMBAT["scoreLimit"]),
+            "s": list(self.scores), "limit": len(self.control.points) if self.control else int(COMBAT["scoreLimit"]),
+            "gameMode": self.mode, "objectives": self.control.payload() if self.control else None, "reason": self.end_reason,
             "endsIn": int(remaining), "winner": self.winner,
         }
 

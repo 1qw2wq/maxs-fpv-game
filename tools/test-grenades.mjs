@@ -91,6 +91,7 @@ export async function testLiveGrenades(page) {
     await page.waitForFunction(()=>window.__trench.app.charge?.source==='grenade' && document.getElementById('grenade-chip').classList.contains('charging'));
     await page.keyboard.press('b'); // must not switch a grenade already in hand
     assert.equal(await page.evaluate(()=>window.__trench.app.grenadeKind),kind);
+    if(kind==='flash')await page.evaluate(()=>{window.__trench.app.controls.pitch=-65;});
     const chargeTime=kind==='flash'?100:400;
     await page.waitForFunction(ms=>performance.now()-window.__trench.app.charge.t0>=ms,chargeTime);
     await page.keyboard.up('g');

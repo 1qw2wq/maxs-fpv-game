@@ -92,6 +92,7 @@ class Room:
             want = self.map_id
         if fresh:
             self._apply_map(want)
+            self.match.set_mode(msg.get("gameMode"), self.map_id)
         else:
             self.map_id = map_meta()["id"]      # follow whatever is actually live
         raw_name = str(msg.get("name", "")).strip()[:16]
@@ -132,7 +133,7 @@ class Room:
             "scene": meta["scene"], "cfg": COMBAT, "tickRate": COMBAT["tickRate"],
             "spawn": [round(v, 2) for v in p["pos"]], "yaw": p["yaw"],
             "cls": p["cls"], "weapon": p["weapon"], "skin": p["skin"],
-            "botsOn": self.bots_on,
+            "botsOn": self.bots_on, "gameMode": self.match.mode,
             # Existing clouds, fire, crates and pending flights retain their age.
             "fx": self.match.standing_crates(),
         }
@@ -229,6 +230,7 @@ class Room:
             # Another room was live: keep playing where we are, re-vote next gap.
             return []
         self.match.effects = []
+        self.match.set_mode(self.match.mode, self.map_id)
         meta = map_meta(self.map_id)
         out = [{"to": None, "msg": {
             "t": "map", "id": meta["id"], "name": meta["name"],

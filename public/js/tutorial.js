@@ -30,8 +30,9 @@ const STEPS = [
   {
     id: 'look', title: '② 视角', key: '鼠标',
     text: '点击画面锁定鼠标，然后移动鼠标环顾四周；按 Esc 释放。',
-    tip: '被卡在窗口里没法锁定鼠标时，按住左键拖动也能精确瞄准。',
+    tip: '无法锁定鼠标时，点击画面重试或在新标签页打开；游戏只使用原生鼠标锁定。',
     test: (s, dt, ctx) => {
+      if (s.lastYaw === null) s.lastYaw = ctx.yaw;
       let d = Math.abs(ctx.yaw - s.lastYaw);
       if (d > 180) d = 360 - d;
       s.turned += d;
@@ -77,15 +78,27 @@ const STEPS = [
     test: (s) => s.events.ability >= 1,
   },
   {
-    id: 'round', title: '⑧ 战场信息', key: 'Tab · V · Enter',
+    id: 'grenade', title: '⑧ 手榴弹', key: 'B · 按住 G',
+    text: '按 B 切换手榴弹，按住 G 蓄力，再松开投掷。预览会显示重力和反弹。',
+    tip: '破片爆炸、燃烧留火、烟雾遮挡、闪光致盲；2 发共享，耗尽后 24 秒补满。Q 技能独立。',
+    test: (s) => s.events.grenadeCycle >= 1 && s.events.grenade >= 1,
+  },
+  {
+    id: 'capture', title: '⑨ 据点控制', key: 'A · B · C',
+    text: '跟随顶部方向与距离提示，进入任一据点的地面圆圈，停留到占领完成。',
+    tip: '无人争夺时单人 5 秒占领，两人更快；敌方据点先中立化再占领。守住全部据点 15 秒获胜；敌方进入会打断。',
+    test: (s, dt, ctx) => ctx.objectivesOwned > 0,
+  },
+  {
+    id: 'round', title: '⑩ 战场信息', key: 'Tab · V · Enter',
     text: '按住 Tab 看战绩，按 V 切换第一 / 第三人称，按 Enter 打字聊天。',
-    tip: '顶部中间是比分和倒计时，先到 75 分或时间结束就分出胜负。',
+    tip: '死斗先到 75 击杀；据点模式需要守住全点。时间结束按击杀或据点数量判胜，数量相同则平局。',
     test: (s) => s.events.score >= 1 && s.events.view >= 1,
   },
   {
-    id: 'room', title: '⑨ 联机：房号', key: '8 位房号',
+    id: 'room', title: '⑪ 联机：房号', key: 'Enter · 8 位房号',
     text: '想和朋友一起玩：回到主菜单选「多人模式」→「创建房间」，会得到一串 8 位房号，把它发给朋友；'
-      + '朋友在「输入房号加入」里填上就能进同一局。',
+      + '朋友在「输入房号加入」里填上就能进同一局。按 Enter 完成教程并返回主菜单。',
     tip: '房号显示在画面顶部，点一下就能复制。单人模式不需要房号。',
     test: () => false,        // finished by the button, not by input
     last: true,
@@ -93,7 +106,7 @@ const STEPS = [
 ];
 
 function emptyState() {
-  return { move: 0, turned: 0, lastYaw: 0, ads: 0, crouch: 0, jumped: false, events: {} };
+  return { move: 0, turned: 0, lastYaw: null, ads: 0, crouch: 0, jumped: false, events: {} };
 }
 
 export class Tutorial {
@@ -208,7 +221,7 @@ export class Tutorial {
     if (!this.visible) return;
     this.inGame = true;
     this.state = emptyState();
-    this.state.lastYaw = 0;
+    this.state.lastYaw = null;
     this._render();
   }
 
@@ -233,7 +246,7 @@ export class Tutorial {
     if (this.hud && !step.last) {
       const next = this.current;
       this.hud.toast(t('✔ {step} 完成 · 下一步：{next}', {
-        step: t(step.title).replace(/^[①-⑨]\s*/, ''),
+        step: t(step.title).replace(/^[①-⑳]\s*/, ''),
         next: t(next.title),
       }), 2200);
     }
@@ -242,6 +255,7 @@ export class Tutorial {
   /** Player finished (or skipped) the tutorial. */
   finish(skipped) {
     this.inGame = false;
+    if (!skipped) this.done.add(STEPS[STEPS.length-1].id);
     this.index = STEPS.length - 1;
     this.close();
     this.onFinish?.(!skipped);

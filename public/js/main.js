@@ -8,6 +8,8 @@
 import * as THREE from 'three';
 import { loadConfig } from './config.js';
 import { World } from './map.js';
+import { ObjectivesView } from './objectives.js';
+import { updateContactShadow } from './lighting.js';
 import { resolveCamera } from './camera-collision.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
@@ -196,7 +198,8 @@ async function boot() {
   app.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   app.renderer.setSize(innerWidth, innerHeight);
   app.renderer.outputColorSpace = THREE.SRGBColorSpace;
-  app.renderer.toneMapping = THREE.NoToneMapping;
+  app.renderer.toneMapping = THREE.NeutralToneMapping;
+  app.renderer.toneMappingExposure = 1.06;
 
   // A driver reset (tab suspended for a long time, GPU driver restart) leaves a
   // black screen but the game keeps running. Say so instead of looking frozen.
@@ -205,6 +208,7 @@ async function boot() {
   });
 
   app.scene = new THREE.Scene();
+  app.objectiveView = new ObjectivesView(app.scene);
   app.camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 600);
 
   // The world is built by setMap() on deploy: a model map is 92 MB and has no
@@ -472,6 +476,7 @@ function setupTutorial() {
     },
     onFinish: (completed) => {
       profile.save({ tutorialDone: true });
+      if (completed && app.playing) leaveMatch();
       app.hud.menuError('');
       app.hud.toast(completed ? t('新手指引完成，祝你玩得开心') : t('随时可以在主菜单重新打开新手指引'), 2600);
     },
@@ -545,6 +550,7 @@ function leaveMatch() {
   app.paused = false;
   app.hud.hidePause();
   app.playing = false;
+  app.objectiveView?.setState(null);
   try { app.controls.releaseLook(); } catch { /* nothing to release */ }
   app.controls.enabled = false;
   // A hosted room goes with the match: guests are told (the relay's own goodbye)
@@ -805,9 +811,11 @@ function setupMenu() {
         botCount: mode === 'solo' ? botCount : 0,
         skin: app.loadout.skin || '',
         solo: practice || mode === 'solo',
+        gameMode: practice ? 'control' : document.getElementById('game-mode').value,
         // Solo is its own private room; multiplayer either hosts (no code) or
         // joins the code the player typed.
-        room: mode === 'multi' && multiNeedsCode() ? app.hud.joinCode : '',
+        room: !practice && mode === 'multi' && multiNeedsCode() ? app.hud.joinCode : '',
+        map: practice ? 'somme' : app.mapPick,
       });
     },
     () => {
@@ -1299,7 +1307,7 @@ async function deploy(opts) {
   // keep running another room's map instead.
   app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
-    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '');
+    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm');
 }
 
 // ----------------------------------------------------------------- map swap
@@ -1378,7 +1386,7 @@ async function onWelcome(m) {
     app.hud.setRoomHistory(profile.load().recentRooms);
   }
   app.hud.screen('game');
-  // Steering mode needs no prompt: the mouse already turns the view.
+  // Native lock needs an explicit user gesture when the browser requires it.
   app.hud.setLockHint(!app.controls.canLook);
   // every match starts in first person
   app.cameraMode = 'fp';
@@ -1454,7 +1462,6 @@ function wireControls() {
     if (!me || !me.alive) return;
     const kind = app.data.classById[me.c].ability;
     // The lobbed abilities are charged on hold; the crates drop where you stand.
-    app.tut?.notify('ability');
     if (kind === 'smoke' || kind === 'flare') beginCharge();
     else { app.sfx.ability(kind); app.net.ability(c.aim()); }
   };
@@ -1465,6 +1472,7 @@ function wireControls() {
     if (!app.playing || app.paused || app.charge) return;
     const types = app.data.grenades;
     app.grenadeKind = types[(types.findIndex(g=>g.id===app.grenadeKind)+1)%types.length].id;
+    app.tut?.notify('grenadeCycle');
     app.sfx.ui();
   };
   c.onAbilityCancel = () => cancelCharge();
@@ -1478,6 +1486,7 @@ function wireControls() {
   };
   c.onChat = () => {
     if (!app.playing) return;
+    if (app.tut?.active && app.tut.inGame && app.tut.current.last) { app.tut.finish(false); return; }
     cancelCharge();
     app.hud.chatOpen((text) => { app.net.chat(text); c.requestLock(); });
   };
@@ -1563,6 +1572,7 @@ function updateLockHint(alive = true) {
 
 function onState(st) {
   app.hud.updateTopbar(st);
+  app.objectiveView?.setState(st);
 
   // suppression is authored server-side on my own roster entry
   const mine = st.ps && st.ps.find((p) => p.i === app.myId);
@@ -1580,6 +1590,7 @@ function onState(st) {
   } else if (app.resultShown) {
     app.resultShown = false;
     app.hud.hideResult();
+    clearEffects();
   }
 
   if (app._sbOpen) app.hud.scoreboard(true, st.ps, st, app.myId, app.myTeam);
@@ -1703,6 +1714,7 @@ async function onMessage(m) {
       break;
     case 'fx':
       spawnEffect(m.fx);
+      if (m.fx.by === app.myId && m.fx.k !== 'remove') app.tut?.notify(m.fx.slot === 'grenade' ? 'grenade' : 'ability');
       break;
     case 'chat':
       app.hud.chatLine(m.n, m.tm, m.m);
@@ -1895,7 +1907,7 @@ function clearEffects() {
 function updateEffects(now) {
   const veil = document.getElementById('flash-veil');
   if (app.flash && veil) {
-    const left = Math.max(0,1-(now-app.flash.start)/app.flash.dur);
+    const left = Math.min(1,Math.max(0,1-(now-app.flash.start)/app.flash.dur));
     veil.style.opacity = String(app.flash.strength*left*left);
     if (!left) app.flash = null;
   }
@@ -2218,6 +2230,7 @@ function loop(now) {
   app.gunfx?.update(dt);
   updateThrowAim(now);
   updateEffects(now);
+  app.objectiveView?.update(app.controls, now, app.playing);
   updateSmokeVision();
   if (app.settings?.visible) app.settings.render(dt);
   app.renderer.render(app.scene, app.camera);
@@ -2322,6 +2335,7 @@ function tick(dt, now) {
     ads: app.controls.ads,
     crouch: app.controls.crouch,
     airborne: !app.controls.grounded,
+    objectivesOwned: app.net.lastState?.gameMode === 'control' ? app.net.lastState.s[app.myTeam] : 0,
   });
 }
 
@@ -2412,6 +2426,7 @@ function syncSelfAvatar(dt, alive) {
   app.self.root.visible = alive && app.cameraMode === 'tp';
   app.self.root.position.copy(c.pos);
   app.self.root.rotation.y = yawToRotation(c.yaw);
+  updateContactShadow(app.self, app.world, alive);
   // Upper-body layer state. The server only tells us about reloads; firing and
   // the throw are local, so they are timed off the wall clock here. Each pose is
   // held for a short window after the input ends so the clip can finish rather
@@ -2567,7 +2582,9 @@ function updateRemotePlayers(dt, me) {
 
     if (p.alive) {
       girl.root.position.set(p.x, p.y, p.z);
-      girl.root.rotation.y = yawToRotation(p.yaw);
+      const desiredYaw = yawToRotation(p.yaw);
+      const turn = Math.atan2(Math.sin(desiredYaw-girl.root.rotation.y),Math.cos(desiredYaw-girl.root.rotation.y));
+      girl.root.rotation.y += turn*(1-Math.exp(-20*dt));
       girl.update(dt, {
         speed: p.speed,
         sprint: (p.flags & 2) !== 0,
@@ -2575,6 +2592,7 @@ function updateRemotePlayers(dt, me) {
         pitch: p.pitch,
       });
     }
+    updateContactShadow(girl, app.world, !!p.alive);
     // Read sockets AFTER the live avatar pose. Accepted-shot sequences avoid
     // missing bolt shots between snapshots or repeating one shot's flag pulse.
     if (remoteShotDue(girl, p, rw, performance.now()) && girl.muzzleWorld?.(_shotFrom)) {

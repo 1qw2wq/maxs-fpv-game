@@ -65,6 +65,10 @@
       </div>
       <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
 
+      <label class="field rules-field"><span>游戏规则</span>
+        <select id="game-mode"><option value="tdm">团队死斗</option><option value="control">据点控制</option></select>
+        <small>据点控制：占领全部 A / B / C，并连续守住 15 秒获胜；双方同时在圈内会阻止占领。加入房间时遵循房主规则。</small>
+      </label>
       <div class="map-field">
         <span class="map-label">选择地图</span>
         <div class="map-row" id="map-row"></div>
@@ -73,7 +77,7 @@
 
       <div class="mode-row">
         <button id="btn-mode-multi" class="mode-btn" type="button">
-          <b>多人模式</b><span>联机团队死斗 · 与真人同场竞技</span>
+          <b>多人模式</b><span>联机对战 · 与真人同场竞技</span>
         </button>
         <button id="btn-mode-solo" class="mode-btn" type="button">
           <b>单人模式</b><span>与 AI 队友并肩，对抗 AI 敌军</span>
@@ -82,7 +86,7 @@
           <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
         </button>
         <button id="btn-mode-tutorial" class="mode-btn" type="button">
-          <b>新手指引</b><span>60 秒学会移动 / 射击 / 联机房号</span>
+          <b>新手指引</b><span>学习移动 / 手榴弹 / 据点控制 / 联机</span>
         </button>
       </div>
 
@@ -279,6 +283,7 @@
     </div>
   </div>
 
+  <div id="objective-hud" class="hidden"><b id="objective-mode">据点控制</b><div id="objective-cards"></div><p id="objective-status"></p></div>
   <div id="grenade-chip" aria-live="polite">
     <span class="ab-key">G</span>
     <div class="ab-body"><b id="grenade-name">破片手榴弹</b><small id="grenade-info"></small><div class="ab-cd"><i id="grenade-fill"></i></div></div>

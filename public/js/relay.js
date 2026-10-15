@@ -569,26 +569,26 @@ export class RelayNet extends Net {
   }
 
   /** The join is an ordinary message; the welcome comes back from the host. */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
-    this._joinArgs = [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room];
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm') {
+    this._joinArgs = [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode];
     this._sendJoin();
   }
 
   _sendJoin() {
     this._lastHostAt = performance.now();
-    const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room] = this._joinArgs || [];
+    const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode] = this._joinArgs || [];
     this.send({
       t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
-      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+      solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     });
     // A guest may deploy while the host is still downloading its engine.
     // Retry the join, not game actions, until the host is ready or time runs out.
     clearInterval(this._joinRetry);
     this._joinRetry = setInterval(() => {
       if (this.id === null && !this._closed && this.connected) {
-        const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room] = this._joinArgs;
+        const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode] = this._joinArgs;
         this._publish({ t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
-          solo: !!solo, map: mapId, sid: sid || '', room: room || '' });
+          solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '' });
       }
     }, 1000);
     // A code nobody is hosting must not look like a silent hang.
