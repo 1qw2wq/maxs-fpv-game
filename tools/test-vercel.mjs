@@ -4,6 +4,7 @@
 // node tools/test-vercel.mjs
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
+import { testEffects } from './test-effects.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -21,7 +22,7 @@ if (process.platform === 'linux' && !process.env.CHROMIUM_EXECUTABLE) {
 }
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const harness = `<!doctype html><html><head><script type="importmap">{"imports":{"three":"/vendor/three.module.js","three/addons/":"/vendor/"}}</script></head><body style="margin:0"><canvas id="game" width="800" height="600" style="width:800px;height:600px"></canvas></body></html>`;
-const mime = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.html': 'text/html' };
+const mime = { '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.html': 'text/html' };
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://test').pathname;
   if (path === '/__harness.html') { res.setHeader('Content-Type', 'text/html'); res.end(harness); return; }
@@ -321,6 +322,8 @@ try {
   await allowedFrame.evaluate(() => controls.releaseLook());
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
+
+  await testEffects(context, origin);
 
   assert.deepEqual(await host.evaluate(() => netErrors), []);
   assert.deepEqual(await guest.evaluate(() => netErrors), []);

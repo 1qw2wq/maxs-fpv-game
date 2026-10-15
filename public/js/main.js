@@ -10,6 +10,7 @@ import { loadConfig } from './config.js';
 import { World } from './map.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
+import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
 import { GunFx, gunStyle, tracerRound } from './gunfx.js';
 import { Controls } from './controls.js';
 import { Hud } from './hud.js';
@@ -1591,10 +1592,8 @@ function onMe(me) {
     app.loadout = { ...app.loadout, cls: me.c, weapon: me.w };
   }
 
-  if (!!me.reloading !== app.lastReloading) {
-    app.lastReloading = !!me.reloading;
-    if (me.reloading) app.vm.startReload(me.reloadTotal || data.weaponById[me.w].reloadMs);
-  }
+  app.lastReloading = !!me.reloading;
+  app.vm.syncReload(me.reloadTotal || data.weaponById[me.w].reloadMs, me.reloadIn, !!me.reloading);
 
   const alive = !!me.alive;
   if (alive && !app.wasAlive) {
@@ -1728,46 +1727,6 @@ const FX_STYLES = {
 // disposed) with a per-throw material, like the tracers.
 const projGeo = new THREE.SphereGeometry(0.09, 8, 6);
 
-/** Soft round puff shared by every smoke sprite; built once, reused everywhere. */
-let _smokeTex = null;
-function smokeTexture() {
-  if (_smokeTex) return _smokeTex;
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const rg = g.createRadialGradient(64, 64, 3, 64, 64, 62);
-  rg.addColorStop(0, 'rgba(233,237,241,0.92)');
-  rg.addColorStop(0.5, 'rgba(206,213,220,0.55)');
-  rg.addColorStop(1, 'rgba(188,196,204,0)');
-  g.fillStyle = rg;
-  g.fillRect(0, 0, 128, 128);
-  _smokeTex = new THREE.CanvasTexture(c);
-  _smokeTex.colorSpace = THREE.SRGBColorSpace;
-  return _smokeTex;
-}
-
-/** A dozen-odd sprites scattered through a squat cylinder: a cloud, not a ball. */
-function buildSmoke(fx) {
-  const grp = new THREE.Group();
-  grp.position.set(fx.p[0], fx.p[1], fx.p[2]);
-  const r = fx.r || 5.5;
-  const puffs = [];
-  for (let i = 0; i < 20; i++) {
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: smokeTexture(), color: 0xd8dee4, transparent: true, depthWrite: false, opacity: 0,
-    }));
-    const a = Math.random() * Math.PI * 2;
-    const rad = Math.sqrt(Math.random()) * r * 0.62;
-    const y = 0.4 + Math.random() * r * 0.85;
-    sprite.position.set(Math.cos(a) * rad, y, Math.sin(a) * rad);
-    const sc = r * (0.6 + Math.random() * 0.55);
-    sprite.scale.set(sc, sc, 1);
-    grp.add(sprite);
-    puffs.push({ sprite, spin: (Math.random() - 0.5) * 0.5, bob: Math.random() * 6.28, baseY: y });
-  }
-  return { obj: grp, puffs };
-}
-
 /** Medic/support crate: a solid box plus a ground ring showing the area it covers. */
 function buildCrate(fx) {
   const team = app.data.teamById[fx.team] || app.data.teamById[0];
@@ -1831,7 +1790,7 @@ function spawnEffect(fx) {
   };
 
   if (style.kind === 'cloud') {
-    Object.assign(rec, buildSmoke(fx));
+    Object.assign(rec, buildSmokeCloud(fx));
     // kept so the veil can tell whether the camera is standing in this cloud
     rec.r = fx.r || 0;
   } else if (style.kind === 'crate') {
@@ -1935,13 +1894,7 @@ function updateEffects(now) {
       continue;
     }
     if (e.puffs) {
-      // fade in over the first eighth, hold, then thin out over the last fifth
-      const op = 0.66 * Math.min(1, k / 0.12) * (k > 0.8 ? Math.max(0, 1 - (k - 0.8) / 0.2) : 1);
-      for (const pf of e.puffs) {
-        pf.sprite.material.opacity = op;
-        pf.sprite.material.rotation += pf.spin * 0.004;
-        pf.sprite.position.y = pf.baseY + Math.sin(now * 0.0004 + pf.bob) * 0.3;
-      }
+      updateSmokeCloud(e, now - e.start);
     } else if (e.style.kind === 'sphere') {
       const s = 1 + e.style.grow * k * 8;
       e.obj.scale.setScalar(s);
@@ -1985,7 +1938,7 @@ function updateSmokeVision() {
       const d = eye.distanceTo(e.obj.position);
       if (d >= e.r) continue;
       const k = Math.min(1, (e.r - d) / (e.r * SMOKE_EDGE));
-      if (k > deep) deep = k;
+      if (k * (e.density || 0) > deep) deep = k * (e.density || 0);
     }
   }
   if (deep <= 0 && !app.smokeOn) return;
@@ -2333,6 +2286,13 @@ function tick(dt, now) {
     });
   }
 
+  app.vm.update(dt, {
+    ads: app.controls.ads,
+    sprinting: false,
+    moveSpeed: app.controls.moveSpeed,
+  });
+  syncFpArms();
+
   // firing — the rate here is a courtesy; the server is the real gate
   const w = app.data.weaponById[me?.w || app.loadout.weapon];
 
@@ -2347,7 +2307,7 @@ function tick(dt, now) {
   }
 
   const wantShot = w.auto ? app.controls.mouse.left : (app.clickPending && app.controls.mouse.left);
-  if (alive && wantShot && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
+  if (alive && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
       if (me.reserve > 0) app.net.reload();
@@ -2367,12 +2327,6 @@ function tick(dt, now) {
   }
 
   updateRemotePlayers(dt, me);
-  app.vm.update(dt, {
-    ads: app.controls.ads,
-    sprinting: false,
-    moveSpeed: app.controls.moveSpeed,
-  });
-  syncFpArms();
 
   updateCrosshair(w, suppressed);
   updateLockHint(alive);
@@ -2400,6 +2354,9 @@ function fireOnce(w, eye, dir) {
   // sound's own trim. Two guns of the same shape are meant to feel different.
   const style = gunStyle(w);
   app.vm.kick(style.kick.vm);
+  // Apply this shot's pose before reading sockets, not one frame afterwards.
+  app.vm.update(0, { ads: app.controls.ads, sprinting: false, moveSpeed: app.controls.moveSpeed });
+  syncFpArms();
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
   app.sfx.shot(w, style);
   if (w.shape === 'bolt' && !w.straightPull) {
@@ -2410,23 +2367,20 @@ function fireOnce(w, eye, dir) {
   }
 
   const end = rayEnd(eye, dir);
-  // Third person plays the trail against the player's own body, so it has to
-  // leave from the middle of the chest. The viewmodel muzzle hangs off the
-  // camera, which in third person sits several metres behind the avatar, so
-  // using it there would start the trail out behind the character. First person
-  // keeps the muzzle -- the gun is right on screen and that is where the round
-  // actually leaves.
+  // Visuals leave the actual animated barrel; ballistics stay on eye/aim.
   const from = new THREE.Vector3();
+  const eject = new THREE.Vector3();
+  let attachment = null;
   if (app.cameraMode === 'tp') {
-    const c = app.controls;
-    from.set(c.pos.x, c.pos.y + c.bodyHeight * 0.72, c.pos.z);
+    if (!app.self?.muzzleWorld(from)) from.copy(eye);
+    if (!app.self?.ejectWorld?.(eject)) eject.copy(from);
   } else {
-    const muzzle = new THREE.Vector3();
-    if (app.vm.muzzle) app.vm.muzzle.getWorldPosition(muzzle);
-    else muzzle.copy(eye);
-    from.copy(muzzle.distanceTo(eye) < 3 ? muzzle : eye);
+    if (!app.vm.shotWorld(from, eject) || from.distanceTo(eye) > 3) {
+      from.copy(eye); eject.copy(eye);
+    } else attachment = app.vm.muzzle;
   }
-  app.gunfx.fire(w, from, dir);
+  const barrelDir = attachment ? attachment.getWorldDirection(new THREE.Vector3()) : dir;
+  app.gunfx.fire(w, from, barrelDir, { eject, attachment });
   const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
   if (tracerRound(style, rounds)) spawnTracer(from, end, style);
 }
@@ -2555,7 +2509,9 @@ function syncFpArms() {
   if (app.vm.gripWorld(_fpHand, _fpFore)) {
     ok = app.fpArms.poseArms(_fpHand, _fpFore);
   }
-  // a rig with no mapped arms cannot be posed — keep the placeholder pair
+  // Do not draw two pairs, or keep a visibly disconnected external hand when
+  // a petite rig cannot reach the support grip during a reload.
+  app.fpArms.holder.visible = ok;
   if (app.vm.armMeshes) app.vm.armMeshes.visible = !ok;
 }
 

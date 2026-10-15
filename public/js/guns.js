@@ -107,21 +107,48 @@ function place(scene, cfg) {
   return outer;
 }
 
+
+/** Find the front barrel opening after the imported model's normalization.
+ * A placeholder length is not a muzzle socket: it was floating ahead of some
+ * guns and buried inside others. Sample the foremost 2% in gun-local space.
+ */
+export function calibrateMuzzle(holder, muzzle) {
+  holder.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(holder, true);
+  if (bounds.isEmpty()) return;
+  const front = bounds.max.z - Math.max(0.008, (bounds.max.z - bounds.min.z) * 0.02);
+  const cap = new THREE.Box3();
+  const point = new THREE.Vector3();
+  holder.traverse((mesh) => {
+    const positions = mesh.isMesh && mesh.geometry?.attributes.position;
+    if (!positions) return;
+    for (let i = 0; i < positions.count; i++) {
+      point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+      if (point.z >= front) cap.expandByPoint(point);
+    }
+  });
+  if (!cap.isEmpty()) {
+    cap.getCenter(muzzle.position);
+    muzzle.position.z = bounds.max.z + 0.005;
+  }
+}
+
 /**
  * Swap the procedural gun for the imported model once it is available.
  *
  * @param {object} weapon  entry from weapons.json (needs `model`)
  * @param {THREE.Group} group  the gun group buildWeapon returned
- * @param {THREE.Object3D} muzzle  kept as-is; only the meshes are swapped
+ * @param {THREE.Object3D} muzzle  calibrated to the imported barrel opening
  */
 export function attachGunModel(weapon, group, muzzle) {
   const id = weapon && weapon.model;
   const cfg = id ? MODELS[id] : null;
   if (!cfg) return;
 
-  const procedural = group.children.filter((c) => c !== muzzle);
-  load(id).then((scene) => {
+  const procedural = group.children.filter((c) => c.isMesh);
+  group.userData.modelReady = load(id).then((scene) => {
     const holder = place(scene.clone(true), cfg);
+    calibrateMuzzle(holder, muzzle);
     for (const c of procedural) group.remove(c);
     group.add(holder);
   }).catch((err) => {

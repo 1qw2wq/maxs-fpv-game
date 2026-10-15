@@ -168,11 +168,11 @@ export class GunFx {
    * One shot, seen from the shooter's own viewpoint: flame, smoke, brass and the
    * camera punch. `from` is the world muzzle, `dir` the aim direction.
    */
-  fire(weapon, from, dir, { brass = true } = {}) {
+  fire(weapon, from, dir, { brass = true, eject = from, attachment = null } = {}) {
     const style = gunStyle(weapon);
-    this._flash(style, from, dir, true);
+    this._flash(style, from, dir, true, attachment);
     this._smoke(style, from, dir);
-    if (brass) this._casings(style, from, dir);
+    if (brass) this._casings(style, eject, dir);
     this.punch(style);
   }
 
@@ -192,7 +192,7 @@ export class GunFx {
     this.punchRoll += (Math.random() * 2 - 1) * style.kick.roll * 0.6;
   }
 
-  _flash(style, from, dir, withLight) {
+  _flash(style, from, dir, withLight, attachment = null) {
     let rec = this.flashes.find((f) => !f.live);
     if (!rec) {
       // The pool is bounded: the oldest live flash is recycled rather than
@@ -222,6 +222,8 @@ export class GunFx {
     rec.size = style.flash.size;
     rec.dirVec.copy(dir).normalize();
     rec.mat.color.set(style.flash.color);
+    rec.mat.opacity = 1;
+    rec.attachment = attachment;
     for (const m of rec.meshes) {
       m.visible = true;
       m.position.copy(from);
@@ -325,8 +327,16 @@ export class GunFx {
       }
       // A flash is over almost before it is seen: full brightness for the first
       // third, then a fast collapse.
-      const kk = k < 0.34 ? k / 0.34 : 1 - (k - 0.34) / 0.66;
+      const kk = k < 0.2 ? 1 : Math.pow((1 - k) / 0.8, 2);
       f.mat.opacity = Math.max(0, kk);
+      if (f.attachment?.parent?.parent) {
+        f.attachment.updateWorldMatrix(true, false);
+        f.attachment.getWorldDirection(f.dirVec);
+        f.attachment.getWorldPosition(_v);
+        for (const mesh of f.meshes) mesh.position.copy(_v);
+        for (const mesh of f.meshes) this._orient(mesh, f.dirVec, f.size * (1 + k * 0.5));
+        if (f.light) f.light.position.copy(f.meshes[0].position).addScaledVector(f.dirVec, 0.12);
+      }
       for (const m of f.meshes) m.scale.setScalar(f.size * (1 + k * 0.5));
       if (f.light && f.lightBase) {
         const lk = 1 - Math.min(1, f.t / f.lightMs);

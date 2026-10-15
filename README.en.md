@@ -188,6 +188,21 @@ The game needs no plugins, but two browser environments restrict pages and both 
   instead of hanging there.
 
 
+### Weapon presentation and smoke
+
+- Guns share gun-local trigger/support grips, reload/feed points and receiver-ejection sockets across
+  first-person arms and third-person IK. Imported models calibrate their muzzle to the actual front
+  geometry instead of retaining a procedural gun's placeholder barrel length.
+- Reloads have presentation, feed/magazine service, seating and recovery phases; the support hand
+  follows the feed while the trigger hand holds the weapon. Clip-fed rifles use a feeding motion.
+  Progress follows the authoritative reload timer and stops when the reload ends or is interrupted.
+- Recoil lifts the barrel with a damped return. First-person flashes track the animated muzzle;
+  third-person shots start at the avatar's barrel, not its chest. Brass leaves the receiver.
+  Ballistics still use the original eye/aim ray; these changes do not move hit detection.
+- Smoke grenades use 36 bounded, layered, noise-textured puffs with outward expansion, rolling drift,
+  a buoyant crown and gradual dissipation. Inside-cloud fog follows the same density envelope.
+  Particle placement is seeded by effect id and animation is time-based, not frame-rate dependent.
+
 ### Static-deployment browser regression tests
 
 Run with Node.js 22.17+ on Linux (or provide your own Chromium via `CHROMIUM_EXECUTABLE`):
@@ -204,6 +219,9 @@ duplicate delivery over two transports, joining during host startup, invalid cod
 departure cleanup, native lock/retry/Esc/relock, permitted iframe locking, and denied sandbox requests
 without alternative steering. This is a local
 static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
+The same command also runs `tools/test-effects.mjs`: 12 imported models / 84 weapon poses,
+third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
+and an actual solo deploy/fire/reload/grenade render.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
 ---

@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { attachGunModel } from './guns.js';
+import { weaponSockets, reloadPose } from './weaponpose.js';
 
 const GUNMETAL = '#2f343d';
 const GUNMETAL_L = '#454c58';
@@ -22,21 +23,6 @@ const GUNMETAL_L = '#454c58';
 // forward.
 const ADS_Y = -0.145;
 const ADS_DROP = { chauchat: 0.06, lewis: 0.03 };
-
-// Where the borrowed character arms must reach in first person, expressed in the
-// weapon mount's own frame (which, because the gun group is yawed 180 degrees,
-// runs the opposite way to the third-person mount: muzzle on -Z, stock on +Z).
-// `hand` is the trigger grip; `fore` the support hand. `fore` cannot sit on the
-// real muzzle-end handguard — that is a forearm's length out, past what the
-// borrowed (petite) arms can reach, and the IK left the hand ~30 cm short of the
-// gun. It is instead a point on the receiver, part way from the trigger grip to
-// rig.js's GRIPS handguard, which keeps it on the weapon while staying in reach.
-const FP_GRIPS = {
-  smg: { hand: [0, -0.110, -0.02], fore: [0, -0.072, -0.10] },
-  rifle: { hand: [0, -0.100, 0.06], fore: [0, -0.089, -0.075] },
-  lmg: { hand: [0, -0.130, -0.02], fore: [0, -0.094, -0.13] },
-  bolt: { hand: [0, -0.095, 0.04], fore: [0, -0.077, -0.104] },
-};
 
 /**
  * The soldier's bare arms. Shared by the third-person body (character.js) and
@@ -70,7 +56,7 @@ function cyl(x, y, z, r1, r2, len, seg = 10, axis = 'z') {
 }
 
 /**
- * @returns {{group: THREE.Group, muzzle: THREE.Object3D}}
+ * @returns {{group: THREE.Group, muzzle: THREE.Object3D, anchors: object}}
  */
 export function buildWeapon(weapon) {
   const group = new THREE.Group();
@@ -132,33 +118,23 @@ export function buildWeapon(weapon) {
 
   // swap in the imported model once it arrives; the procedural gun above is the
   // placeholder that keeps a weapon visible during the download
+  const sockets = weaponSockets(weapon);
+  const anchors = { muzzle };
+  for (const key of ['hand', 'fore', 'reload', 'eject']) {
+    const node = new THREE.Object3D();
+    node.name = `weapon-${key}`;
+    node.position.fromArray(sockets[key]);
+    group.add(node);
+    anchors[key] = node;
+  }
+  group.userData.anchors = anchors;
   attachGunModel(weapon, group, muzzle);
 
   group.traverse((o) => { o.frustumCulled = false; });
-  return { group, muzzle };
+  return { group, muzzle, anchors };
 }
 
 // ------------------------------------------------------------------ viewmodel
-
-/** A tapered limb between two points. Cheaper and more robust than solving IK. */
-function boneBetween(a, b, r0, r1, mat, outline = true) {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  const geo = new THREE.CylinderGeometry(r1, r0, len, 7, 1);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(a).addScaledVector(dir, 0.5);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-  const g = new THREE.Group();
-  g.add(mesh);
-  if (outline) {
-    const o = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x1a1420, side: THREE.BackSide }));
-    o.position.copy(mesh.position);
-    o.quaternion.copy(mesh.quaternion);
-    o.scale.setScalar(1.1);
-    g.add(o);
-  }
-  return g;
-}
 
 export class ViewModel {
   constructor(data) {
@@ -181,6 +157,10 @@ export class ViewModel {
     this.boltT = -1;
     this.ads = 0;
     this.sprint = 0;
+    this._armMatrix = new THREE.Matrix4();
+    this._armTarget = new THREE.Vector3();
+    this._armDelta = new THREE.Vector3();
+    this._armUp = new THREE.Vector3(0, 1, 0);
   }
 
   setClass(cls) {
@@ -196,43 +176,26 @@ export class ViewModel {
     const glove = toonMat(a.glove);
     const skin = toonMat('#fbe3d4');
 
-    // Hand anchor points, in camera space. Positive X is right, -Z forward.
-    const gripR = new THREE.Vector3(0.085, -0.135, -0.33);
-    const gripL = new THREE.Vector3(-0.02, -0.10, -0.52);
-    this.gripR = gripR;
-    this.gripL = gripL;
-
-    const elbowR = new THREE.Vector3(0.30, -0.50, -0.12);
-    const elbowL = new THREE.Vector3(-0.30, -0.52, -0.24);
-    const shoulderR = new THREE.Vector3(0.42, -0.66, 0.16);
-    const shoulderL = new THREE.Vector3(-0.42, -0.68, 0.10);
-
-    const push = (g) => { this.armMeshes.add(g); return g; };
-
-    push(boneBetween(shoulderR, elbowR, a.upperR[0] * k, a.upperR[1] * k, sleeve));
-    // the forearm wears the glove, exactly as it does on the character body
-    push(boneBetween(elbowR, gripR, a.foreR[0] * k, a.foreR[1] * k, glove));
-    push(boneBetween(shoulderL, elbowL, a.upperR[0] * k, a.upperR[1] * k, sleeve));
-    push(boneBetween(elbowL, gripL, a.foreR[0] * k, a.foreR[1] * k, glove));
-
-    for (const h of [gripR, gripL]) {
-      const g = new THREE.Group();
-      const geo = new THREE.BoxGeometry(a.hand[0] * k, a.hand[1] * k, a.hand[2] * k);
-      const m = new THREE.Mesh(geo, glove);
-      m.position.copy(h);
-      g.add(m);
-      const o = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x1a1420, side: THREE.BackSide }));
-      o.position.copy(h);
-      o.scale.setScalar(1.08);
-      g.add(o);
-      this.armMeshes.add(g);
-    }
-    // knuckle hint, so the hands do not read as blocks
-    for (const h of [gripR, gripL]) {
-      const kw = a.hand[0] * k * 1.04, kh = a.hand[1] * k * 0.23, kd = a.hand[2] * k * 0.75;
-      const kn = new THREE.Mesh(new THREE.BoxGeometry(kw, kh, kd), skin);
-      kn.position.copy(h).add(new THREE.Vector3(0, a.handDrop * k, 0.01));
-      this.armMeshes.add(kn);
+    // Keep the shoulders camera-local, but solve each limb to the gun's live
+    // attachment every frame. Rotating a static pair around the camera origin
+    // made the palms slide off the receiver during ADS/recoil/reloads.
+    this.armRigs = [];
+    for (const side of [1, -1]) {
+      const shoulder = new THREE.Vector3(side * 0.32, -0.46, 0.06);
+      const elbow = new THREE.Vector3(side * 0.28, -0.43, -0.15);
+      const material = (mat, radius) => {
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.8, radius, 1, 8), mat);
+        this.armMeshes.add(mesh);
+        return mesh;
+      };
+      const upper = material(sleeve, a.upperR[0] * k * 0.8);
+      const fore = material(glove, a.foreR[0] * k * 0.8);
+      const palm = new THREE.Mesh(new THREE.BoxGeometry(a.hand[0] * k * 0.8, a.hand[1] * k * 0.8, a.hand[2] * k * 0.8), glove);
+      const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.015, 0.055), skin);
+      knuckle.position.set(0, 0.025, -0.012);
+      palm.add(knuckle);
+      this.armMeshes.add(palm);
+      this.armRigs.push({ side, shoulder, elbow, upper, fore, palm });
     }
 
     this.arms.add(this.armMeshes);
@@ -248,18 +211,16 @@ export class ViewModel {
     const built = buildWeapon(weapon);
     this.gunMeshes = built.group;
     this.muzzle = built.muzzle;
+    this.anchors = built.anchors;
+    this.reloadT = this.boltT = -1;
+    this.recoil = this.recoilRot = 0;
     this.gunMeshes.rotation.y = Math.PI;      // +Z muzzle -> -Z forward
     this.gunMesh = built.group;
     this.gunMount.add(built.group);
     // Hip fire holds the gun out to the lower right rather than up at the eye:
     // the imported models are bulky, and a centred one covers the very lane the
     // player is trying to look down. ADS brings it back in low and centred.
-    this._base = new THREE.Vector3(0.20, -0.26, -0.36);
-    // IK anchors for the borrowed character arms, on the mount itself, so the
-    // hands ride the gun through ADS, recoil and bob instead of drifting above it
-    const grips = FP_GRIPS[weapon.shape] || FP_GRIPS.rifle;
-    this.gunR = new THREE.Vector3().fromArray(grips.hand);
-    this.gunL = new THREE.Vector3().fromArray(grips.fore);
+    this._base = new THREE.Vector3(0.16, -0.245, -0.30);
     // ADS parks the gun LOW rather than dead centre: the imported models are
     // bulkier than the procedural placeholder, and centring them put the whole
     // receiver across the sight line. Keeping the mount well below the eye line
@@ -277,21 +238,61 @@ export class ViewModel {
    * arms track ADS, recoil and bob exactly like the placeholder pair did.
    */
   gripWorld(outHand, outFore) {
-    if (!this.gunR) return false;
-    this.gunMount.updateMatrixWorld(true);
-    outHand.copy(this.gunR).applyMatrix4(this.gunMount.matrixWorld);
-    outFore.copy(this.gunL).applyMatrix4(this.gunMount.matrixWorld);
+    if (!this.anchors) return false;
+    this.root.updateWorldMatrix(true, true);
+    this.anchors.hand.getWorldPosition(outHand);
+    this.anchors.fore.getWorldPosition(outFore);
     return true;
+  }
+
+  /** Current barrel and ejection points, including this frame's animation. */
+  shotWorld(outMuzzle, outEject) {
+    if (!this.anchors) return false;
+    this.root.updateWorldMatrix(true, true);
+    this.muzzle.getWorldPosition(outMuzzle);
+    this.anchors.eject.getWorldPosition(outEject);
+    return true;
+  }
+
+  _updateArms() {
+    if (!this.armRigs || !this.anchors) return;
+    // Local matrices only: there is no dependency on camera/world update order.
+    this.gunMount.updateMatrix();
+    this.gunMeshes.updateMatrix();
+    const matrix = this._armMatrix.multiplyMatrices(this.gunMount.matrix, this.gunMeshes.matrix);
+    const up = this._armUp;
+    const aim = (mesh, from, to) => {
+      const d = this._armDelta.subVectors(to, from);
+      mesh.position.copy(from).addScaledVector(d, 0.5);
+      mesh.scale.y = d.length();
+      mesh.quaternion.setFromUnitVectors(up, d.normalize());
+    };
+    for (const rig of this.armRigs) {
+      const node = rig.side === 1 ? this.anchors.hand : this.anchors.fore;
+      const target = this._armTarget.copy(node.position).applyMatrix4(matrix);
+      rig.elbow.set(rig.side * 0.28, Math.min(-0.38, target.y - 0.13), (target.z + 0.06) * 0.38);
+      aim(rig.upper, rig.shoulder, rig.elbow);
+      aim(rig.fore, rig.elbow, target);
+      rig.palm.position.copy(target);
+      rig.palm.quaternion.copy(this.gunMount.quaternion).multiply(this.gunMeshes.quaternion);
+    }
   }
 
   kick(strength = 1) {
     this.recoil = Math.min(1.35, this.recoil + strength);
-    this.recoilRot = Math.min(0.42, this.recoilRot + 0.22 * strength);
+    this.recoilRot = Math.min(0.18, this.recoilRot + 0.065 * strength);
   }
 
   startReload(ms) {
-    this.reloadMs = ms;
+    this.reloadMs = Math.max(1, ms || 1);
     this.reloadT = 0;
+    this.boltT = -1;
+  }
+
+  syncReload(total, remaining, active) {
+    if (!active) { this.reloadT = -1; return; }
+    this.reloadMs = Math.max(1, total || remaining || 1);
+    this.reloadT = Math.max(0, this.reloadMs - remaining);
   }
 
   /** A short bolt-cycle dip, played the moment a new round is chambered. */
@@ -305,12 +306,11 @@ export class ViewModel {
     const p = this._base.clone().lerp(this._adsPos, adsFactor);
     this.gunMount.position.copy(p);
     this.gunMount.rotation.set(
-      -this.recoilRot + (this.sprint * 0.5),
+      this.recoilRot + (this.sprint * 0.5),
       (1 - adsFactor) * -0.05,
       (1 - adsFactor) * 0.06 + this.sprint * 0.9,
     );
-    this.arms.position.copy(p).sub(this._base);
-    this.arms.rotation.copy(this.gunMount.rotation);
+
   }
 
   update(dt, st) {
@@ -319,20 +319,20 @@ export class ViewModel {
     if (moving) this.bobT += dt * (st.sprinting ? 15.5 : 10.0);
     else this.bobT += dt * 1.6;
 
-    this.recoil = Math.max(0, this.recoil - dt * 11.0);
-    this.recoilRot = Math.max(0, this.recoilRot - dt * 3.6);
+    this.recoil *= Math.exp(-dt * 18);
+    this.recoilRot *= Math.exp(-dt * 16);
 
     // ADS blend: sprint always wins, sprinting pins the gun down at the hip.
     this.sprint += ((st.sprinting ? 1 : 0) - this.sprint) * Math.min(1, dt * 8);
-    const wantAds = st.ads && !st.sprinting ? 1 : 0;
+    const wantAds = st.ads && !st.sprinting && this.reloadT < 0 ? 1 : 0;
     this.ads += (wantAds - this.ads) * Math.min(1, dt * 11);
 
-    let reloadDrop = 0;
+    let reload = reloadPose(0);
     if (this.reloadT >= 0) {
       this.reloadT += dt * 1000;
       const k = this.reloadT / this.reloadMs;
       if (k >= 1) { this.reloadT = -1; }
-      else reloadDrop = Math.sin(Math.min(1, k) * Math.PI);
+      else reload = reloadPose(k, !!this.weapon?.clip);
     }
 
     let boltDrop = 0;
@@ -351,13 +351,26 @@ export class ViewModel {
     this._applyPose(this.ads);
 
     this.gunMount.position.x += bobX * (1 - this.ads * 0.7) + breathe;
-    this.gunMount.position.y += bobY * (1 - this.ads * 0.7) + breathe + reloadDrop * 0.34
+    this.gunMount.position.y += bobY * (1 - this.ads * 0.7) + breathe - reload.present * 0.075 + reload.seat
       - boltDrop * 0.045;
-    this.gunMount.position.z += this.recoil * 0.075;
-    this.gunMount.rotation.x += reloadDrop * 1.15 + boltDrop * 0.14 + Math.sin(this.bobT * 0.5) * 0.006;
-    this.gunMount.rotation.z += Math.sin(this.bobT * 0.5) * 0.02 - reloadDrop * 0.5 + boltDrop * 0.24;
+    this.gunMount.position.z += this.recoil * 0.045;
+    this.gunMount.rotation.x += reload.present * 0.28 + boltDrop * 0.14 + Math.sin(this.bobT * 0.5) * 0.006;
+    this.gunMount.rotation.z += Math.sin(this.bobT * 0.5) * 0.02 - reload.present * 0.24 + boltDrop * 0.24;
 
-    this.arms.position.copy(this.gunMount.position).sub(this._base);
-    this.arms.rotation.copy(this.gunMount.rotation);
+    if (this.anchors) {
+      const sockets = weaponSockets(this.weapon);
+      this.anchors.hand.position.fromArray(sockets.hand);
+      if (this.weapon?.shape === 'bolt' && !reload.present) {
+        this.anchors.hand.position.x -= boltDrop * 0.04;
+        this.anchors.hand.position.y += boltDrop * 0.09;
+        this.anchors.hand.position.z -= boltDrop * 0.06;
+      }
+      this.anchors.fore.position.fromArray(sockets.fore);
+      this.anchors.fore.position.lerp(this.anchors.reload.position, reload.reach);
+      // Left hand services the feed while the right hand keeps its grip.
+      this.anchors.fore.position.y -= reload.service * (reload.clip ? -0.035 : 0.16);
+      this.anchors.fore.position.x -= reload.service * 0.06;
+    }
+    this._updateArms();
   }
 }

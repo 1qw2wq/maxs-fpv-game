@@ -7,6 +7,7 @@
 // unknown bone axes. So every driven rotation is applied as a delta on top of
 // the captured rest quaternion, which is the only thing that works across rigs.
 
+import { mountedGrips } from './weaponpose.js';
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { buildFactionOverlay } from './character.js';
@@ -83,19 +84,6 @@ function bump(p, mu, sigma) {
   const d = wrapPi(p - mu);
   return Math.exp(-(d * d) / (2 * sigma * sigma));
 }
-
-/**
- * Where each hand must sit on a weapon, in the weapon mount's local frame.
- * The built gun is offset by (0.04, -0.03, 0.06) inside that frame and the
- * offset is already folded in here. `hand` is the trigger grip, `fore` the
- * support hand out on the handguard.
- */
-const GRIPS = {
-  smg: { hand: [0.04, -0.14, 0.08], fore: [0.04, -0.055, 0.26] },
-  rifle: { hand: [0.04, -0.13, 0.00], fore: [0.04, -0.105, 0.30] },
-  lmg: { hand: [0.04, -0.16, 0.08], fore: [0.04, -0.08, 0.38] },
-  bolt: { hand: [0.04, -0.125, 0.02], fore: [0.04, -0.085, 0.34] },
-};
 
 /**
  * How far the weapon mount sits to the character's right, along the rig's local
@@ -779,21 +767,28 @@ export function createExternalGirl({ template, meta, data, team }) {
     _bx.normalize();
     _by.crossVectors(_barrel, _bx).normalize();
     _basis.makeBasis(_bx, _by, _barrel);
-    weaponMount.quaternion.setFromRotationMatrix(_basis);
-    weaponMount.quaternion.multiply(GUN_CANT);
+    if (s.reloading && st.weaponHold) {
+      // A reload's support hand visits the feed/magazine. It is not the barrel
+      // direction: following that wrist swung the entire rifle off the grip.
+      weaponMount.quaternion.copy(st.weaponHold);
+    } else {
+      weaponMount.quaternion.setFromRotationMatrix(_basis);
+      weaponMount.quaternion.multiply(GUN_CANT);
+      if (!st.weaponHold) st.weaponHold = new THREE.Quaternion();
+      st.weaponHold.copy(weaponMount.quaternion);
+    }
     // seat the trigger grip on the right wrist (the cant is already baked into
     // the mount rotation, so the gun pivots around the grip and the hand stays
-    // on it), then nudge the whole gun down and forward so its stock lands on
-    // the shoulder instead of above it
-    const g = GRIPS[st.weapon && st.weapon.shape] || GRIPS.rifle;
+    // on it). Do not apply a post-seating nudge: it separates the palm and grip.
+    const g = mountedGrips(st.weapon);
     _grip.set(g.hand[0], g.hand[1], g.hand[2]).applyQuaternion(weaponMount.quaternion);
-    weaponMount.position.copy(lR).sub(_grip).add(GUN_NUDGE);
+    weaponMount.position.copy(lR).sub(_grip);
     root.updateMatrixWorld(true);
   }
 
   /** Solve both arms onto the gun's two grips. */
   function solveArms(s) {
-    const g = GRIPS[st.weapon && st.weapon.shape] || GRIPS.rifle;
+    const g = mountedGrips(st.weapon);
     _grip.set(g.hand[0], g.hand[1], g.hand[2]);
     weaponMount.localToWorld(_grip);
     _fore.set(g.fore[0], g.fore[1], g.fore[2]);
@@ -1070,6 +1065,7 @@ export function createExternalGirl({ template, meta, data, team }) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      st.weaponHold = null;
       weaponMount.clear();
       const built = buildWeapon(weapon);
       built.group.position.set(0.04, -0.03, 0.06);
@@ -1077,12 +1073,19 @@ export function createExternalGirl({ template, meta, data, team }) {
       built.group.traverse((o) => { o.frustumCulled = false; });
       // Same contract as the built-in girl: this is where her shots flash from.
       st.muzzle = built.muzzle;
+      st.eject = built.anchors.eject;
     },
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {
       if (!st.muzzle) return false;
       st.muzzle.getWorldPosition(out);
+      return true;
+    },
+
+    ejectWorld(out) {
+      if (!st.eject) return false;
+      st.eject.getWorldPosition(out);
       return true;
     },
 
@@ -1135,7 +1138,8 @@ export function createExternalGirl({ template, meta, data, team }) {
       _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
       solveArm('R', handTarget, _poleR);
       solveArm('L', foreTarget, _poleL);
-      return true;
+      return driven.handR.bone.getWorldPosition(_sA).distanceTo(handTarget) < 0.07
+        && driven.handL.bone.getWorldPosition(_sB).distanceTo(foreTarget) < 0.07;
     },
 
     destroy() {
