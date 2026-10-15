@@ -56,6 +56,11 @@ export class Controls {
     this.moveSpeed = 0;
     this.enabled = false;
     this.locked = false;
+    this.mobileMode = false;
+    this.touchActive = false;
+    this.touchMove = { x: 0, y: 0 };
+    this.touchKeys = new Set();
+    this.onInputReset = null;
     // Set once pointer lock has actually been refused (see _lockFailed): only
     // then is the page worth telling the player about.
     this.lockUnavailable = false;
@@ -99,20 +104,21 @@ export class Controls {
   _bind() {
     const c = this.canvas;
     c.addEventListener('mousedown', (e) => {
-      if (!this.enabled || typing()) return;
+      if (this.mobileMode || !this.enabled || typing()) return;
       if (e.button === 2) this._aimHeld = true;
       if (!this.canLook) { this.requestLock(); return; }
       if (e.button === 0) { this.mouse.left = true; this.onFireDown?.(); }
       if (e.button === 2) { this.mouse.right = true; }
     });
     window.addEventListener('mouseup', (e) => {
+      if (this.mobileMode) return;
       if (e.button === 0) this.mouse.left = false;
       if (e.button === 2) { this.mouse.right = false; this._aimHeld = false; }
     });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
     window.addEventListener('mousemove', (e) => {
-      if (!this.canLook || !this.enabled || typing()) return;
+      if (this.mobileMode || !this.canLook || !this.enabled || typing()) return;
       // yaw grows clockwise (0 = +X, 90 = +Z), so mouse-right must add.
       // Match screen-space precision to the actual zoom, including transitions.
       const fov = Math.max(10, Math.min(78, this.lookFov || 78));
@@ -172,7 +178,10 @@ export class Controls {
       this.keys.delete(e.code);
     });
     window.addEventListener('blur', () => this.releaseLook());
-    window.addEventListener('resize', () => this.mouseLook.reset());
+    window.addEventListener('resize', () => {
+      this.mouseLook.reset();
+      if (this.mobileMode) this.releaseLook();
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.releaseLook();
     });
@@ -180,10 +189,30 @@ export class Controls {
 
   /** True only while the player has explicitly taken control of the view. */
   get canLook() {
-    return this.locked;
+    return this.mobileMode ? this.enabled && this.touchActive : this.locked;
+  }
+
+  setMobileMode(enabled) {
+    if (this.mobileMode === !!enabled) return;
+    this.releaseLook();
+    this.mobileMode = !!enabled;
+    this.lockUnavailable = false;
+  }
+
+  /** Explicit touch mode only; mouse deltas never use this path. */
+  touchLook(dx, dy) {
+    if (!this.mobileMode || !this.canLook || typing()) return;
+    const fov = Math.max(10, Math.min(78, this.lookFov || 78));
+    const zoom = Math.tan(fov * Math.PI / 360) / Math.tan(78 * Math.PI / 360);
+    // Touch coordinates are CSS pixels, independent of DPR/render resolution.
+    this.mouseLook.push(dx, dy, this.sensitivity * 57.2958 * 2 * zoom);
   }
 
   requestLock() {
+    if (this.mobileMode) {
+      if (this.enabled) this.touchActive = true;
+      return;
+    }
     if (!this.enabled || this.locked || this._lockPending) return;
     // Retrying needs a fresh user gesture, particularly after Esc. Do not
     // schedule an automatic retry that browsers would refuse anyway.
@@ -237,6 +266,10 @@ export class Controls {
    * and clicking the view takes the mouse again.
    */
   releaseLook() {
+    this.touchActive = false;
+    this.touchMove.x = this.touchMove.y = 0;
+    this.touchKeys.clear();
+    this.onInputReset?.();
     this.mouseLook.reset();
     clearTimeout(this._lockWatch);
     this._wantLook = false;
@@ -278,6 +311,10 @@ export class Controls {
   }
 
   reset(pos, yaw) {
+    if (this.mobileMode) {
+      this.releaseLook();
+      this.requestLock();
+    }
     this.mouseLook.reset();
     this.pos.set(pos[0], pos[1], pos[2]);
     this.eyeGround = pos[1];
@@ -334,7 +371,7 @@ export class Controls {
     this.eyeGround += (this.pos.y - this.eyeGround) * ease;
 
     const k = this.keys;
-    const wantsCrouch = k.has('ShiftLeft') || k.has('ShiftRight');
+    const wantsCrouch = k.has('ShiftLeft') || k.has('ShiftRight') || this.touchKeys.has('ShiftLeft');
     // Refuse to stand up where the head would hit geometry: a body that crouched
     // into a low passage stays crouched on release instead of getting wedged.
     const canStand = !this.world.blocked(this.pos.x, this.pos.z, this.pos.y,
@@ -364,8 +401,11 @@ export class Controls {
     if (canMove && k.has('KeyS')) fx -= 1;
     if (canMove && k.has('KeyD')) fz += 1;
     if (canMove && k.has('KeyA')) fz -= 1;
+    if (canMove && this.mobileMode && this.canLook) {
+      fx += this.touchMove.y; fz += this.touchMove.x;
+    }
     const len = Math.hypot(fx, fz);
-    if (len > 0) { fx /= len; fz /= len; }
+    if (len > 1) { fx /= len; fz /= len; }
 
     let speed = this.combat.maxMoveSpeed * this.speedMult;
     if (this.crouch) speed *= 0.55;
@@ -387,7 +427,7 @@ export class Controls {
 
     // Edge-triggered jump with a small buffer and coyote window. Holding Space
     // no longer auto-bounces on every landing; chat/blur cannot queue a jump.
-    const jump=canMove && k.has('Space');
+    const jump=canMove && (k.has('Space') || this.touchKeys.has('Space'));
     this._jumpBuffer = jump && !this._jumpHeld ? .12 : Math.max(0,this._jumpBuffer-dt);
     this._jumpHeld = jump;
     this._coyote = this.grounded ? .1 : Math.max(0,this._coyote-dt);

@@ -105,6 +105,20 @@ const STEPS = [
   },
 ];
 
+// Same real lesson completion tests; only instructions change in touch mode.
+const MOBILE_HELP = {
+  move: { key:'移动摇杆', text:'按住左侧摇杆移动；轻推慢走，推到边缘全速前进。' },
+  look: { key:'滑动瞄准', text:'在屏幕右侧滑动环顾四周；开火按钮也支持滑动瞄准。', tip:'手机模式无需锁定鼠标；暂停按钮可随时打开菜单。' },
+  fire: { key:'开火', text:'按住开火按钮连续射击，同时滑动手指调整瞄准。' },
+  aim: { key:'瞄准', text:'点击瞄准按钮开镜，再次点击退出；开镜时滑动精度更高。' },
+  reload: { key:'换弹', text:'点击换弹按钮补充弹匣。' },
+  crouch: { key:'蹲下 · 跳跃', text:'点击蹲下按钮切换姿态；点击跳跃按钮越过障碍。' },
+  ability: { key:'技能', text:'按住技能按钮蓄力，松开投掷烟雾或信号弹；医疗和弹药箱点击即放置。' },
+  grenade: { key:'切换手榴弹 · 手榴弹', text:'点击切换手榴弹选择类型；按住手榴弹按钮蓄力，松开投掷。' },
+  round: { key:'视角 · 战绩 · 聊天', text:'点击视角切换第一/第三人称，按住战绩查看记分板，点击聊天发送消息。' },
+  room: { key:'完成 · 8 位房号', text:'在主菜单创建多人房间，把 8 位房号发给朋友；朋友输入房号加入。点击完成按钮结束教程。' },
+};
+
 function emptyState() {
   return { move: 0, turned: 0, lastYaw: null, ads: 0, crouch: 0, jumped: false, events: {} };
 }
@@ -124,6 +138,7 @@ export class Tutorial {
     this.state = emptyState();
     this.inGame = false;
     this.visible = false;
+    this.mobileMode = false;
     this._el = null;
     // The walkthrough keeps its text in the step table below, in Chinese, and
     // every line goes through t() when it is drawn -- so a language change
@@ -134,6 +149,11 @@ export class Tutorial {
   get active() { return this.visible; }
   get finished() { return this.index >= STEPS.length - 1 && this.done.has(STEPS[STEPS.length - 1].id); }
   get current() { return STEPS[Math.min(this.index, STEPS.length - 1)]; }
+
+  setMobileMode(enabled) {
+    this.mobileMode = !!enabled;
+    if (this._el) this._render();
+  }
 
   // ------------------------------------------------------------------- UI
 
@@ -176,7 +196,8 @@ export class Tutorial {
     el.querySelector('[data-act="finish"]').textContent = t('完成了，去联机');
     const list = el.querySelector('.tut-list');
     list.innerHTML = '';
-    STEPS.forEach((step, i) => {
+    STEPS.forEach((original, i) => {
+      const step = this.mobileMode ? { ...original, ...MOBILE_HELP[original.id] } : original;
       const li = document.createElement('li');
       const isDone = this.done.has(step.id) || i < this.index;
       li.className = (i === this.index && !isDone ? 'now ' : '') + (isDone ? 'done' : '');
@@ -186,7 +207,8 @@ export class Tutorial {
     });
     const doneCount = STEPS.filter((s) => this.done.has(s.id)).length;
     el.querySelector('.tut-count').textContent = `${doneCount} / ${STEPS.length}`;
-    el.querySelector('.tut-tip').textContent = this.current.tip ? t(this.current.tip) : '';
+    const tip = (this.mobileMode && MOBILE_HELP[this.current.id]?.tip) || this.current.tip;
+    el.querySelector('.tut-tip').textContent = tip ? t(tip) : '';
     const last = !!this.current.last;
     el.querySelector('[data-act="go"]').classList.toggle('hidden', this.inGame || last);
     el.querySelector('[data-act="finish"]').classList.toggle('hidden', !last);

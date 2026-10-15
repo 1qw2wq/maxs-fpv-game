@@ -208,6 +208,35 @@ The game needs no plugins, but two browser environments restrict pages and both 
   a buoyant crown and gradual dissipation. Inside-cloud fog follows the same density envelope.
   Particle placement is seeded by effect id and animation is time-based, not frame-rate dependent.
 
+### Mobile mode: joystick and touch buttons
+
+Choose **Control mode → Mobile · Touch & joystick** in the main menu or pause menu. **Auto-detect**
+enables it for coarse-pointer touch devices; **Desktop** explicitly keeps mouse/keyboard controls.
+The choice is saved in your local profile. Touch mode does not request pointer lock and is never
+silently enabled because a desktop lock request failed.
+
+- **Left joystick:** analog movement with a dead zone; push further to move faster. Diagonals are
+  normalized, and the existing collision, crouch, jump and movement authority are unchanged.
+- **Right side:** swipe to aim. **Hold Fire and slide the same finger** to aim while shooting, so
+  two thumbs can move and shoot simultaneously. Separate pointer IDs support additional fingers.
+- **Aim / Crouch:** tap to toggle. **Jump:** press (holding does not auto-bounce). **Reload:** tap.
+- **Skill / Grenade:** hold to charge, release to throw; healing/ammo crates deploy on press.
+  **Cycle grenade** changes type. Touch buttons use the existing authoritative gameplay callbacks.
+- **View / Score / Chat / Pause:** switch camera, hold the scoreboard, type a message, or open the
+  pause menu without a hardware keyboard. Respawn and leave buttons remain ordinary touch targets.
+- Controls fit portrait/landscape layouts and use safe-area insets. The HUD and tutorial describe
+  touch controls. Pending movement, firing, toggles and charges clear on cancellation, lost capture,
+  blur, orientation/resize, pause, death, leaving or mode changes; cancellation does **not** throw.
+- **Look sensitivity** in the menu/pause panel affects both mouse and touch, retaining ADS zoom
+  scaling and the shared filtered camera/shot direction. Landscape generally leaves more view space.
+
+`tools/test-mobile.mjs` is included in `node tools/test-vercel.mjs`. It uses real Chromium touch
+injection for multi-finger movement/look/fire, analog 30/60/144 Hz movement, ADS precision, action
+buttons, interrupted gestures, saved/automatic mode selection and live deploy/fire/reload/grenades,
+score/chat, pause/resume, death/respawn and leaving, plus portrait bounds. Tested with mobile browser
+emulation, not physical iOS/Android devices; GPU performance and browser support still vary.
+Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the portrait fixture.
+
 ### Stable mouse input and mixed bot skills
 
 - Pointer-lock packets are coalesced once per frame with a short (~8 ms) filter. Non-finite input,

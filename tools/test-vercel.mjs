@@ -4,6 +4,7 @@
 // node tools/test-vercel.mjs
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
+import { testMobile } from './test-mobile.mjs';
 import { testMouseControls, testMouseSettings } from './test-mouse.mjs';
 import { testPerformance, testLiveCover } from './test-performance.mjs';
 import { testAim, testLiveAim } from './test-aim.mjs';
@@ -360,6 +361,9 @@ try {
   await testLiveControl(context, origin);
   await testLiveAim(context, origin);
   await testLiveCover(context, origin);
+  // Run device emulation last: bundled single-process Chromium can retain
+  // coarse-pointer device characteristics across contexts after touch emulation.
+  await testMobile(browser, origin);
 
   assert.deepEqual(await host.evaluate(() => netErrors), []);
   assert.deepEqual(await guest.evaluate(() => netErrors), []);

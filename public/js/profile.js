@@ -27,6 +27,7 @@ export const DEFAULT_PROFILE = {
   soloBots: 6,
   mapId: '',
   sensitivity: 0.0022,
+  controlMode: 'auto',
   stats: { matches: 0, wins: 0, kills: 0, deaths: 0, playMs: 0 },
   lastSeen: 0,
 };
@@ -62,6 +63,7 @@ export function sanitize(raw) {
       p.recentRooms.push(c);
     }
   }
+  p.controlMode = ['auto', 'desktop', 'mobile'].includes(raw.controlMode) ? raw.controlMode : 'auto';
   p.tutorialDone = !!raw.tutorialDone;
   p.soloBots = [0, 4, 6, 8, 12, 16].includes(Number(raw.soloBots)) ? Number(raw.soloBots) : 6;
   p.mapId = clampStr(raw.mapId, 32);

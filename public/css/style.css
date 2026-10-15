@@ -1048,3 +1048,67 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 .sensitivity-field > span { display: flex; justify-content: space-between; }
 .sensitivity-field output { color: var(--gold); font-variant-numeric: tabular-nums; }
 .sensitivity-field input { width: 100%; accent-color: var(--gold); }
+
+/* Explicit mobile mode: touch controls never replace denied desktop lock. */
+#mobile-controls { position:absolute; inset:0; z-index:6; pointer-events:none; touch-action:none; -webkit-touch-callout:none; }
+#mobile-controls button, .touch-stick, .touch-look { pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; }
+.touch-look { position:absolute; left:40%; right:0; top:calc(100px + env(safe-area-inset-top)); bottom:0; }
+.touch-stick { position:absolute; left:max(24px, env(safe-area-inset-left)); bottom:max(24px, env(safe-area-inset-bottom)); width:132px; height:132px; border:2px solid #e9f1ff66; border-radius:50%; background:radial-gradient(circle,#16233466,#080f2080); box-shadow:inset 0 0 0 24px #d3e5ff08; display:grid; place-items:center; }
+.touch-stick-knob { width:54px; height:54px; border-radius:50%; background:#d6e6ff55; border:2px solid #e7f1ff99; box-shadow:0 3px 12px #0006; pointer-events:none; }
+.touch-stick small { position:absolute; bottom:8px; font-size:10px; color:#ecf2ff99; pointer-events:none; }
+#mobile-controls button { min-width:46px; min-height:46px; padding:4px; border:1px solid #e6edff66; border-radius:14px; color:#f3f6ff; background:#0c182dbb; font:700 11px/1.2 var(--font); text-shadow:0 1px 3px #000; }
+#mobile-controls button.held { color:#ffde8c; border-color:#ffcf5c; background:#695022bb; box-shadow:0 0 12px #ffcf5c33; }
+.touch-tools { position:absolute; right:max(12px, env(safe-area-inset-right)); top:max(10px, env(safe-area-inset-top)); display:flex; gap:5px; }
+.touch-actions { position:absolute; right:max(16px, env(safe-area-inset-right)); bottom:max(18px, env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,50px); gap:7px; }
+#mobile-controls .touch-cycle { grid-column:span 3; min-height:44px; }
+#mobile-controls .touch-fire { position:absolute; right:max(22px, env(safe-area-inset-right)); bottom:calc(192px + env(safe-area-inset-bottom)); width:74px; height:74px; border-radius:50%; background:#873431bb; border:2px solid #ffb4a8bb; font-size:15px; }
+.touch-guide { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); margin:0; font-size:10px; color:#dde7f6a0; white-space:nowrap; text-shadow:0 1px 3px #000; }
+.mobile-mode #screen-hud > .overlay { z-index:20; }
+.mobile-mode #topbar { left:max(12px,env(safe-area-inset-left)); top:max(10px,env(safe-area-inset-top)); transform:none; padding:7px 10px; gap:6px; }
+.mobile-mode .tb-name, .mobile-mode .tb-map, .mobile-mode .tb-limit { display:none; }
+.mobile-mode .tb-num { font-size:21px; }.mobile-mode .tb-center { padding:0 7px; }
+.mobile-mode #statusbar { top:calc(70px + env(safe-area-inset-top)); bottom:auto; left:max(14px,env(safe-area-inset-left)); right:max(14px,env(safe-area-inset-right)); }
+.mobile-mode .hp-wrap { width:120px; }.mobile-mode .hp-bar { height:10px; }.mobile-mode #hp-num { font-size:20px; }.mobile-mode #hp-cls { font-size:10px; letter-spacing:0; }
+.mobile-mode #ammo-mag { font-size:28px; }.mobile-mode #ammo-max, .mobile-mode #ammo-reserve { font-size:13px; }
+.mobile-mode #ability-chip, .mobile-mode #grenade-chip { left:max(12px,env(safe-area-inset-left)); top:calc(120px + env(safe-area-inset-top)); bottom:auto; transform:none; width:156px; min-width:0; padding:7px 9px; border-radius:9px; }
+.mobile-mode #grenade-chip { top:calc(168px + env(safe-area-inset-top)); }
+.mobile-mode .ab-key, .mobile-mode .grenade-cycle { display:none; }
+.mobile-mode .ab-body { min-width:0; width:100%; }.mobile-mode .ab-body b { font-size:10px; letter-spacing:0; }
+.mobile-mode .ab-cd, .mobile-mode #grenade-chip .ab-cd { width:100%; }
+.mobile-mode #grenade-chip small { font-size:9px; }
+.mobile-mode #objective-hud { top:calc(85px + env(safe-area-inset-top)); width:50vw; }
+.mobile-mode #killfeed { top:110px; right:12px; font-size:10px; max-width:35vw; }
+.mobile-mode #chat-log { bottom:175px; max-width:42vw; max-height:72px; overflow:hidden; }
+.mobile-mode .chat-line { font-size:10px; }
+.mobile-mode .menu-inner { justify-content:flex-start; padding:24px max(16px,env(safe-area-inset-left)) max(24px,env(safe-area-inset-bottom)); }
+.mobile-mode .menu-inner > * { flex-shrink:0; }
+.mobile-mode .select-inner { padding:16px; }
+.mobile-mode .class-card canvas { max-height:130px; object-fit:contain; }
+.mobile-mode .select-foot { flex-shrink:0; }
+.mobile-mode .pause-panel, .mobile-mode .invite-panel, .mobile-mode .death-panel, .mobile-mode .sb-panel { max-height:90dvh; overflow:auto; }
+@media (max-width:600px) {
+  .mobile-mode #objective-hud { top:calc(235px + env(safe-area-inset-top)); width:94vw; }
+  .mobile-mode .touch-guide { bottom:160px; max-width:90vw; white-space:normal; text-align:center; }
+  .mobile-mode #killfeed { max-width:44vw; }
+  .mobile-mode .select-head p { display:none; }
+}
+@media (max-height:420px) {
+  .mobile-mode .touch-stick { width:112px; height:112px; bottom:16px; }
+  .mobile-mode .touch-actions { grid-template-columns:repeat(3,48px); gap:5px; bottom:12px; }
+  .mobile-mode #mobile-controls .touch-fire { bottom:178px; width:64px; height:64px; }
+  .mobile-mode #grenade-chip { top:158px; }
+  .mobile-mode #ability-chip { top:112px; }
+  .mobile-mode .touch-guide { display:none; }
+  .mobile-mode #chat-log { display:none; }
+}
+/* Lessons describe touch inputs without covering or intercepting the buttons. */
+.mobile-mode #tutorial.in-game { --tut-top:112px; padding:112px 176px 8px; justify-content:center; }
+.mobile-mode #tutorial.in-game .tut-panel { width:min(360px,100%); max-height:160px; padding:8px 10px; pointer-events:none; }
+.mobile-mode #tutorial.in-game header, .mobile-mode #tutorial.in-game .tut-tip { display:none; }
+.mobile-mode #tutorial.in-game footer button { pointer-events:auto; padding:5px 9px; min-height:32px; font-size:11px; }
+@media (max-width:600px) {
+  .mobile-mode #tutorial.in-game { --tut-top:320px; padding:320px 16px 8px; }
+  .mobile-mode #tutorial.in-game .tut-panel { width:100%; }
+}
+
+.mobile-mode .pause-hint { display:none; }

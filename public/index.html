@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
 <title>堑壕前线 Trench Front</title>
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
@@ -65,8 +65,11 @@
       </div>
       <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
 
-      <label class="field sensitivity-field"><span>鼠标灵敏度 <output>100%</output></span>
-        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="鼠标灵敏度">
+      <label class="field rules-field"><span>操作模式</span>
+        <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
+      </label>
+      <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
       </label>
 
       <label class="field rules-field"><span>游戏规则</span>
@@ -341,8 +344,11 @@
     <div class="pause-panel">
       <h2 class="pause-title">已暂停</h2>
       <p class="pause-note" id="pause-note"></p>
-      <label class="field sensitivity-field"><span>鼠标灵敏度 <output>100%</output></span>
-        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="鼠标灵敏度">
+      <label class="field rules-field"><span>操作模式</span>
+        <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
+      </label>
+      <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
       </label>
       <div class="pause-actions">
         <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>

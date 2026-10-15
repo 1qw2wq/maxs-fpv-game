@@ -592,12 +592,12 @@ export class Hud {
   }
 
   /** Floating damage number shown to the shooter on every confirmed hit. */
-  updateGrenade(kind, me, power = null) {
+  updateGrenade(kind, me, power = null, mobile = false) {
     const spec = this.data.grenadeById[kind];
     if (!spec || !this.el.grenade) return;
     const count = me?.grenades ?? 2, cooldown = Math.ceil((me?.grenadeIn || 0) / 1000);
     const name = `${nameOf(spec)} ×${count}`;
-    const info = power !== null ? t('投掷力度 {n}%', { n: Math.round(power*100) }) : cooldown > 0 ? t('补充倒计时 {n}秒', { n: cooldown }) : t('按住 G 投掷 · B 切换');
+    const info = power !== null ? t('投掷力度 {n}%', { n: Math.round(power*100) }) : cooldown > 0 ? t('补充倒计时 {n}秒', { n: cooldown }) : t(mobile ? '按住手榴弹投掷 · 点击切换' : '按住 G 投掷 · B 切换');
     if (this.el.grenadeName.textContent !== name) this.el.grenadeName.textContent = name;
     if (this.el.grenadeInfo.textContent !== info) this.el.grenadeInfo.textContent = info;
     this.el.grenade.classList.toggle('charging', power !== null);

@@ -20,6 +20,7 @@ import { simulateThrow, sampleThrow } from './throwing.js';
 import { buildGrenadeEffect, updateGrenadeEffect } from './grenadefx.js';
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
+import { MobileControls } from './mobile-controls.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
@@ -103,6 +104,7 @@ const app = {
   resultShown: false,
   _sbOpen: false,
   settings: null,
+  mobile: null,
   // Map choice: picked in the menu, but the server is the one that decides.
   // mapData caches each map's JSON so a re-pick costs no network round trip.
   mapPick: null,
@@ -260,6 +262,7 @@ async function boot() {
   setupPause();
   setupInvite();
   wireControls();
+  app.mobile = new MobileControls(app.controls, { parent: app.hud.el.hud, onPause: () => togglePause(true) });
   app.hud.screen('menu');
   requestAnimationFrame(loop);
 }
@@ -452,6 +455,8 @@ function setupLocalPanel() {
   resetBtn?.addEventListener('click', () => {
     if (!window.confirm(t('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？'))) return;
     profile.reset();
+    const mode = document.querySelector('.control-mode');
+    if (mode) { mode.value = 'auto'; mode.dispatchEvent(new Event('change')); }
     const slider = document.querySelector('.mouse-sensitivity');
     if (slider) { slider.value = '100'; slider.dispatchEvent(new Event('input')); }
     for (const key of ['tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig']) store.remove(key);
@@ -486,6 +491,7 @@ function setupTutorial() {
       app.hud.toast(completed ? t('新手指引完成，祝你玩得开心') : t('随时可以在主菜单重新打开新手指引'), 2600);
     },
   });
+  app.tut.setMobileMode(app.controls.mobileMode);
   // First visit: offer the walkthrough instead of leaving the player to guess.
   if (!profile.load().tutorialDone) {
     app.hud.setTutorialHint?.();
@@ -534,7 +540,7 @@ function togglePause(on) {
       note: app.relayHostCode
         ? t('房号 {code} · 你是房主，这一局在你的浏览器里运行；离开后别人会失去这一局。',
           { code: formatCode(app.relayHostCode) })
-        : t('按 Esc 打开这个菜单；「继续战斗」回到战场。'),
+        : t(app.controls.mobileMode ? '点击继续战斗返回战场。' : '按 Esc 打开这个菜单；「继续战斗」回到战场。'),
     });
   } else {
     app.hud.hidePause();
@@ -687,6 +693,25 @@ function setupMenu() {
   // Everything personal lives in this browser only (see profile.js): the name,
   // the loadout, the room codes and the local stats. No database anywhere.
   const saved = profile.load();
+  const modeSelectors = [...document.querySelectorAll('.control-mode')];
+  const coarsePointer = matchMedia('(pointer: coarse)');
+  let controlMode = saved.controlMode;
+  const applyControlMode = () => {
+    const mobile = controlMode === 'mobile' || (controlMode === 'auto' && coarsePointer.matches && navigator.maxTouchPoints > 0);
+    app.controls.setMobileMode(mobile);
+    document.body.classList.toggle('mobile-mode', mobile);
+    for (const select of modeSelectors) select.value = controlMode;
+    app.tut?.setMobileMode(mobile);
+    if (mobile && app.playing && !app.paused) app.controls.requestLock();
+    updateLockHint();
+  };
+  applyControlMode();
+  for (const select of modeSelectors) select.addEventListener('change', () => {
+    controlMode = select.value;
+    profile.save({ controlMode });
+    applyControlMode();
+  });
+  coarsePointer.addEventListener('change', () => { if (controlMode === 'auto') applyControlMode(); });
   const mouseSliders = [...document.querySelectorAll('.mouse-sensitivity')];
   const setSensitivity = (percent) => {
     const value = Math.max(25, Math.min(200, percent));
@@ -1421,6 +1446,7 @@ async function onWelcome(m) {
 
   app.playing = true;
   app.matchStartedAt = performance.now();
+  if (app.controls.mobileMode) app.controls.requestLock();
   app.tut?.onDeploy();
   app.last = performance.now();
   app.sfx.resume();
@@ -1575,6 +1601,7 @@ const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠�
  */
 function updateLockHint(alive = true) {
   const c = app.controls;
+  if (c.mobileMode) { app.hud.setLockHint(false); return; }
   // The pause menu owns the screen while it is up: no prompt underneath it.
   const live = app.playing && !app.paused && alive && !app.deathShown;
   if (live && !c.canLook && app.lockRefused) {
@@ -2147,7 +2174,7 @@ function cancelCharge() {
 /** Runs every frame: inventory readout and a charged Q/G throw preview. */
 function updateThrowAim(now) {
   const powerNow = app.charge ? Math.min(1, (now-app.charge.t0)/app.data.combat.throw.chargeMs) : null;
-  app.hud?.updateGrenade(app.grenadeKind, app.net?.lastMe, app.charge?.source === 'grenade' ? powerNow : null);
+  app.hud?.updateGrenade(app.grenadeKind, app.net?.lastMe, app.charge?.source === 'grenade' ? powerNow : null, app.controls.mobileMode);
   if (!app.charge) return;
   const me = app.net?.lastMe;
   if (!app.playing || !app.world || !me || !me.alive) { cancelCharge(); return; }
@@ -2225,6 +2252,7 @@ function loop(now) {
   // the air, but the match itself is frozen -- no input is sent, and a room
   // this browser is hosting stops advancing for everybody, which is what a
   // pause means.
+  app.mobile?.update(app.playing && !app.paused && !app.deathShown && !app.resultShown && !app.hud.inviteOpen && !app.settings?.visible && !document.hidden);
   if (app.playing && !app.paused) tick(dt, now);
   updateTracers(now);
   // Muzzle flashes, smoke, brass and the punch decay all ride one clock.
