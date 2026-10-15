@@ -5,6 +5,7 @@
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
 import { testEffects } from './test-effects.mjs';
+import { testHands } from './test-hands.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -323,6 +324,7 @@ try {
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
+  await testHands(context, origin);
   await testEffects(context, origin);
 
   assert.deepEqual(await host.evaluate(() => netErrors), []);

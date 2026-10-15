@@ -16,6 +16,7 @@
 // little — the visible head has to stay where the server says it is.
 
 import * as THREE from 'three';
+import { buildGripGlove, gripRotation, gloveWrist, GLOVE_WRIST, setWorldRotation } from './handpose.js';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { makeFaceTexture } from './face.js';
 import { buildWeapon, soldierArms } from './viewmodel.js';
@@ -311,8 +312,9 @@ function addArms(parent, cls, team) {
 
     const hand = joint(el, 0, -0.25, 0);
     hand.name = `wrist-${side}`;
-    const h = part(hand, new THREE.BoxGeometry(a.hand[0], a.hand[1], a.hand[2]), { material: glove, outline: true, outlineScale: 1.06 });
-    h.position.y = -a.handDrop;
+    const h = buildGripGlove(glove, side);
+    h.position.copy(GLOVE_WRIST).negate();
+    hand.add(h);
 
     arms[side] = { sh, el, hand };
   }
@@ -414,6 +416,8 @@ export function createGirl(cls, team, data) {
   const target = new THREE.Vector3(), direction = new THREE.Vector3(), pole = new THREE.Vector3(), elbow = new THREE.Vector3();
   function fitHand(arm, anchor, side) {
     anchor.getWorldPosition(target);
+    const rotation = gripRotation(anchor.getWorldQuaternion(new THREE.Quaternion()), side === -1 ? 'R' : 'L');
+    gloveWrist(target, rotation, target);
     torsoG.worldToLocal(target);
     direction.copy(target).sub(arm.sh.position);
     const distance = Math.max(0.025, Math.min(0.519, direction.length()));
@@ -425,6 +429,8 @@ export function createGirl(cls, team, data) {
     arm.sh.quaternion.setFromUnitVectors(down, elbow.clone().normalize());
     direction.copy(target).sub(arm.sh.position).sub(elbow).applyQuaternion(arm.sh.quaternion.clone().invert()).normalize();
     arm.el.quaternion.setFromUnitVectors(down, direction);
+    arm.hand.updateWorldMatrix(true, false);
+    setWorldRotation(arm.hand, rotation);
   }
 
   const st = {

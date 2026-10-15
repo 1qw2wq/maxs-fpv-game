@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { attachGunModel } from './guns.js';
 import { weaponSockets, reloadPose } from './weaponpose.js';
+import { buildGripGlove, gripRotation, gloveWrist } from './handpose.js';
 
 const GUNMETAL = '#2f343d';
 const GUNMETAL_L = '#454c58';
@@ -36,9 +37,7 @@ export function soldierArms(cls) {
     glove: '#3a3f4a',
     upperR: [0.045, 0.037],
     foreR: [0.036, 0.031],
-    hand: [0.062, 0.075, 0.085],
-    handDrop: 0.028,
-    fpScale: 1.7,
+    fpScale: 1.15,
   };
 }
 
@@ -169,12 +168,11 @@ export class ViewModel {
     this.armMeshes = new THREE.Group();
 
     // The first-person arms are the character's own arms — the very same spec
-    // the third-person body is built from — just scaled up for the short lens.
+    // the third-person body is built from, with only a modest sleeve allowance.
     const a = soldierArms(cls);
     const k = a.fpScale;
     const sleeve = toonMat(a.sleeve);
     const glove = toonMat(a.glove);
-    const skin = toonMat('#fbe3d4');
 
     // Keep the shoulders camera-local, but solve each limb to the gun's live
     // attachment every frame. Rotating a static pair around the camera origin
@@ -190,10 +188,7 @@ export class ViewModel {
       };
       const upper = material(sleeve, a.upperR[0] * k * 0.8);
       const fore = material(glove, a.foreR[0] * k * 0.8);
-      const palm = new THREE.Mesh(new THREE.BoxGeometry(a.hand[0] * k * 0.8, a.hand[1] * k * 0.8, a.hand[2] * k * 0.8), glove);
-      const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.015, 0.055), skin);
-      knuckle.position.set(0, 0.025, -0.012);
-      palm.add(knuckle);
+      const palm = buildGripGlove(glove, side === 1 ? 'R' : 'L');
       this.armMeshes.add(palm);
       this.armRigs.push({ side, shoulder, elbow, upper, fore, palm });
     }
@@ -232,16 +227,17 @@ export class ViewModel {
   }
 
   /**
-   * World-space positions of the two hand anchors. The procedural arms use them
-   * directly; when the player's own character model supplies the arms instead
+   * World-space contact points and optional live gun orientation. The palms
+   * wrap these points, with the wrist offset behind the palm; when the player's own character model supplies the arms instead
    * (main.js), they are what that rig's IK is solved onto — so the borrowed
-   * arms track ADS, recoil and bob exactly like the placeholder pair did.
+   * arms track ADS, recoil and bob with the correct palm and finger direction.
    */
-  gripWorld(outHand, outFore) {
+  gripWorld(outHand, outFore, outRotation) {
     if (!this.anchors) return false;
     this.root.updateWorldMatrix(true, true);
     this.anchors.hand.getWorldPosition(outHand);
     this.anchors.fore.getWorldPosition(outFore);
+    if (outRotation) this.gunMeshes.getWorldQuaternion(outRotation);
     return true;
   }
 
@@ -272,9 +268,11 @@ export class ViewModel {
       const target = this._armTarget.copy(node.position).applyMatrix4(matrix);
       rig.elbow.set(rig.side * 0.28, Math.min(-0.38, target.y - 0.13), (target.z + 0.06) * 0.38);
       aim(rig.upper, rig.shoulder, rig.elbow);
-      aim(rig.fore, rig.elbow, target);
       rig.palm.position.copy(target);
-      rig.palm.quaternion.copy(this.gunMount.quaternion).multiply(this.gunMeshes.quaternion);
+      const gunRotation = this.gunMount.quaternion.clone().multiply(this.gunMeshes.quaternion);
+      gripRotation(gunRotation, rig.side === 1 ? 'R' : 'L', rig.palm.quaternion);
+      // End the sleeve at the wrist, not through the middle of the palm.
+      aim(rig.fore, rig.elbow, gloveWrist(target, rig.palm.quaternion));
     }
   }
 

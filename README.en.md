@@ -193,6 +193,11 @@ The game needs no plugins, but two browser environments restrict pages and both 
 - Guns share gun-local trigger/support grips, reload/feed points and receiver-ejection sockets across
   first-person arms and third-person IK. Imported models calibrate their muzzle to the actual front
   geometry instead of retaining a procedural gun's placeholder barrel length.
+- Each of the 12 imported guns has mesh-measured hand contacts. Imported character hands use a
+  calibrated palm/wrist frame, opposed thumbs and curled finger joints (with a lighter trigger-index
+  curl), rather than putting an open wrist directly on the grip. The same orientation follows ADS,
+  recoil and reloads. Fallback gloves have rounded palms and separate bent fingers, with sleeves
+  ending at the wrist; their geometry is merged into one draw per hand.
 - Reloads have presentation, feed/magazine service, seating and recovery phases; the support hand
   follows the feed while the trigger hand holds the weapon. Clip-fed rifles use a feeding motion.
   Progress follows the authoritative reload timer and stops when the reload ends or is interrupted.
@@ -221,7 +226,10 @@ without alternative steering. This is a local
 static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
 The same command also runs `tools/test-effects.mjs`: 12 imported models / 84 weapon poses,
 third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
-and an actual solo deploy/fire/reload/grenade render.
+and an actual solo deploy/fire/reload/grenade render. `tools/test-hands.mjs` additionally exercises
+all four shipped skeletons across 384 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
+30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
+hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
 ---
@@ -351,7 +359,7 @@ body and remote players all share the same `buildWeapon` path).
 
 - Each model's **longest axis is aligned to +Z (muzzle) with +Y up**, and its length is normalised
   to the same envelope as the procedural gun (SMG 0.92 m / rifle 1.12 m / LMG 1.22 m / bolt 1.28 m)
-  so the hand-IK grip anchors did not have to change.
+  with per-model palm-contact sockets measured on the normalized mesh.
 - Models are parsed once and shared through `clone(true)`; the procedural gun stays until the swap,
   so you never see empty hands.
 - Some models in the asset pack point backwards (muzzle at −Z) or use spec-gloss materials (an

@@ -8,6 +8,7 @@ export async function testEffects(context, origin) {
   const result = await page.evaluate(async () => {
     const THREE = await import('/vendor/three.module.js');
     const { ViewModel } = await import('/js/viewmodel.js');
+    const { gripRotation, gloveWrist } = await import('/js/handpose.js');
     const { createGirl } = await import('/js/character.js');
     const { GunFx } = await import('/js/gunfx.js');
     const { weaponSockets, mountedGrips, reloadPose } = await import('/js/weaponpose.js');
@@ -53,10 +54,27 @@ export async function testEffects(context, origin) {
       girl.root.updateMatrixWorld(true);
       for (const [side, socket] of [['R', 'hand'], ['L', 'fore']]) {
         const wrist = girl.root.getObjectByName(`wrist-${side}`).getWorldPosition(new THREE.Vector3());
-        const target = girl.root.getObjectByName(`weapon-${socket}`).getWorldPosition(new THREE.Vector3());
+        const socketNode = girl.root.getObjectByName(`weapon-${socket}`);
+        const rotation = gripRotation(socketNode.getWorldQuaternion(new THREE.Quaternion()), side);
+        const target = gloveWrist(socketNode.getWorldPosition(new THREE.Vector3()), rotation);
+        const wristNode = girl.root.getObjectByName(`wrist-${side}`);
+        if (wristNode.getWorldQuaternion(new THREE.Quaternion()).angleTo(rotation) > 1e-6) throw new Error(`${weapon.id}: third-person wrist twist`);
         maxThirdPersonError = Math.max(maxThirdPersonError, wrist.distanceTo(target));
         if (wrist.distanceTo(target) > 0.07) throw new Error(`${weapon.id}: third-person wrist misses grip`);
       }
+      // These must be real mesh contacts, not arbitrary empty anchor nodes.
+      // Shoot upward from below the fore-end: the palm sits 13mm below that
+      // surface, its padded glove touching it instead of floating in midair.
+      const support = weaponSockets(weapon).fore;
+      const ray = new THREE.Raycaster(new THREE.Vector3(support[0], bounds.min.y - 0.1, support[2]), new THREE.Vector3(0, 1, 0));
+      model.updateWorldMatrix(true, true);
+      const origin = ray.ray.origin.clone().applyMatrix4(vm.gunMeshes.matrixWorld);
+      const direction = ray.ray.direction.clone().transformDirection(vm.gunMeshes.matrixWorld);
+      ray.set(origin, direction);
+      const hit = ray.intersectObject(model, true)[0];
+      if (!hit) throw new Error(`${weapon.id}: support grip misses gun geometry`);
+      const surface = hit.point.clone().applyMatrix4(inverse);
+      if (Math.abs(surface.y - support[1]) > 0.025) throw new Error(`${weapon.id}: support palm floats off handguard`);
       const sockets = weaponSockets(weapon), mounted = mountedGrips(weapon);
       if (Math.abs(mounted.hand[2] - sockets.hand[2] - 0.06) > 1e-8) throw new Error('FP/TP grip frame mismatch');
       for (const phase of ['hip', 'ads', 'recoil', 'reload-start', 'reload-service', 'reload-seat', 'reload-end']) {
@@ -76,6 +94,13 @@ export async function testEffects(context, origin) {
           const error = actual.distanceTo(rig.side === 1 ? hand : fore);
           maxPalmError = Math.max(maxPalmError, error);
           if (error > 1e-6) throw new Error(`${weapon.id}/${phase}: palm drift ${error}`);
+          const expected = gripRotation(vm.gunMeshes.getWorldQuaternion(new THREE.Quaternion()), rig.side === 1 ? 'R' : 'L');
+          if (rig.palm.getWorldQuaternion(new THREE.Quaternion()).angleTo(expected) > 1e-6) throw new Error(`${weapon.id}/${phase}: glove faces away from grip`);
+          for (let i = 0; i < 4; i++) if (!rig.palm.getObjectByName(`finger-${i}-2`)) throw new Error('Missing curled glove finger');
+          if (!rig.palm.getObjectByName('thumb')) throw new Error('Missing opposed thumb');
+          const wrist = gloveWrist(actual, expected);
+          const tip = new THREE.Vector3(0, 0.5, 0).applyMatrix4(rig.fore.matrixWorld);
+          if (Math.min(tip.distanceTo(wrist), new THREE.Vector3(0, -0.5, 0).applyMatrix4(rig.fore.matrixWorld).distanceTo(wrist)) > 1e-6) throw new Error('Sleeve ends in palm, not wrist');
         }
         vm.shotWorld(muzzle, eject);
         if (![...muzzle.toArray(), ...eject.toArray()].every(Number.isFinite)) throw new Error('Nonfinite shot socket');

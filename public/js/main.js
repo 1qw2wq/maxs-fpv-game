@@ -2455,6 +2455,7 @@ const FP_NEAR = 0.20;   // clips the body the borrowed arms are mounted on
 
 const _fpHand = new THREE.Vector3();
 const _fpFore = new THREE.Vector3();
+const _fpGunRotation = new THREE.Quaternion();
 
 function syncFpArms() {
   if (!app.playing) return;
@@ -2506,8 +2507,8 @@ function syncFpArms() {
   // current before the two anchors can be read out
   app.camera.updateMatrixWorld(true);
   let ok = false;
-  if (app.vm.gripWorld(_fpHand, _fpFore)) {
-    ok = app.fpArms.poseArms(_fpHand, _fpFore);
+  if (app.vm.gripWorld(_fpHand, _fpFore, _fpGunRotation)) {
+    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation);
   }
   // Do not draw two pairs, or keep a visibly disconnected external hand when
   // a petite rig cannot reach the support grip during a reload.

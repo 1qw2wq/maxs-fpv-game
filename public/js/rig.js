@@ -8,6 +8,7 @@
 // the captured rest quaternion, which is the only thing that works across rigs.
 
 import { mountedGrips } from './weaponpose.js';
+import { prepareHandGrip } from './handpose.js';
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { buildFactionOverlay } from './character.js';
@@ -385,6 +386,21 @@ export function createExternalGirl({ template, meta, data, team }) {
     };
   }
 
+  // Capture fingers before any animation mixer or procedural arm pose runs.
+  const handGrips = {
+    R: prepareHandGrip(driven.handR?.bone, 'R'),
+    L: prepareHandGrip(driven.handL?.bone, 'L'),
+  };
+  const gripGunRotation = new THREE.Quaternion();
+  function solveGrip(side, contact, pole, gunRotation) {
+    if (!driven['hand' + side]) return Infinity;
+    const grip = handGrips[side];
+    const target = grip && gunRotation ? grip.targetFor(contact, gunRotation) : contact;
+    solveArm(side, target, pole);
+    if (grip && gunRotation) grip.apply();
+    return driven['hand' + side].bone.getWorldPosition(new THREE.Vector3()).distanceTo(target);
+  }
+
   const { marker, shadow } = buildFactionOverlay(root, team, data, root, TARGET_HEIGHT * k + 0.40);
   // The gun hangs off the body root, never a hand bone: bone scale and unknown
   // local axes would stretch and twist it. update() parks it on the chest and
@@ -600,10 +616,10 @@ export function createExternalGirl({ template, meta, data, team }) {
   /** World-space rotate: new world = dq * old world, written back as a local quat. */
   function applyWorldDelta(bone, dq) {
     const parent = bone.parent;
-    if (!parent) { bone.quaternion.premultiply(dq); return; }
-    parent.getWorldQuaternion(_pQ);
+    if (!parent) { bone.quaternion.premultiply(dq).normalize(); return; }
+    parent.getWorldQuaternion(_pQ).normalize();
     _invQ.copy(_pQ).invert();
-    bone.quaternion.premultiply(_pQ).premultiply(dq).premultiply(_invQ);
+    bone.quaternion.premultiply(_pQ).premultiply(dq).premultiply(_invQ).normalize();
   }
 
   /**
@@ -803,8 +819,9 @@ export function createExternalGirl({ template, meta, data, team }) {
     _poleR.copy(_right).multiplyScalar(0.7).add(_down).normalize();
     _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
 
-    solveArm('R', _grip, _poleR);
-    solveArm('L', _fore, _poleL);
+    weaponMount.getWorldQuaternion(gripGunRotation);
+    solveGrip('R', _grip, _poleR, gripGunRotation);
+    solveGrip('L', _fore, _poleL, gripGunRotation);
   }
 
   /** Park the gun on the chest, then solve both arms onto its two grips. */
@@ -816,15 +833,12 @@ export function createExternalGirl({ template, meta, data, team }) {
   /** Put the gun where the current body/arm pose wants it. */
   function layWeapon(s, upperKey) {
     if (st.dead || !st.weapon) return;
-    // Standing idle keeps the procedural gun IK — it owns the aim there. Every
-    // clip pose (runHold/hold/fire/reload/toss) instead leaves the arms entirely
-    // to the clip, so the gun is dropped onto the clip's own hands and rides
-    // along with them. The arms must never be IK'd back onto a fixed mount while
-    // a clip plays: that is what turned the body into a puppet with the gun
-    // floating beside it, and it is the bug the user reported as "gun on the
-    // wrong side / hands not on the gun".
+    // The clip still owns the gun's location; never pull it to a fixed chest
+    // mount. Finish holding/firing with contact-aware wrists and fingers on
+    // THAT moving gun. Reload/toss gestures intentionally release the support.
     if (!upperKey) { poseWeapon(s); return; }
     placeWeaponOnHands(s);
+    if (upperKey === 'hold' || upperKey === 'runHold' || upperKey === 'fire') solveArms(s);
   }
 
   /**
@@ -1125,10 +1139,11 @@ export function createExternalGirl({ template, meta, data, team }) {
      * First-person arms only. This instance carries no weapon of its own — the
      * first-person gun lives in the viewmodel — so instead of parking a gun on
      * the chest we solve both arms straight onto two world-space grip points the
-     * caller hands in. Returns false when the rig has no mapped arms, which lets
-     * the caller keep the placeholder pair instead.
+     * caller hands in, plus the live gun rotation for wrist/finger posing.
+     * Returns false for missing arms or unreachable contacts so the caller can
+     * keep the shaped glove pair instead of showing a disconnected hand.
      */
-    poseArms(handTarget, foreTarget) {
+    poseArms(handTarget, foreTarget, gunRotation) {
       if (!driven.elbowR || !driven.handR || !driven.elbowL || !driven.handL) return false;
       root.updateMatrixWorld(true);
       const eL = driven.elbowL.bone.getWorldPosition(_sA).clone();
@@ -1136,10 +1151,9 @@ export function createExternalGirl({ template, meta, data, team }) {
       _right.copy(eR).sub(eL).normalize();
       _poleR.copy(_right).multiplyScalar(0.7).add(_down).normalize();
       _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
-      solveArm('R', handTarget, _poleR);
-      solveArm('L', foreTarget, _poleL);
-      return driven.handR.bone.getWorldPosition(_sA).distanceTo(handTarget) < 0.07
-        && driven.handL.bone.getWorldPosition(_sB).distanceTo(foreTarget) < 0.07;
+      const rightError = solveGrip('R', handTarget, _poleR, gunRotation);
+      const leftError = solveGrip('L', foreTarget, _poleL, gunRotation);
+      return rightError < 0.07 && leftError < 0.07;
     },
 
     destroy() {

@@ -9,8 +9,8 @@
 // The transforms below were solved offline: for each file the longest axis was
 // carried onto +Z, the muzzle end picked as the thinner of the two, and the
 // result scaled so the overall length matches the procedural gun's envelope
-// (smg 0.92 m, rifle 1.12 m, lmg 1.22 m, bolt 1.28 m). Keeping that envelope is
-// what lets the rig's grip points and the first-person hands land unchanged.
+// (smg 0.92 m, rifle 1.12 m, lmg 1.22 m, bolt 1.28 m). Hand contacts are
+// measured on these normalized meshes in weaponpose.js, not on the placeholder.
 
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
