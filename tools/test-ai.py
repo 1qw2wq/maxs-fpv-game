@@ -178,6 +178,58 @@ class BotTests(unittest.TestCase):
         self.assertGreater(st['escape_until'], self.clock)
         self.assertEqual(st['route_at'], 0)
 
+    def test_lost_navigation_does_not_feed_lane_bias_back_into_yaw(self):
+        # With no flow vector (including a reached goal), the old fallback
+        # rotated its own yaw by the flank bias every tick: gun-holding circles.
+        self.foe['alive'] = False
+        for hz in (30, 60, 144):
+            for lane in (-16, 16):
+                self.bot.update(pos=[0, 0, 0], yaw=359, bot_state=bots.new_state(0))
+                self.bot['bot_state']['lane'] = lane
+                total_turn = 0
+                with patch.object(combat, 'nav_dir', return_value=None):
+                    for _ in range(hz):
+                        before = self.bot['yaw']
+                        self.advance(1000 / hz)
+                        total_turn += abs(bots._angdiff(before, self.bot['yaw']))
+                self.assertLess(total_turn, 1, (hz, lane, total_turn))
+                self.assertGreater(math.hypot(self.bot['pos'][0], self.bot['pos'][2]), 4)
+
+    def test_escape_heading_is_fixed_not_relative_to_changing_yaw(self):
+        self.foe['alive'] = False
+        st = self.bot['bot_state']
+        st['progress_pos'], st['progress_at'] = list(self.bot['pos']), 0
+        with patch.object(combat, 'nav_dir', return_value=(1, 0)):
+            self.advance(33)
+        first = list(self.bot['velocity'])
+        for _ in range(12):
+            # A corner or a new facing must not bend the chosen escape path.
+            self.bot['yaw'] = (self.bot['yaw'] + 40) % 360
+            with patch.object(combat, 'nav_dir', return_value=(0, 1)):
+                self.advance(33)
+            velocity = self.bot['velocity']
+            dot = (first[0]*velocity[0]+first[2]*velocity[2]) / (math.hypot(first[0],first[2])*math.hypot(velocity[0],velocity[2]))
+            self.assertGreater(dot, .999)
+
+    def test_memory_and_objective_navigation_do_not_both_turn_the_body(self):
+        self.foe['alive'] = False
+        self.match.set_mode('control', 'somme')
+        self.match.control.points = [dict(id='A', p=[-18, 0, 0], owner=-1,
+                                         attacking=-1, contested=False)]
+        st = self.bot['bot_state']
+        st.update(last_seen=[0, 0, 18], seen_until=self.clock+4000)
+        before = self.bot['yaw']
+        self.advance(100)
+        self.assertLessEqual(abs(bots._angdiff(before,self.bot['yaw'])), bots.TURN_DEG_PER_SEC*.1)
+        self.assertAlmostEqual(self.bot['yaw'], bots.TURN_DEG_PER_SEC*.6*.1)
+
+    def test_investigated_last_seen_position_expires(self):
+        self.foe['alive'] = False
+        st = self.bot['bot_state']
+        st.update(last_seen=[.2, 0, 0], seen_until=self.clock+4000)
+        self.advance(33)
+        self.assertLessEqual(st['seen_until'], self.clock)
+
     def test_real_maps_simulation_stays_finite_and_outside_walls(self):
         for map_id in ('somme', 'italy'):
             combat.set_map(map_id)

@@ -50,7 +50,8 @@ def new_state(team):
         "cover": None, "cover_at": 0.0,
         "route": [], "route_goal": None, "route_at": 0.0,
         "progress_at": now + 900.0, "progress_pos": None,
-        "escape_until": 0.0,
+        "escape_until": 0.0, "escape_heading": 0.0,
+        "search_heading": None,
     }
 
 
@@ -283,6 +284,12 @@ def think(match, p, dt_ms):
     else:
         st["foe_id"] = None
     memory = st["last_seen"] if now < st["seen_until"] else None
+    if not visible and memory and dist3(p["pos"], memory) <= 1.2:
+        # We investigated this location. Do not keep aiming back through it
+        # while resuming patrol (which made the body chase its own position).
+        st["seen_until"], memory = 0.0, None
+    if visible or memory:
+        st["search_heading"] = None
     ideal = {"smg": 12.0, "rifle": 25.0, "lmg": 30.0, "bolt": 42.0}.get(w["shape"], 22.0)
     hurt = p["hp"] < CLASSES[p["cls"]]["maxHp"] * 0.38
     reloading = now < p["reload_end"]
@@ -339,8 +346,7 @@ def think(match, p, dt_ms):
         else:
             dx, dz = _route_direction(p,target['p'],now)
             speed_mult = .85
-        if not visible and abs(dx)+abs(dz) > .01:
-            p['yaw'] = _turn_yaw(p['yaw'],math.degrees(math.atan2(dz,dx)),TURN_DEG_PER_SEC*dt)
+        st["search_heading"] = None
     elif visible:
         dx, dz = visible["pos"][0] - p["pos"][0], visible["pos"][2] - p["pos"][2]
         if distance < ideal * 0.5:
@@ -353,10 +359,18 @@ def think(match, p, dt_ms):
         speed_mult = 0.8
     else:
         nd = combat.nav_dir(p["pos"][0], p["pos"][2], p["team"])
-        dx, dz = nd if nd else (math.cos(math.radians(p["yaw"])), math.sin(math.radians(p["yaw"])))
-        dx, dz = dx - dz * st["lane"] * 0.015, dz + dx * st["lane"] * 0.015
+        if nd:
+            st["search_heading"] = None
+            dx, dz = nd
+            dx, dz = dx - dz * st["lane"] * 0.015, dz + dx * st["lane"] * 0.015
+        else:
+            # No path / reached the flow-field goal: keep an absolute heading.
+            # Applying the lane bias to our own yaw here feeds each turn back
+            # into the next tick and produces endless gun-holding circles.
+            if st["search_heading"] is None:
+                st["search_heading"] = math.radians(p["yaw"])
+            dx, dz = math.cos(st["search_heading"]), math.sin(st["search_heading"])
         speed_mult = 0.9
-        p["yaw"] = _turn_yaw(p["yaw"], math.degrees(math.atan2(dz, dx)), TURN_DEG_PER_SEC * dt)
     if now >= st["strafe_until"]:
         st["strafe"] *= -1
         st["strafe_until"] = now + _RNG.uniform(1800, 4000)
@@ -364,11 +378,13 @@ def think(match, p, dt_ms):
         last = st["progress_pos"]
         if last and speed_mult and dist3(last, p["pos"]) < 0.4:
             st["escape_until"] = now + 700
-            st["detour"], st["route_at"] = 125 * st["strafe"], 0
+            # Commit in world space, not relative to the changing aim/body yaw.
+            st["escape_heading"] = math.atan2(dz, dx) + math.radians(125 * st["strafe"])
+            st["detour"], st["route_at"] = None, 0
             st["strafe"] *= -1
         st["progress_pos"], st["progress_at"] = list(p["pos"]), now + 900
     if now < st["escape_until"]:
-        angle = math.radians(p["yaw"] + 125 * st["strafe"])
+        angle = st["escape_heading"]
         dx, dz = math.cos(angle), math.sin(angle)
     length = math.hypot(dx, dz) or 1
     dx, dz = dx / length, dz / length
@@ -388,6 +404,11 @@ def think(match, p, dt_ms):
     if nxt:
         st["detour"] = None if off == 0 else off
         p["pos"] = [nxt[0], combat.floor_at(nxt[0], nxt[1], old[1]), nxt[1]]
+    if not visible and not memory and dist3(old, p["pos"]) > 0.005:
+        # Exactly one facing controller per tick: combat/investigation above,
+        # otherwise the direction we actually walked, including obstacle turns.
+        bearing = math.degrees(math.atan2(p["pos"][2]-old[2], p["pos"][0]-old[0]))
+        p["yaw"] = _turn_yaw(p["yaw"], bearing, TURN_DEG_PER_SEC * dt)
     p["velocity"] = [(p["pos"][i]-old[i])/max(dt, 0.001) for i in range(3)]
     p["flags"] = {"move": dist3(old, p["pos"]) > 0.005, "sprint": False, "crouch": crouch, "ground": True}
     return events
