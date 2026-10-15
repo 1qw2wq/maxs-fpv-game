@@ -356,6 +356,7 @@ export class Net {
         pitch: pa.pi + (pb.pi - pa.pi) * k,
         speed: Math.hypot(dx, dz) / dt,
         flags: pb.f,
+        shotSeq: pb.sq,
         alive: pb.al,
         name: pb.n, cls: pb.c, weapon: pb.w, team: pb.tm, skin: pb.sk || '',
         hp: pb.hp, kills: pb.k, deaths: pb.d,

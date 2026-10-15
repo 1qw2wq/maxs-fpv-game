@@ -8,10 +8,11 @@
 import * as THREE from 'three';
 import { loadConfig } from './config.js';
 import { World } from './map.js';
+import { resolveCamera } from './camera-collision.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
 import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
-import { GunFx, gunStyle, tracerRound } from './gunfx.js';
+import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
@@ -2239,23 +2240,16 @@ function tick(dt, now) {
   const eye = app.controls.eye();
   const dir = app.controls.aim();
   const tp = app.cameraMode === 'tp';
-  if (tp) {
-    const back = 3.1, up = 0.45;
-    app.camera.position.set(
-      eye.x - dir.x * back,
-      Math.max(app.world.groundY + 0.45, eye.y + up - dir.y * back),
-      eye.z - dir.z * back,
-    );
-    // look straight along `dir`, so the crosshair still marks the true aim ray
-    app.camera.lookAt(
-      app.camera.position.x + dir.x,
-      app.camera.position.y + dir.y,
-      app.camera.position.z + dir.z,
-    );
-  } else {
-    app.camera.position.copy(eye);
-    app.camera.lookAt(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z);
-  }
+  app.camera.fov = THREE.MathUtils.lerp(app.camera.fov, aimFov(me), Math.min(1, dt * 12));
+  // Preserve the near plane that clips the borrowed FP body; collision
+  // protects its entire near-plane envelope, including widescreen corners.
+  app.camera.near = tp ? 0.06 : FP_NEAR;
+  const desired = tp ? eye.clone().addScaledVector(dir, -3.1).add(new THREE.Vector3(0, 0.45, 0)) : eye;
+  resolveCamera(app.world, eye, desired, app.camera, app.camera.position);
+  // A contracted shoulder camera can reach the avatar's face. Hide only the
+  // local body there instead of filling the screen with its hair/inside mesh.
+  if (tp && app.self && app.camera.position.distanceToSquared(eye) < 0.64) app.self.root.visible = false;
+  app.camera.lookAt(app.camera.position.clone().add(dir));
   // Per-gun camera punch: applied to the rendered camera *after* it has been
   // aimed, so the aim ray the crosshair and the server share is untouched -- a
   // Springfield throws the picture around, an MP18 barely moves it.
@@ -2268,11 +2262,6 @@ function tick(dt, now) {
   }
   // in third person the character body replaces the viewmodel
   app.vm.root.visible = !tp;
-  app.camera.fov = THREE.MathUtils.lerp(app.camera.fov, aimFov(me), Math.min(1, dt * 12));
-  // First person borrows the character's own arms, and that model sits at the
-  // lens: the deeper near plane is what strips away the head, hair and chest
-  // that would otherwise fill the screen, leaving only the arms reaching in.
-  app.camera.near = tp ? 0.06 : FP_NEAR;
   app.camera.updateProjectionMatrix();
 
   // 30 Hz input upload
@@ -2374,6 +2363,7 @@ function fireOnce(w, eye, dir) {
   if (app.cameraMode === 'tp') {
     if (!app.self?.muzzleWorld(from)) from.copy(eye);
     if (!app.self?.ejectWorld?.(eject)) eject.copy(from);
+    attachment = app.self?.root.getObjectByName('weapon-muzzle') || null;
   } else {
     if (!app.vm.shotWorld(from, eject) || from.distanceTo(eye) > 3) {
       from.copy(eye); eject.copy(eye);
@@ -2560,26 +2550,6 @@ function updateRemotePlayers(dt, me) {
     const rw = app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0];
     girl.setWeapon(rw);
     girl.setAlive(!!p.alive);
-    // Bit 3 of the state's flag byte is set while this player's trigger is down
-    // (see game.py). It stays set between shots, so the rhythm here is the
-    // weapon's own rate of fire -- a Lewis chatters, a Springfield does not.
-    if (p.alive && (p.flags & 8)) {
-      const now = performance.now();
-      // muzzleWorld exists on both characters (built-in and imported rig); the
-      // guard keeps a future rig without one from spamming the console.
-      if (now >= (girl.nextShot || 0) && girl.muzzleWorld && girl.muzzleWorld(_shotFrom)) {
-        aimFromAngles(_shotDir, p.yaw, p.pitch);
-        app.gunfx?.remote(rw, _shotFrom, _shotDir);
-        const dist = _shotFrom.distanceTo(app.camera.position);
-        if (dist < 90 && app.remoteShots > 0) {
-          app.remoteShots--;
-          app.sfx.shotFar(rw, gunStyle(rw), dist);
-        }
-        girl.nextShot = now + (60000 / (rw?.rpm || 500)) * 0.94;
-      }
-    } else {
-      girl.nextShot = 0;
-    }
     girl.marker.visible = true;
     girl.marker.material.color.set(p.team === app.myTeam ? 0x3ddc6a : 0xff3b30);
 
@@ -2608,6 +2578,25 @@ function updateRemotePlayers(dt, me) {
         pitch: p.pitch,
       });
     }
+    // Read sockets AFTER the live avatar pose. Accepted-shot sequences avoid
+    // missing bolt shots between snapshots or repeating one shot's flag pulse.
+    if (remoteShotDue(girl, p, rw, performance.now()) && girl.muzzleWorld?.(_shotFrom)) {
+      const attachment = girl.root.getObjectByName('weapon-muzzle');
+      if (attachment) attachment.getWorldDirection(_shotDir);
+      else aimFromAngles(_shotDir, p.yaw, p.pitch);
+      const eject = new THREE.Vector3();
+      if (!girl.ejectWorld?.(eject)) eject.copy(_shotFrom);
+      app.gunfx?.remote(rw, _shotFrom, _shotDir, { eject, attachment });
+      const style = gunStyle(rw);
+      if (tracerRound(style, p.shotSeq ?? Math.round(performance.now() / (60000 / rw.rpm)))) {
+        const eye = new THREE.Vector3(p.x, p.y + ((p.flags & 1) ? app.data.combat.crouchEyeHeight : app.data.combat.standEyeHeight), p.z);
+        const direction = aimFromAngles(new THREE.Vector3(), p.yaw, p.pitch);
+        spawnTracer(_shotFrom, rayEnd(eye, direction), style);
+      }
+      const dist = _shotFrom.distanceTo(app.camera.position);
+      if (dist < 90 && app.remoteShots > 0) { app.remoteShots--; app.sfx.shotFar(rw, style, dist); }
+    }
+
   }
 
   for (const [id, girl] of app.remotes) {

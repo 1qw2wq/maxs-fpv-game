@@ -1,5 +1,7 @@
 // Invoked by test-vercel.mjs using its static server/browser. No game backend.
 import assert from 'node:assert/strict';
+import { testLiveArsenal } from './test-arsenal.mjs';
+import { testLiveCamera } from './test-camera.mjs';
 export async function testEffects(context, origin) {
   const page = await context.newPage();
   const errors = [];
@@ -200,6 +202,8 @@ export async function testEffects(context, origin) {
     if (!Number.isFinite(app.vm.gunMount.position.y)) throw new Error('Invalid live reload pose');
     if (app.fpArms?.holder.visible && app.vm.armMeshes.visible) throw new Error('Duplicate first-person arms');
   });
+  await testLiveArsenal(game);
+  await testLiveCamera(game);
   assert.deepEqual(gameErrors, []);
   console.log('PASS: real main.js solo deploy, native mouse firing, reload and landed smoke rendering');
   await game.close();

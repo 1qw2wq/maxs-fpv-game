@@ -112,6 +112,7 @@ export function buildWeapon(weapon) {
   }
 
   const muzzle = new THREE.Object3D();
+  muzzle.name = 'weapon-muzzle';
   muzzle.position.set(0, 0, weapon.shape === 'bolt' ? 0.68 : weapon.shape === 'lmg' ? 0.62 : 0.5);
   group.add(muzzle);
 

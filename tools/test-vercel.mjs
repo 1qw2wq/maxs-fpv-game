@@ -6,6 +6,8 @@
 import assert from 'node:assert/strict';
 import { testEffects } from './test-effects.mjs';
 import { testHands } from './test-hands.mjs';
+import { testCamera } from './test-camera.mjs';
+import { testArsenal } from './test-arsenal.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -324,6 +326,8 @@ try {
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
+  await testCamera(context, origin);
+  await testArsenal(context, origin);
   await testHands(context, origin);
   await testEffects(context, origin);
 

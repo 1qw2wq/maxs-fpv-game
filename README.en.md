@@ -208,6 +208,26 @@ The game needs no plugins, but two browser environments restrict pages and both 
   a buoyant crown and gradual dissipation. Inside-cloud fog follows the same density envelope.
   Particle placement is seeded by effect id and animation is time-based, not frame-rate dependent.
 
+### Smarter solo bots and collision-safe cameras
+
+- Bots acquire enemies through a field of view, solid line of sight and smoke checks. They briefly
+  investigate a frozen last-seen position instead of tracking hidden players through walls. Target
+  hysteresis, reaction time, weapon-specific engagement distances and short bursts keep fights readable.
+- Low-health/reloading bots seek occluding cover, reload partial magazines when safe, avoid teammates
+  in their firing lane, and place healing/ammo crates when their nearby team needs them. Cached,
+  bounded A* handles investigation/cover routes; map flow, swept steps and stuck recovery handle travel.
+  They still use the human authoritative ammo, fire-rate, damage and ability paths; solo damage relief
+  is unchanged. This is tactical AI, not machine learning or an external service.
+- FP/TP cameras use a swept near-plane-sized collision volume against map solids, including ramps,
+  floors and ceilings. TP retracts at walls; FP resolves near-plane overlap, including wide screens.
+  Jumping also stops at ceilings. A fully contracted TP camera hides the local body, not other players.
+  Camera correction never moves the player's body or authoritative shooting ray.
+- All 12 guns retain flashes for at least one rendered frame, even at low frame rates. Local and remote
+  flashes follow the posed muzzle; brass keeps its per-gun size and smoke fades independently. Remote
+  sounds now use the actual gun's decoded sample. Accepted-shot sequence numbers prevent duplicate or
+  missed remote effects from short firing flags and repeated/out-of-order snapshots (older hosts retain
+  the cadence-limited fallback). FX pools remain bounded.
+
 ### Static-deployment browser regression tests
 
 Run with Node.js 22.17+ on Linux (or provide your own Chromium via `CHROMIUM_EXECUTABLE`):
@@ -230,6 +250,11 @@ and an actual solo deploy/fire/reload/grenade render. `tools/test-hands.mjs` add
 all four shipped skeletons across 384 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
 hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
+`tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
+`tools/test-arsenal.mjs` verifies all 12 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
+shot deduplication and pool cleanup; the actual solo game also fires all 12 guns in FP and TP (24 cases).
+Run `python tools/test-ai.py` for 13 deterministic AI/engine tests, including 60-second simulated matches
+on both shipped maps. Browser regressions can take a few minutes on software-rendered Chromium.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
 ---

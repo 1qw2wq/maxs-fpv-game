@@ -257,6 +257,7 @@ export class Sfx {
     if (gain < 0.02) return;
     const rate = (snd.rate ?? 1) * (1 - far * 0.12);
     const lpf = 700 + 1800 * (1 - far);
+    if (this._playBuf(this._guns[weapon?.id], { gain, rate, lpf })) return;
     if (this._sample('shot', { gain, rate, lpf })) return;
     const shape = weapon?.shape || 'rifle';
     const tone = snd.tone ?? 1;

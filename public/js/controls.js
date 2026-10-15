@@ -381,6 +381,19 @@ export class Controls {
       // the body drops to whatever is underneath.
       this.grounded = false;
     }
+    // Sweep the head upward too. Horizontal collision alone lets a jump put
+    // the eyes inside a ceiling before the next frame can reject movement.
+    if (this.vy > 0) {
+      const oldTop = this.pos.y + this.bodyHeight;
+      for (const b of this.world._near(this.pos.x, this.pos.z, 0.35)) {
+        if (Math.abs(this.pos.x - b.x) >= b.w / 2 + 0.35 || Math.abs(this.pos.z - b.z) >= b.d / 2 + 0.35) continue;
+        const underside = b.y - b.h / 2;
+        if (underside >= oldTop - 0.001 && ny + this.bodyHeight >= underside) {
+          ny = Math.min(ny, underside - this.bodyHeight - 0.002);
+          this.vy = 0;
+        }
+      }
+    }
     this.pos.y = ny;
 
     this.moveSpeed = Math.hypot(this.vel.x, this.vel.z);

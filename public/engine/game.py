@@ -188,7 +188,7 @@ class Match:
             "pitch": 0.0, "flags": {}, "mag": mag_size(weapon),
             "reserve": reserve_cap(weapon),
             "reload_end": 0.0, "reload_from": 0.0, "reload_total": 0.0,
-            "last_shot": 0.0, "ability_ready": 0.0,
+            "last_shot": 0.0, "shot_seq": 0, "ability_ready": 0.0,
             "ability_charges": int(CLASSES[cls].get("abilityCharges", 1)),
             "kills": 0, "deaths": 0, "respawn_at": 0.0, "reveal_until": 0.0,
             "last_input": now_ms(), "bot": bot, "ws": ws, "ping": 0,
@@ -370,6 +370,7 @@ class Match:
             return []
 
         p["last_shot"] = now
+        p["shot_seq"] = p.get("shot_seq", 0) + 1
         p["mag"] -= 1
 
         max_range = 220.0
@@ -811,7 +812,10 @@ class Match:
                 "i": p["id"], "n": p["name"], "tm": p["team"], "c": p["cls"], "w": p["weapon"],
                 "hp": int(max(0, p["hp"])), "al": 1 if p["alive"] else 0,
                 "p": [round(v, 2) for v in p["pos"]],
-                "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f,
+                # Monotonic accepted-shot sequence survives respawns. Unlike
+                # the short flag pulse, slow weapons cannot disappear between
+                # snapshots, and a repeated snapshot cannot replay a shot.
+                "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f, "sq": p.get("shot_seq", 0),
                 "rv": 1 if p["reveal_until"] > now else 0,
                 "sp": 1 if p["suppress_until"] > now else 0,
                 "sk": p["skin"],
