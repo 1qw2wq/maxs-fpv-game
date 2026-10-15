@@ -81,7 +81,11 @@ export class MobileControls {
       if (!p) return;
       e.preventDefault();
       this.pointers.delete(e.pointerId);
-      if (this.lookPointer === e.pointerId) this.lookPointer = null;
+      if (this.lookPointer === e.pointerId) {
+        // A second finger may already be holding Fire while the look finger
+        // lifts. Hand aim to that captured finger without requiring a new tap.
+        this.lookPointer = [...this.pointers].find(([, held]) => held.action === 'fire' || held.action === 'look')?.[0] ?? null;
+      }
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       this.release(p.action, cancelled);
       this.syncButtons();
@@ -103,10 +107,10 @@ export class MobileControls {
   press(action) {
     const c=this.controls;
     switch(action) {
-      case 'fire': c.mouse.left=true; c.onFireDown?.(); break;
+      case 'fire': c.mouse.left=true; c.touchFirePending=true; c.onFireDown?.(); break;
       case 'aim': c.mouse.right=!c.mouse.right; c._aimHeld=c.mouse.right; break;
       case 'crouch': if(c.touchKeys.has('ShiftLeft'))c.touchKeys.delete('ShiftLeft');else c.touchKeys.add('ShiftLeft'); break;
-      case 'jump': c.touchKeys.add('Space'); break;
+      case 'jump': c.touchKeys.add('Space'); c.queueJump(); break;
       case 'reload': c.onReload?.(); break;
       case 'ability': c.onAbilityDown?.(); break;
       case 'grenade': c.onGrenadeDown?.(); break;
@@ -122,8 +126,8 @@ export class MobileControls {
     const c=this.controls;
     switch(action) {
       case 'move': c.touchMove.x=c.touchMove.y=0; this.knob.style.transform=''; break;
-      case 'fire': c.mouse.left=false; break;
-      case 'jump': c.touchKeys.delete('Space'); break;
+      case 'fire': c.mouse.left=false; if(cancelled)c.touchFirePending=false; break;
+      case 'jump': c.touchKeys.delete('Space'); if(cancelled)c._jumpBuffer=0; break;
       case 'ability': if(cancelled)c.onAbilityCancel?.();else c.onAbilityUp?.(); break;
       case 'grenade': if(cancelled)c.onAbilityCancel?.();else c.onGrenadeUp?.(); break;
       case 'score': c.onScoreboard?.(false); break;
@@ -142,6 +146,7 @@ export class MobileControls {
     }
     this.controls.touchMove.x=this.controls.touchMove.y=0;
     this.controls.touchKeys.clear();
+    this.controls.touchFirePending=false;
     this.controls.mouse.left=this.controls.mouse.right=this.controls._aimHeld=false;
     this.knob.style.transform='';
     this.syncButtons();

@@ -2339,7 +2339,10 @@ function tick(dt, now) {
     app.pendingBolt = null;
   }
 
-  const wantShot = w.auto ? app.controls.mouse.left : (app.clickPending && app.controls.mouse.left);
+  // A quick touch tap can begin AND end between slow rendered frames. Keep
+  // one trigger edge, not an entire extra burst; canceled gestures clear it.
+  const trigger = app.controls.mouse.left || app.controls.touchFirePending;
+  const wantShot = w.auto ? trigger : (app.clickPending && trigger);
   if (alive && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
@@ -2352,6 +2355,7 @@ function tick(dt, now) {
     }
   }
   app.clickPending = false;
+  app.controls.touchFirePending = false;
 
   // footstep audio
   if (alive && app.controls.grounded && app.controls.moveSpeed > 1.2) {

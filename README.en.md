@@ -219,6 +219,9 @@ silently enabled because a desktop lock request failed.
   normalized, and the existing collision, crouch, jump and movement authority are unchanged.
 - **Right side:** swipe to aim. **Hold Fire and slide the same finger** to aim while shooting, so
   two thumbs can move and shoot simultaneously. Separate pointer IDs support additional fingers.
+  If the look finger lifts while Fire is still held, aiming transfers to the Fire finger without
+  needing another press. Very short Fire/Jump taps survive between rendered frames; canceled fire
+  taps are discarded. Queued taps still obey normal weapon cooldown, ammo and reload rules.
 - **Aim / Crouch:** tap to toggle. **Jump:** press (holding does not auto-bounce). **Reload:** tap.
 - **Skill / Grenade:** hold to charge, release to throw; healing/ammo crates deploy on press.
   **Cycle grenade** changes type. Touch buttons use the existing authoritative gameplay callbacks.
@@ -233,7 +236,9 @@ silently enabled because a desktop lock request failed.
 `tools/test-mobile.mjs` is included in `node tools/test-vercel.mjs`. It uses real Chromium touch
 injection for multi-finger movement/look/fire, analog 30/60/144 Hz movement, ADS precision, action
 buttons, interrupted gestures, saved/automatic mode selection and live deploy/fire/reload/grenades,
-score/chat, pause/resume, death/respawn and leaving, plus portrait bounds. Tested with mobile browser
+score/chat, pause/resume, death/respawn and leaving. Layout checks cover 320×568, 568×320,
+844×390 and 390×844, with at least 44px button targets, unobstructed centers, no button/joystick
+or score/tools overlap, and readable ammo. Quick-tap authority checks include SMG and bolt rifle. Tested with mobile browser
 emulation, not physical iOS/Android devices; GPU performance and browser support still vary.
 Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the portrait fixture.
 

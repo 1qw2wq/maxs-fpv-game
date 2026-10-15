@@ -50,7 +50,11 @@ export async function testMobile(browser, origin) {
     const fire=await center(page,action('fire'));
     await touch.down(3,fire.x,fire.y);
     assert.ok(await page.evaluate(()=>c.mouse.left && c.touchMove.y>.99 && trace.fire===1));
-    await touch.up(2);await touch.up(3);
+    await page.evaluate(()=>flush());const handoffYaw=await page.evaluate(()=>c.yaw);
+    await touch.up(2);await touch.move(3,fire.x-25,fire.y);
+    await page.waitForFunction(before=>{c.updateMouseLook(1/60);return c.yaw<before;},handoffYaw);
+    assert.ok(await page.evaluate(()=>c.mouse.left && c.touchMove.y>.99),'Aim handoff must retain fire and movement');
+    await touch.up(3);
     assert.ok(await page.evaluate(()=>!c.mouse.left && c.touchMove.y>.99),JSON.stringify(await page.evaluate(()=>({move:c.touchMove,fire:c.mouse.left,pointers:[...mobile.pointers.values()].map(p=>p.action),trace}))));
     await page.evaluate(()=>flush());const yaw=await page.evaluate(()=>c.yaw);
     await touch.down(3,fire.x,fire.y);await touch.move(3,fire.x-30,fire.y+8);await page.waitForFunction(before=>{c.updateMouseLook(1/60);return c.yaw<before;},yaw);await page.evaluate(()=>flush());
@@ -60,6 +64,18 @@ export async function testMobile(browser, origin) {
     for(const name of ['aim','crouch','reload','cycle','view'])await touch.tap(action(name));
     await page.evaluate(()=>{c.update(1/60,true,false);if(!c.ads || !c.crouch || trace.reload!==1 || trace.cycle!==1 || trace.view!==1)throw Error('Touch actions not wired');});
     await touch.tap(action('aim'));await touch.tap(action('crouch'));
+    await page.evaluate(()=>c.reset([0,0,0],0));
+    await touch.tap(action('jump'));
+    await page.evaluate(()=>{c.update(1/60,true,false);if(c.grounded || c.vy<=0)throw Error('Quick touch jump was lost between frames');c.reset([0,0,0],0);});
+    await page.evaluate(()=>{
+      mobile.press('fire');mobile.release('fire',false);
+      if(c.mouse.left || !c.touchFirePending)throw Error('Quick fire tap was lost');
+      c.releaseLook();if(c.touchFirePending)throw Error('Released controls retained a queued shot');
+      c.requestLock();mobile.press('fire');mobile.release('fire',true);
+      if(c.touchFirePending)throw Error('Canceled touch queued a shot');
+      mobile.press('jump');mobile.release('jump',true);c.update(1/60,true,false);
+      if(!c.grounded)throw Error('Canceled touch queued a jump');
+    });
     await touch.tap(action('grenade'));assert.equal(await page.evaluate(()=>trace.grenadeUp),1);
     const ability=await center(page,action('ability'));
     await touch.down(4,ability.x,ability.y);await touch.cancel();
@@ -76,7 +92,7 @@ export async function testMobile(browser, origin) {
     await touch.tap(action('pause'));
     assert.ok(await page.evaluate(()=>!c.canLook && mobile.pointers.size===0));
     await page.evaluate(()=>{if(lockRequests || document.pointerLockElement)throw Error('Touch mode used pointer lock');c.setMobileMode(false);mobile.update(true);const yaw=c.yaw;window.dispatchEvent(new MouseEvent('mousemove',{movementX:100}));c.updateMouseLook(1/60);if(c.canLook || c.yaw!==yaw || !mobile.root.classList.contains('hidden'))throw Error('Desktop fallback/cursor steering enabled');});
-    console.log('PASS: real multi-touch joystick + aim/fire, analog/FPS/ADS precision, jump, all touch actions, cancellation/resize and desktop isolation');
+    console.log('PASS: real multi-touch aim handoff, quick jump/fire/cancel, joystick + aim/fire, analog/FPS/ADS precision, jump, all touch actions, cancellation/resize and desktop isolation');
 
     await page.goto(origin+'/');await page.locator('#boot').waitFor({state:'hidden',timeout:30000});
     assert.equal(await page.evaluate(()=>window.__trench.app.controls.mobileMode),true,'Coarse touch device not auto-detected');
@@ -100,6 +116,30 @@ export async function testMobile(browser, origin) {
     const mag=await page.evaluate(()=>window.__trench.app.net.lastMe.mag);
     await liveTouch.tap(action('fire'));
     await page.waitForFunction(before=>window.__trench.app.net.lastMe.mag<before,mag);
+    // Begin/end the trigger in one JS task, so no render frame can see held
+    // state. The live authority must still accept exactly one queued tap.
+    await page.waitForFunction(()=>!window.__trench.app.controls.mouse.left && ![...window.__trench.app.mobile.pointers.values()].some(p=>p.action==='fire'));
+    const quickMag=await page.evaluate(()=>{
+      const {app}=window.__trench;
+      // Settle earlier commands and open both rate gates. This test isolates
+      // a between-frame tap, not client/engine clock skew on software WebGL.
+      app.net._flush();app.nextShot=0;
+      const before=Number(app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['last_shot']=0\nint(p['mag'])`));
+      app.mobile.press('fire');app.mobile.release('fire',false);
+      return before;
+    });
+    try { await page.waitForFunction(before=>window.__trench.app.net.lastMe.mag===before-1,quickMag); }
+    catch(error) {
+      console.error('MOBILE QUICK TAP',await page.evaluate(()=>{const {app}=window.__trench;return {me:app.net.lastMe,pending:app.controls.touchFirePending,held:app.controls.mouse.left,look:app.controls.canLook,paused:app.paused,click:app.clickPending,visible:app.mobile.visible,queue:app.net._queue,authority:app.net._engine.py.runPython(`str(_host.room.match.players[${app.myId}]['mag'])`)};}));
+      throw error;
+    }
+    const original=await page.evaluate(()=>{const me=window.__trench.app.net.lastMe;return {c:me.c,w:me.w,mag:me.mag,reserve:me.reserve};});
+    await page.evaluate(()=>{const {app}=window.__trench;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['cls']='scout';p['weapon']='smle';p['mag']=10;p['reserve']=40;p['last_shot']=0`);});
+    await page.waitForFunction(()=>window.__trench.app.net.lastMe.w==='smle' && window.__trench.app.vm.weapon.id==='smle');
+    await page.evaluate(()=>{const {app}=window.__trench;app.nextShot=0;app.boltWait=false;app.mobile.press('fire');app.mobile.release('fire',false);});
+    await page.waitForFunction(()=>window.__trench.app.net.lastMe.mag===9);
+    await page.evaluate(saved=>{const {app}=window.__trench;app.boltWait=false;app.nextShot=0;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['cls']='${saved.c}';p['weapon']='${saved.w}';p['mag']=${saved.mag};p['reserve']=${saved.reserve};p['last_shot']=0`);},original);
+    await page.waitForFunction(id=>window.__trench.app.net.lastMe.w===id && window.__trench.app.vm.weapon.id===id,original.w);
     await liveTouch.tap(action('reload'));await page.waitForFunction(()=>window.__trench.app.net.lastMe.reloading);
     await liveTouch.tap(action('aim'));await page.waitForFunction(()=>window.__trench.app.controls.mouse.right);
     await liveTouch.tap(action('view'));assert.equal(await page.evaluate(()=>window.__trench.app.cameraMode),'tp');
@@ -117,6 +157,29 @@ export async function testMobile(browser, origin) {
     await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>window.__trench.app.mobile.visible);
     for(const name of ['fire','aim','reload','jump','ability','grenade','crouch','cycle','score','view','chat','pause']) {
       const box=await page.locator(action(name)).boundingBox();assert.ok(box && box.x>=0 && box.y>=0 && box.x+box.width<=390.1 && box.y+box.height<=844.1,`${name} is outside portrait viewport`);
+    }
+    for(const viewport of [{width:320,height:568},{width:568,height:320},{width:844,height:390},{width:390,height:844}]) {
+      await page.setViewportSize(viewport);
+      const failures=await page.evaluate(()=>{
+        const {app}=window.__trench;
+        document.querySelector('#tb-score-0').textContent='75';document.querySelector('#tb-score-1').textContent='75';
+        const errors=[], rect=el=>el.getBoundingClientRect();
+        const overlap=(a,b)=>Math.min(a.right,b.right)-Math.max(a.left,b.left)>.5 && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>.5;
+        const buttons=[...document.querySelectorAll('#mobile-controls button')];
+        for(const button of buttons) {
+          const r=rect(button),name=button.dataset.action;
+          if(r.width<44 || r.height<44 || r.left<0 || r.top<0 || r.right>innerWidth+.1 || r.bottom>innerHeight+.1)errors.push(name+' out of bounds or too small');
+          const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+          if(hit!==button)errors.push(name+' is covered by '+hit?.className);
+          for(const other of buttons)if(other!==button && overlap(r,rect(other)))errors.push(name+' overlaps '+other.dataset.action);
+          if(overlap(r,rect(app.mobile.stick)))errors.push(name+' overlaps joystick');
+        }
+        for(const tool of document.querySelectorAll('.touch-tools button'))if(overlap(rect(tool),rect(document.querySelector('#topbar'))))errors.push('Tools overlap score HUD');
+        if(overlap(rect(document.querySelector('.touch-fire')),rect(document.querySelector('.ammo-wrap'))))errors.push('Fire covers ammo');
+        if(overlap(rect(app.mobile.stick),rect(document.querySelector('#grenade-chip'))))errors.push('Joystick covers grenade inventory');
+        return errors;
+      });
+      assert.deepEqual(failures,[],`Mobile layout at ${viewport.width}x${viewport.height}`);
     }
     if(process.env.MOBILE_SCREENSHOT)await page.screenshot({path:process.env.MOBILE_SCREENSHOT});
     const liveScore=await center(page,action('score'));
@@ -139,7 +202,7 @@ export async function testMobile(browser, origin) {
     await page.waitForFunction(()=>!window.__trench.app.playing && !window.__trench.app.mobile.visible && !window.__trench.app.controls.enabled);
 
     assert.deepEqual(errors,[]);
-    console.log('PASS: actual mobile auto-detect/saved mode, touch deploy/movement/fire/reload/ADS/view/grenades/pause, portrait buttons and no pointer-lock prompt');
+    console.log('PASS: actual mobile auto-detect/saved mode, touch deploy/movement/fire/reload/ADS/view/grenades/pause, 320px/short-landscape touch targets and no pointer-lock prompt');
   } finally {
     // The bundled Chromium uses --single-process. Destroying an isolated
     // context while other WebRTC contexts are live can crash that process;

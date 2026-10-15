@@ -1112,3 +1112,29 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 }
 
 .mobile-mode .pause-hint { display:none; }
+
+/* Small phones must keep joystick, combat buttons and score/tools separate. */
+.mobile-mode .objective-card { flex:1; min-width:0; }
+@media (max-width:360px) {
+  .mobile-mode #topbar { max-width:108px; padding:6px; gap:4px; }
+  .mobile-mode .tb-num { font-size:15px; }.mobile-mode #tb-timer { font-size:12px; }
+  .mobile-mode .tb-score { gap:0; }.mobile-mode .tb-center { padding:0 3px; }
+  .mobile-mode .touch-tools { right:max(8px,env(safe-area-inset-right)); gap:4px; }
+  .mobile-mode #mobile-controls .touch-tools button { min-width:44px; width:44px; }
+  .mobile-mode .touch-stick { left:max(12px,env(safe-area-inset-left)); width:104px; height:104px; }
+  .mobile-mode .touch-stick-knob { width:44px; height:44px; }
+  .mobile-mode .touch-actions { right:max(12px,env(safe-area-inset-right)); grid-template-columns:repeat(3,48px); gap:5px; }
+  .mobile-mode .objective-card { padding:5px; }.mobile-mode .objective-card b { font-size:17px; margin-right:5px; }
+  .mobile-mode .objective-distance { font-size:9px; }
+}
+@media (max-height:350px) and (orientation:landscape) {
+  .mobile-mode #statusbar { top:calc(62px + env(safe-area-inset-top)); }
+  .mobile-mode #mobile-controls .touch-fire { bottom:calc(166px + env(safe-area-inset-bottom)); width:56px; height:56px; }
+  .mobile-mode #ability-chip { top:108px; padding:5px 9px; }
+  .mobile-mode #grenade-chip { top:150px; padding:5px 9px; }
+  .mobile-mode #grenade-chip small { display:none; }
+  .mobile-mode #objective-hud { top:58px; width:calc(100vw - 350px); }
+  .mobile-mode #objective-mode, .mobile-mode .objective-card small { display:none; }
+  .mobile-mode .objective-card { padding:4px; }.mobile-mode .objective-card b { font-size:16px; margin-right:4px; }
+  .mobile-mode .objective-distance, .mobile-mode #objective-status { font-size:9px; }
+}

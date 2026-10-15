@@ -58,6 +58,7 @@ export class Controls {
     this.locked = false;
     this.mobileMode = false;
     this.touchActive = false;
+    this.touchFirePending = false;
     this.touchMove = { x: 0, y: 0 };
     this.touchKeys = new Set();
     this.onInputReset = null;
@@ -267,6 +268,7 @@ export class Controls {
    */
   releaseLook() {
     this.touchActive = false;
+    this.touchFirePending = false;
     this.touchMove.x = this.touchMove.y = 0;
     this.touchKeys.clear();
     this.onInputReset?.();
@@ -302,6 +304,11 @@ export class Controls {
 
     this.yaw = ((this.yaw % 360) + 360) % 360;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+  }
+
+  /** Retain a short touch press until physics sees it, even between frames. */
+  queueJump() {
+    if (this.enabled && !typing()) this._jumpBuffer = .12;
   }
 
   setClass(cls) {
