@@ -16,12 +16,25 @@ import combat
 
 _RNG = random.Random(20240)
 
-TURN_DEG_PER_SEC = 320.0
-PITCH_DEG_PER_SEC = 240.0
-# Firing while merely "roughly" on target missed badly: 4.5 deg at 13 m is a ~1 m
-# error against a 0.32 m capsule. Bots aim tightly and miss only by design wobble.
+# Same navigation, health, LOS and authoritative weapons for every tier. Skill
+# changes human-like reaction/tracking/trigger discipline, never hidden info.
+SKILLS = {
+    "recruit": dict(reaction=(550, 1000), sense=(280, 420), turn=140, pitch=110,
+                    aim_error=3.2, burst=(180, 400), pause=(550, 1050)),
+    "regular": dict(reaction=(300, 600), sense=(210, 310), turn=230, pitch=170,
+                    aim_error=1.55, burst=(300, 600), pause=(300, 600)),
+    "veteran": dict(reaction=(150, 300), sense=(180, 250), turn=320, pitch=240,
+                    aim_error=0.75, burst=(400, 750), pause=(170, 320)),
+}
+# Per-team rotation: mostly ordinary soldiers; only one veteran per six bots.
+SKILL_ROTATION = ("recruit", "regular", "veteran", "recruit", "regular", "regular")
 AIM_TOLERANCE_DEG = 0.8
-REACTION_MS = (110.0, 380.0)
+
+
+def skill_for_slot(slot):
+    return SKILL_ROTATION[slot % len(SKILL_ROTATION)]
+
+
 STEER_OFFSETS = (0.0, 22.0, -22.0, 45.0, -45.0, 68.0, -68.0, 95.0, -95.0, 125.0, -125.0, 160.0, -160.0, 180.0)
 
 
@@ -29,9 +42,11 @@ def now_ms():
     return time.monotonic() * 1000.0
 
 
-def new_state(team):
+def new_state(team, skill="regular"):
     now = now_ms()
     return {
+        "skill": skill if skill in SKILLS else "regular",
+        "pitch_jitter": 0.0,
         "strafe": 1 if _RNG.random() < 0.5 else -1,
         "strafe_until": now + _RNG.uniform(2500.0, 6000.0),
         # a persistent flank lane keeps the group from stacking into one firing
@@ -253,7 +268,8 @@ def think(match, p, dt_ms):
     now, dt = now_ms(), min(0.2, max(0, dt_ms / 1000.0))
     st = p["bot_state"]
     if st is None:
-        st = p["bot_state"] = new_state(p["team"])
+        st = p["bot_state"] = new_state(p["team"], p.get("bot_skill", "regular"))
+    skill = SKILLS.get(st.get("skill"), SKILLS["regular"])
     if not p["alive"]:
         if match.phase == "live" and now >= p["respawn_at"]:
             events.extend(match._spawn(p))
@@ -270,14 +286,14 @@ def think(match, p, dt_ms):
     if now >= st["sense_at"]:
         visible, _ = _visible_foe(match, p, eye)
         st["visible_id"] = visible["id"] if visible else None
-        st["sense_at"] = now + _RNG.uniform(180, 270)
+        st["sense_at"] = now + _RNG.uniform(*skill["sense"])
     visible = match.players.get(st["visible_id"])
     if not _can_see(match, p, visible, eye):
         visible = None
     distance = dist3(p["pos"], visible["pos"]) if visible else float("inf")
     if visible:
         if st["foe_id"] != visible["id"]:
-            st["react_until"] = now + _RNG.uniform(*REACTION_MS)
+            st["react_until"] = now + _RNG.uniform(*skill["reaction"])
         st["foe_id"] = visible["id"]
         st["last_seen"] = list(visible["pos"])
         st["seen_until"] = now + 4500
@@ -304,19 +320,22 @@ def think(match, p, dt_ms):
         aim_pitch = math.degrees(math.atan2(ty - eye[1], max(0.001, math.hypot(tx - eye[0], tz - eye[2]))))
         if now >= st["jitter_at"]:
             st["jitter"], st["jitter_at"] = _RNG.uniform(-1, 1), now + _RNG.uniform(150, 450)
-        wanted = aim_yaw + st["jitter"] * min(0.9, 14 / max(8, distance))
-        p["yaw"] = _turn_yaw(p["yaw"], wanted, TURN_DEG_PER_SEC * dt)
-        p["pitch"] = clamp(_approach(p["pitch"], aim_pitch, PITCH_DEG_PER_SEC * dt), -89, 89)
-        aligned = abs(_angdiff(p["yaw"], wanted)) < AIM_TOLERANCE_DEG and abs(p["pitch"] - aim_pitch) < AIM_TOLERANCE_DEG
+            st["pitch_jitter"] = _RNG.uniform(-1, 1)
+        error = skill["aim_error"] * min(1, 24 / max(8, distance))
+        wanted = aim_yaw + st["jitter"] * error
+        wanted_pitch = clamp(aim_pitch + st["pitch_jitter"] * error * 0.6, -89, 89)
+        p["yaw"] = _turn_yaw(p["yaw"], wanted, skill["turn"] * dt)
+        p["pitch"] = clamp(_approach(p["pitch"], wanted_pitch, skill["pitch"] * dt), -89, 89)
+        aligned = abs(_angdiff(p["yaw"], wanted)) < AIM_TOLERANCE_DEG and abs(p["pitch"] - wanted_pitch) < AIM_TOLERANCE_DEG
         if now >= st["burst_ready"] and now >= st["burst_end"]:
-            st["burst_end"] = now + _RNG.uniform(300, 650)
-            st["burst_ready"] = st["burst_end"] + _RNG.uniform(180, 380)
+            st["burst_end"] = now + _RNG.uniform(*skill["burst"])
+            st["burst_ready"] = st["burst_end"] + _RNG.uniform(*skill["pause"])
         direction = dir_from_angles(p["yaw"], p["pitch"])
         if aligned and not reloading and now >= st["react_until"] and now < st["burst_end"] and not _friendly_lane(match, p, eye, direction, distance):
             events.extend(match._on_fire(p, {"t": "fire", "o": list(eye), "d": list(direction)}))
     elif memory:
         bearing = math.degrees(math.atan2(memory[2] - eye[2], memory[0] - eye[0]))
-        p["yaw"] = _turn_yaw(p["yaw"], bearing, TURN_DEG_PER_SEC * 0.6 * dt)
+        p["yaw"] = _turn_yaw(p["yaw"], bearing, skill["turn"] * 0.6 * dt)
 
     # Low health/reload: seek actual occluding cover, not a random backwards
     # sidestep. Keep a chosen spot for a second instead of oscillating each tick.
@@ -408,7 +427,7 @@ def think(match, p, dt_ms):
         # Exactly one facing controller per tick: combat/investigation above,
         # otherwise the direction we actually walked, including obstacle turns.
         bearing = math.degrees(math.atan2(p["pos"][2]-old[2], p["pos"][0]-old[0]))
-        p["yaw"] = _turn_yaw(p["yaw"], bearing, TURN_DEG_PER_SEC * dt)
+        p["yaw"] = _turn_yaw(p["yaw"], bearing, skill["turn"] * dt)
     p["velocity"] = [(p["pos"][i]-old[i])/max(dt, 0.001) for i in range(3)]
     p["flags"] = {"move": dist3(old, p["pos"]) > 0.005, "sprint": False, "crouch": crouch, "ground": True}
     return events

@@ -1042,3 +1042,9 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 #tutorial.in-game .tut-list li { display:none; }
 #tutorial.in-game .tut-list li.now { display:flex; }
 #tutorial.in-game .tut-tip { display:block; font-size:11px; line-height:1.5; }
+
+/* Shared menu/pause mouse setting; HUD text stays independent of 3D quality. */
+.sensitivity-field { margin: 12px 0; }
+.sensitivity-field > span { display: flex; justify-content: space-between; }
+.sensitivity-field output { color: var(--gold); font-variant-numeric: tabular-nums; }
+.sensitivity-field input { width: 100%; accent-color: var(--gold); }

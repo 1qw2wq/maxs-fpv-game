@@ -48,6 +48,97 @@ class BotTests(unittest.TestCase):
         self.clock += ms
         return bots.think(self.match, self.bot, ms)
 
+    def use_skill(self, name):
+        self.bot['bot_skill'] = name
+        self.bot['bot_state'] = bots.new_state(self.bot['team'], name)
+        self.bot.update(pos=[0, 0, 0], yaw=0, pitch=0, reload_end=0)
+
+    def test_tier_distribution_is_balanced_and_mostly_non_veteran(self):
+        match = game.Match()
+        match.fill_bots(12)
+        for team in (0, 1):
+            levels = [p['bot_skill'] for p in match.players.values() if p['team'] == team]
+            self.assertEqual(levels, list(bots.SKILL_ROTATION))
+            self.assertEqual(levels.count('veteran'), 1)
+        for row in match.players_payload():
+            self.assertEqual(row['ai'], match.players[row['i']]['bot_skill'])
+        human = match.add_player('Human', None)
+        self.assertEqual(human['bot_skill'], '')
+
+    def test_skill_survives_respawn_and_missing_tactical_state(self):
+        for name in bots.SKILLS:
+            self.use_skill(name)
+            self.match._spawn(self.bot)
+            self.assertEqual(self.bot['bot_state']['skill'], name)
+            self.bot['bot_state'] = None
+            self.advance()
+            self.assertEqual(self.bot['bot_state']['skill'], name)
+
+    def test_reaction_ranges_and_no_firing_before_reaction(self):
+        for name, skill in bots.SKILLS.items():
+            self.use_skill(name)
+            with patch.object(self.match, '_on_fire', return_value=[]) as fire:
+                self.advance(25)
+                st = self.bot['bot_state']
+                remaining = st['react_until'] - self.clock
+                self.assertGreaterEqual(remaining, skill['reaction'][0])
+                self.assertLessEqual(remaining, skill['reaction'][1])
+                self.assertFalse(fire.called)
+                st.update(burst_end=self.clock+5000, burst_ready=self.clock+6000,
+                          jitter=0, pitch_jitter=0, jitter_at=self.clock+6000)
+                self.advance(remaining-1)
+                self.assertFalse(fire.called)
+                self.advance(2)
+                self.assertTrue(fire.called, name)
+
+    def test_tracking_turn_rate_differs_by_skill(self):
+        turns = []
+        for name, skill in bots.SKILLS.items():
+            self.use_skill(name)
+            self.bot['yaw'] = 90
+            self.advance(100)
+            turn = abs(bots._angdiff(90, self.bot['yaw']))
+            self.assertAlmostEqual(turn, skill['turn'] * .1)
+            turns.append(turn)
+        self.assertEqual(turns, sorted(turns))
+        self.assertEqual(len(set(turns)), 3)
+
+    def test_aim_error_and_trigger_pauses_differ_by_skill(self):
+        errors, pauses = [], []
+        for name, skill in bots.SKILLS.items():
+            self.use_skill(name)
+            st = self.bot['bot_state']
+            st.update(jitter=1, pitch_jitter=1, jitter_at=self.clock+5000)
+            self.advance(100)
+            errors.append(abs(bots._angdiff(0, self.bot['yaw'])))
+            self.assertAlmostEqual(errors[-1], skill['aim_error'])
+            tx, ty, tz = bots._target_point(self.foe)
+            exact_pitch = math.degrees(math.atan2(ty-1.58, math.hypot(tx, tz)))
+            self.assertAlmostEqual(self.bot['pitch']-exact_pitch, skill['aim_error']*.6)
+            pause = st['burst_ready']-st['burst_end']
+            self.assertGreaterEqual(pause, skill['pause'][0])
+            self.assertLessEqual(pause, skill['pause'][1])
+            pauses.append(sum(skill['pause'])/2)
+        self.assertEqual(errors, sorted(errors, reverse=True))
+        self.assertEqual(pauses, sorted(pauses, reverse=True))
+
+    def test_all_skills_obey_walls_smoke_and_friendly_lane(self):
+        for name in bots.SKILLS:
+            self.use_skill(name)
+            self.geometry([dict(t='wall', x=9, y=2, z=0, w=.2, h=4, d=20)])
+            with patch.object(self.match, '_on_fire', return_value=[]) as fire:
+                self.advance(100)
+                self.assertIsNone(self.bot['bot_state']['foe_id'])
+                self.assertFalse(fire.called)
+            self.geometry([])
+            self.match.effects = [dict(k='smoke', p=[9, 1, 0], r=4, start=0, until=self.clock+5000)]
+            self.assertFalse(bots._can_see(self.match, self.bot, self.foe, (0, 1.58, 0)))
+            self.match.effects = []
+            friend = self.match.add_player('Friend', None)
+            friend.update(team=self.bot['team'], pos=[9, 0, 0])
+            self.assertTrue(bots._friendly_lane(self.match, self.bot, (0, 1.58, 0), (1, 0, 0), 18))
+            self.match.remove_player(friend['id'])
+
     def test_perception_respects_walls_smoke_and_facing(self):
         eye = (0, 1.58, 0)
         self.assertTrue(bots._can_see(self.match, self.bot, self.foe, eye))
@@ -220,8 +311,8 @@ class BotTests(unittest.TestCase):
         st.update(last_seen=[0, 0, 18], seen_until=self.clock+4000)
         before = self.bot['yaw']
         self.advance(100)
-        self.assertLessEqual(abs(bots._angdiff(before,self.bot['yaw'])), bots.TURN_DEG_PER_SEC*.1)
-        self.assertAlmostEqual(self.bot['yaw'], bots.TURN_DEG_PER_SEC*.6*.1)
+        self.assertLessEqual(abs(bots._angdiff(before,self.bot['yaw'])), bots.SKILLS[self.bot["bot_state"]["skill"]]["turn"]*.1)
+        self.assertAlmostEqual(self.bot['yaw'], bots.SKILLS[self.bot["bot_state"]["skill"]]["turn"]*.6*.1)
 
     def test_investigated_last_seen_position_expires(self):
         self.foe['alive'] = False

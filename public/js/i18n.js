@@ -26,6 +26,10 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  '鼠标灵敏度': 'Mouse sensitivity',
+  'AI 新兵': 'AI Recruit',
+  'AI 普通': 'AI Regular',
+  'AI 老兵': 'AI Veteran',
   'Enter · 8 位房号': 'Enter · 8-digit room code',
   '按 Enter 完成教程并返回主菜单。': 'Press Enter to finish the tutorial and return to the menu.',
   '游戏规则': 'Match rules',

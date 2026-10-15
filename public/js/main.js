@@ -452,6 +452,8 @@ function setupLocalPanel() {
   resetBtn?.addEventListener('click', () => {
     if (!window.confirm(t('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？'))) return;
     profile.reset();
+    const slider = document.querySelector('.mouse-sensitivity');
+    if (slider) { slider.value = '100'; slider.dispatchEvent(new Event('input')); }
     for (const key of ['tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig']) store.remove(key);
     app.hud.setRoomMode('create', '');
     app.hud.setRoomHistory([]);
@@ -685,6 +687,21 @@ function setupMenu() {
   // Everything personal lives in this browser only (see profile.js): the name,
   // the loadout, the room codes and the local stats. No database anywhere.
   const saved = profile.load();
+  const mouseSliders = [...document.querySelectorAll('.mouse-sensitivity')];
+  const setSensitivity = (percent) => {
+    const value = Math.max(25, Math.min(200, percent));
+    app.controls.sensitivity = profile.DEFAULT_PROFILE.sensitivity * value / 100;
+    app.controls.mouseLook.reset();
+    for (const slider of mouseSliders) {
+      slider.value = String(value);
+      slider.closest('label').querySelector('output').textContent = `${value}%`;
+    }
+  };
+  setSensitivity(Math.round(saved.sensitivity / profile.DEFAULT_PROFILE.sensitivity * 100));
+  for (const slider of mouseSliders) slider.addEventListener('input', () => {
+    setSensitivity(Number(slider.value));
+    profile.save({ sensitivity: app.controls.sensitivity });
+  });
   let botCount = saved.soloBots;
   let mode = 'multi';
   app.roomMode = saved.roomMode;

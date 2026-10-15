@@ -189,6 +189,7 @@ class Match:
         if weapon not in CLASS_WEAPONS.get(cls, []):
             weapon = CLASS_WEAPONS[cls][0]
         spawn, spawn_yaw = random_spawn(team, self.rng)
+        skill = bots_mod.skill_for_slot(sum(1 for q in self.players.values() if q["bot"] and q["team"] == team)) if bot else ""
         hp = float(CLASSES[cls]["maxHp"])
         p = {
             "id": pid, "name": name, "team": team, "cls": cls, "weapon": weapon,
@@ -209,7 +210,8 @@ class Match:
             # last bullet/blast that landed; drives out-of-combat regeneration
             "last_hit_ms": now_ms(),
             "hist": deque(maxlen=HIST_MAXLEN),
-            "bot_state": bots_mod.new_state(team) if bot else None,
+            "bot_skill": skill,
+            "bot_state": bots_mod.new_state(team, skill) if bot else None,
             # shared character id; bots always use the built-in girl
             "skin": "" if bot else skin,
         }
@@ -532,7 +534,7 @@ class Match:
         p["last_hit_ms"] = p["last_input"]
         _seed_hist(p, p["last_input"])
         if p["bot"]:
-            p["bot_state"] = bots_mod.new_state(p["team"])
+            p["bot_state"] = bots_mod.new_state(p["team"], p["bot_skill"])
         return [{"to": p["id"], "msg": {"t": "spawn", "p": [round(v, 2) for v in p["pos"]],
                                         "yaw": p["yaw"], "hp": p["hp"], "c": p["cls"], "w": p["weapon"]}}]
 
@@ -905,7 +907,7 @@ class Match:
                 "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f, "sq": p.get("shot_seq", 0),
                 "rv": 1 if p["reveal_until"] > now else 0,
                 "sp": 1 if p["suppress_until"] > now else 0,
-                "sk": p["skin"],
+                "sk": p["skin"], "ai": p["bot_skill"],
                 "k": p["kills"], "d": p["deaths"],
             })
         return out

@@ -4,6 +4,7 @@
 // node tools/test-vercel.mjs
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
+import { testMouseControls, testMouseSettings } from './test-mouse.mjs';
 import { testPerformance, testLiveCover } from './test-performance.mjs';
 import { testAim, testLiveAim } from './test-aim.mjs';
 import { testEffects } from './test-effects.mjs';
@@ -306,7 +307,7 @@ try {
   await lockedPage.waitForFunction(() => controls.locked && !controls.lockUnavailable);
   const yaw = await lockedPage.evaluate(() => controls.yaw);
   await lockedPage.evaluate(() => window.dispatchEvent(new MouseEvent('mousemove', { movementX: 12, movementY: -6 })));
-  await lockedPage.waitForFunction((before) => controls.yaw !== before, yaw);
+  await lockedPage.waitForFunction((before) => { controls.updateMouseLook(1/60); return controls.yaw !== before; }, yaw);
   await lockedPage.evaluate(() => {
     window.fired = window.reloaded = window.charged = false;
     controls.onFireDown = () => { fired = true; };
@@ -346,6 +347,8 @@ try {
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
+  await testMouseControls(context, origin);
+  await testMouseSettings(context, origin);
   await testPerformance(context, origin);
   await testAim(context, origin);
   await testGameplay(context, origin);

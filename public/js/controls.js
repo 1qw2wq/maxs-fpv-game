@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { yawToRotation } from './character.js';
+import { MouseLook } from './mouse-look.js';
 
 const PITCH_LIMIT = 88;
 
@@ -61,6 +62,7 @@ export class Controls {
     this._wantLook = false;
 
     this.sensitivity = 0.0022;
+    this.mouseLook = new MouseLook();
     this.speedMult = 1;
 
     this.onFireDown = null;
@@ -116,10 +118,7 @@ export class Controls {
       const fov = Math.max(10, Math.min(78, this.lookFov || 78));
       const zoomScale = Math.tan(fov * Math.PI / 360) / Math.tan(78 * Math.PI / 360);
       const k = this.sensitivity * 57.2958 * zoomScale;
-      this.yaw += e.movementX * k;
-      this.pitch -= e.movementY * k;
-      this.yaw = ((this.yaw % 360) + 360) % 360;
-      this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+      this.mouseLook.push(e.movementX, e.movementY, k);
     });
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === c && (!this._wantLook || !this.enabled)) {
@@ -127,6 +126,7 @@ export class Controls {
         return;
       }
       this.locked = document.pointerLockElement === this.canvas;
+      this.mouseLook.reset();
       clearTimeout(this._lockWatch);
       this._lockPending = false;
       this._lockRequestId += 1;
@@ -172,6 +172,10 @@ export class Controls {
       this.keys.delete(e.code);
     });
     window.addEventListener('blur', () => this.releaseLook());
+    window.addEventListener('resize', () => this.mouseLook.reset());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.releaseLook();
+    });
   }
 
   /** True only while the player has explicitly taken control of the view. */
@@ -233,6 +237,7 @@ export class Controls {
    * and clicking the view takes the mouse again.
    */
   releaseLook() {
+    this.mouseLook.reset();
     clearTimeout(this._lockWatch);
     this._wantLook = false;
     this._lockPending = false;
@@ -244,9 +249,11 @@ export class Controls {
     this.mouse.right = false;
     this._aimHeld = this.ads = false;
     this.onAbilityCancel?.();
-    if (this.locked || document.pointerLockElement === this.canvas) {
-      document.exitPointerLock?.();
-    }
+    const hadLock = this.locked || document.pointerLockElement === this.canvas;
+    // exitPointerLock completes asynchronously. Stop accepting deltas now,
+    // rather than allowing one final packet into the pause/relock transition.
+    this.locked = false;
+    if (hadLock) document.exitPointerLock?.();
     this.onLookMode?.('free');
   }
 
@@ -271,6 +278,7 @@ export class Controls {
   }
 
   reset(pos, yaw) {
+    this.mouseLook.reset();
     this.pos.set(pos[0], pos[1], pos[2]);
     this.eyeGround = pos[1];
     this.yaw = yaw ?? this.yaw;
@@ -304,7 +312,18 @@ export class Controls {
     return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
   }
 
+  // Called before camera placement AND fire processing: filtered aim and the
+  // crosshair share one orientation, including while zoomed or in third person.
+  updateMouseLook(dt) {
+    if (!this.enabled || !this.canLook || typing()) { this.mouseLook.reset(); return; }
+    const delta = this.mouseLook.consume(dt);
+    this.yaw = ((this.yaw + delta.yaw) % 360 + 360) % 360;
+    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + delta.pitch));
+    if (Math.abs(this.pitch) === PITCH_LIMIT) this.mouseLook.pitch = 0;
+  }
+
   update(dt, alive, suppressed, reloading = false) {
+    if (alive) this.updateMouseLook(dt); else this.mouseLook.reset();
     if (!this.world) return;
     // Ease the *camera* ground height. Vertical speed is unbounded on a jump or
     // a fall, so those track instantly; walking and stairs use a slow constant

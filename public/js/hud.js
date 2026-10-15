@@ -940,20 +940,20 @@ export class Hud {
 
   _renderScoreboard(players, state, myId) {
     this._lastScoreboard = [players, state, myId];
-    for (let t = 0; t < 2; t++) {
-      const team = this.data.teamById[t];
-      const head = t === 0 ? this.el.sbHead0 : this.el.sbHead1;
-      const body = t === 0 ? this.el.sbBody0 : this.el.sbBody1;
-      head.textContent = `${nameOf(team)}  ${state.s[t]}`;
+    for (let teamId = 0; teamId < 2; teamId++) {
+      const team = this.data.teamById[teamId];
+      const head = teamId === 0 ? this.el.sbHead0 : this.el.sbHead1;
+      const body = teamId === 0 ? this.el.sbBody0 : this.el.sbBody1;
+      head.textContent = `${nameOf(team)}  ${state.s[teamId]}`;
       head.style.background = `linear-gradient(90deg, ${team.color}55, transparent)`;
       head.style.color = team.color;
 
       const rows = players
-        .filter((p) => p.tm === t)
+        .filter((p) => p.tm === teamId)
         .sort((a, b) => b.k - a.k || a.d - b.d);
       body.innerHTML = rows.map((p) => `
         <tr class="${p.i === myId ? 'me' : ''}${p.al ? '' : ' dead'}">
-          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}</div></td>
+          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}${p.ai ? ` · ${esc(t({recruit:'AI 新兵',regular:'AI 普通',veteran:'AI 老兵'}[p.ai] || 'AI'))}` : ''}</div></td>
           <td class="k">${p.k}</td>
           <td class="d">${p.d}</td>
         </tr>

@@ -65,6 +65,10 @@
       </div>
       <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
 
+      <label class="field sensitivity-field"><span>鼠标灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="鼠标灵敏度">
+      </label>
+
       <label class="field rules-field"><span>游戏规则</span>
         <select id="game-mode"><option value="tdm">团队死斗</option><option value="control">据点控制</option></select>
         <small>据点控制：占领全部 A / B / C，并连续守住 15 秒获胜；双方同时在圈内会阻止占领。加入房间时遵循房主规则。</small>
@@ -337,6 +341,9 @@
     <div class="pause-panel">
       <h2 class="pause-title">已暂停</h2>
       <p class="pause-note" id="pause-note"></p>
+      <label class="field sensitivity-field"><span>鼠标灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="鼠标灵敏度">
+      </label>
       <div class="pause-actions">
         <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>
         <button id="btn-pause-settings" class="ghost-btn" type="button">设置</button>

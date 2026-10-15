@@ -208,6 +208,32 @@ The game needs no plugins, but two browser environments restrict pages and both 
   a buoyant crown and gradual dissipation. Inside-cloud fog follows the same density envelope.
   Particle placement is seeded by effect id and animation is time-based, not frame-rate dependent.
 
+### Stable mouse input and mixed bot skills
+
+- Pointer-lock packets are coalesced once per frame with a short (~8 ms) filter. Non-finite input,
+  oversized warp packets and large recenter packets just after locking/resizing are rejected.
+  A per-frame turn limit and bounded backlog prevent a stalled frame from producing a sudden spin.
+  Ordinary movement and fast multi-packet flicks retain their total travel; extreme stalled backlogs
+  are deliberately capped. Camera and firing use the **same filtered aim**, including zoom/ADS.
+- **Mouse sensitivity (25–200%)** is available in the main menu and Esc pause menu. Both sliders
+  stay in sync and use the existing local profile setting; it survives reloads when local storage
+  is allowed. Lock changes, Esc, blur, hidden tabs, resizing and respawning clear pending movement.
+  This remains native pointer lock only: no free-cursor steering is introduced.
+- Bots mix **Recruit / Regular / Veteran** skills on each team, visible on the Tab scoreboard.
+  Recruits react in 550–1000 ms, turn more slowly, have wider horizontal/vertical aim error and
+  longer pauses. Regulars react in 300–600 ms; veterans in 150–300 ms with tighter tracking and
+  shorter pauses. These are reaction delays **after acquisition**, not guaranteed time-to-first-shot.
+  Each team's six-bot rotation is Recruit, Regular, Veteran, Recruit, Regular, Regular; smaller
+  teams use its prefix. Most bots are not veterans, and each bot keeps its tier after respawning.
+  Health, damage, LOS/smoke, friendly-lane safety, cover, class abilities and weapon authority remain
+  shared; weaker bots still navigate and play objectives rather than becoming stuck or omniscient.
+
+`node tools/test-mouse.mjs` checks input spikes, first-lock movement, 24/60/144 Hz precision, fast
+flicks and stalled backlogs. `node tools/test-vercel.mjs` also checks actual native-lock integration,
+saved menu/pause sensitivity, mixed-tier live rosters and translated scoreboard labels alongside
+all existing aiming/shooting/multiplayer tests. `python tools/test-ai.py` now includes six skill
+regressions (distribution, respawn/state recovery, reaction gates, turn rates, aim/pauses and LOS safety).
+
 ### Smarter solo bots and collision-safe cameras
 
 - Bots acquire enemies through a field of view, solid line of sight and smoke checks. They briefly
@@ -255,7 +281,7 @@ hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/rel
 `tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
 `tools/test-arsenal.mjs` verifies all 12 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
 shot deduplication and pool cleanup; the actual solo game also fires all 12 guns in FP and TP (24 cases).
-Run `python tools/test-ai.py` for 13 deterministic AI/engine tests, including 60-second simulated matches
+Run `python tools/test-ai.py` for 23 deterministic AI/engine tests, including 60-second simulated matches
 on both shipped maps. Browser regressions can take a few minutes on software-rendered Chromium.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 

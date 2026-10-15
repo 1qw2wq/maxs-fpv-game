@@ -33,8 +33,9 @@ export async function testAim(context, origin) {
     controls.enabled = controls.locked = true;
     const turns = [];
     for (const fov of [78, 55, 18]) {
-      controls.yaw = controls.pitch = 0; controls.lookFov = fov;
+      controls.yaw = controls.pitch = 0; controls.mouseLook.reset(); controls.lookFov = fov;
       window.dispatchEvent(new MouseEvent('mousemove',{movementX:10,movementY:5}));
+      controls.updateMouseLook(1/60);
       turns.push({yaw:controls.yaw,pitch:controls.pitch});
     }
     if (!(turns[0].yaw > turns[1].yaw && turns[1].yaw > turns[2].yaw && turns[2].yaw > 0)) throw new Error('Zoom has no precision scaling');
@@ -86,7 +87,7 @@ export async function testLiveAim(context, origin) {
     await page.waitForFunction(id=>window.__trench.app.vm.weapon.id===id && window.__trench.app.net.lastMe.w===id,id);
     await page.evaluate(async()=>await window.__trench.app.vm.gunMeshes.userData.modelReady);
     await page.mouse.down({button:'right'});
-    await page.evaluate(()=>{const c=window.__trench.app.controls;c.yaw=c.pitch=0;});
+    await page.evaluate(()=>{const c=window.__trench.app.controls;c.mouseLook.reset();c.yaw=c.pitch=0;});
     await page.waitForFunction(()=>{const {app}=window.__trench;return app.controls.ads && app.vm.ads>.995 && Math.abs(app.camera.fov-app.vm.weapon.zoomFov)<.15;});
     const centered = await page.evaluate(async()=>{
       const {app}=window.__trench,T=await import('/vendor/three.module.js');
