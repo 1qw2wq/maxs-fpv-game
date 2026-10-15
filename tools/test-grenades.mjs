@@ -87,6 +87,17 @@ export async function testLiveGrenades(page) {
     await page.evaluate(()=>{const {app}=window.__trench;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['grenades']=2;p['grenade_ready']=0`);});
     await page.waitForFunction(()=>window.__trench.app.net.lastMe.grenades===2);
     assert.equal(await page.evaluate(()=>window.__trench.app.grenadeKind),kind);
+    if(kind==='flash')await page.evaluate(()=>{
+      // Observe the rendered onset from BEFORE detonation. Under software WebGL,
+      // CDP assertions after the particle check can arrive after the white hold.
+      window.flashWitness={opaque:false,cover:false,active:true};
+      const observe=()=>{
+        const el=document.getElementById('flash-veil'),r=el.getBoundingClientRect(),s=getComputedStyle(el);
+        if(Number(s.opacity)===1){flashWitness.opaque=true;flashWitness.cover=s.backgroundColor==='rgb(255, 255, 255)' && Number(s.zIndex)>=1000 && r.width===innerWidth && r.height===innerHeight;}
+        if(flashWitness.active)requestAnimationFrame(observe);
+      };
+      requestAnimationFrame(observe);
+    });
     await page.keyboard.down('g');
     await page.waitForFunction(()=>window.__trench.app.charge?.source==='grenade' && document.getElementById('grenade-chip').classList.contains('charging'));
     await page.keyboard.press('b'); // must not switch a grenade already in hand
@@ -108,8 +119,8 @@ export async function testLiveGrenades(page) {
       await page.waitForFunction(eid=>!window.__trench.app.effects.some(e=>e.eid===eid),eid,{timeout:9000});
     }
     if(kind==='flash') {
-      await page.waitForFunction(()=>Number(document.getElementById('flash-veil').style.opacity)===1);
-      assert.ok(await page.evaluate(()=>{const el=document.getElementById('flash-veil'),r=el.getBoundingClientRect(),s=getComputedStyle(el);return s.backgroundColor==='rgb(255, 255, 255)' && Number(s.zIndex)>=1000 && r.width===innerWidth && r.height===innerHeight;}),'Flash must cover the full viewport with opaque white');
+      await page.waitForFunction(()=>flashWitness.opaque,null,{timeout:5000});
+      assert.ok(await page.evaluate(()=>{flashWitness.active=false;return flashWitness.cover;}),'Flash must cover the full viewport with opaque white');
       await page.waitForFunction(()=>!window.__trench.app.flash && Number(document.getElementById('flash-veil').style.opacity)<.01,null,{timeout:5000});
     }
     await page.keyboard.press('b');

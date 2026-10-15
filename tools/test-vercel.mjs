@@ -14,6 +14,7 @@ import { testEffects } from './test-effects.mjs';
 import { testGrenades } from './test-grenades.mjs';
 import { testGameplay, testLiveControl } from './test-gameplay.mjs';
 import { testHands } from './test-hands.mjs';
+import { testWeaponHold } from './test-weapon-hold.mjs';
 import { testCamera } from './test-camera.mjs';
 import { testArsenal } from './test-arsenal.mjs';
 import { createServer } from 'node:http';
@@ -361,6 +362,7 @@ try {
   await testCamera(context, origin);
   await testArsenal(context, origin);
   await testHands(context, origin);
+  await testWeaponHold(context, origin);
   await testEffects(context, origin);
   await testLiveControl(context, origin);
   await testLiveAim(context, origin);

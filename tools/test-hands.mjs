@@ -95,17 +95,8 @@ export async function testHands(context, origin) {
           for (const joint of grip.joints) if (joint.bone.quaternion.angleTo(joint.rest.clone().multiply(joint.curl).normalize()) > 1e-6) throw new Error(`${meta.id}: world-character open fingers`);
         }
       }
-      const mount=girl.root.getObjectByName('weapon-hand').parent.parent;
-      for(let frame=0;frame<180;frame++) {
-        const phase=Math.floor(frame/30);
-        girl.root.rotation.y=frame*.04;
-        girl.update(1/60,{speed:phase===1 || phase===5 ? 5 : 0,sprint:phase===5,firing:phase===2,reloading:phase===3,ability:phase===4});
-        girl.root.updateMatrixWorld(true);
-        const local=girl.root.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(mount.getWorldQuaternion(new THREE.Quaternion()));
-        const barrel=new THREE.Vector3(0,0,1).applyQuaternion(local);
-        if(barrel.z<.94 || Math.abs(mount.position.x)>.5 || mount.position.z<0 || mount.position.z>.7)throw new Error(`${meta.id}: third-person weapon orbits body in phase ${phase}`);
-      }
-      girl.root.rotation.y=0;
+      // Torso-relative attachment/hand-contact coverage lives in
+      // test-weapon-hold.mjs. Root-local heading alone misses chest animation.
       holder.remove(girl.root);
       previews.push(girl);
     }

@@ -258,8 +258,11 @@ Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the po
 - **Aim** slows movement to **62%** of walking speed and overrides sprint. Client and authoritative engine
   share these multipliers. Scout rifles get a circular scope, black outer mask, lens shading and centered
   graduated reticle; the gun/arms hide while scoped, but HUD/touch controls stay above the optic.
-- Third-person rifles stay anchored in the character's frame; IK fits the hands to the gun, not the gun
-  to previously IK-modified wrists. Reload releases the support hand without making the rifle orbit.
+- Third-person rifles follow the **animated chest**, not the unanimated avatar root or previous-frame
+  wrists. A bind-calibrated torso attachment removes bone-axis/scale differences, and pitch pivots at
+  the trigger grip. The right hand stays on that grip even during reload/throw gestures; only the support
+  hand releases. Support contact is fitted nearer the receiver for short arms, without shrinking the gun
+  or changing first-person sockets, hit rays or weapon statistics.
 - Flashbangs use bright, full-screen white before fading. Cover still protects players; range/facing
   determine recovery time rather than allowing visibility through a translucent veil.
 
@@ -267,8 +270,14 @@ Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the po
 collision checks, rotation and sanitized persistence), and fullscreen success/denial/unsupported paths.
 It is part of `node tools/test-vercel.mjs`; live mobile tests also exercise actual touch editing, sprint and
 scoping. `python tools/test-movement.py` checks engine sprint/ADS/crouch authority. Third-person stability
-checks run through hold, run, fire, reload, throw and sprint on all four shipped skeletons. Optionally use
-`TP_SCREENSHOT=/tmp/tp.png` to capture a third-person hold. Tests use browser emulation, not physical phones.
+checks run through hold, run, fire, reload, throw and sprint on all four shipped skeletons.
+`tools/test-weapon-hold.mjs` measures **9,216 animated frames** (4 skins × 12 guns), all eight translated
+run directions, turning, crouch and ±89° pitch against the anatomical chest and both hand contacts.
+The previous root-local test missed visible torso-relative drift; this regression fails the previous
+implementation. `tools/test-live-weapon-hold.mjs` also observes actual local and interpolated remote
+avatars in the main game loop. Both are included in the browser suite. Use
+`WEAPON_HOLD_SCREENSHOT=/tmp/hold.png` for the new full-character hold or `TP_SCREENSHOT=/tmp/tp.png`
+for the existing hand fixture. Tests use browser emulation, not physical phones.
 
 ### Non-overlapping UI and transparent touch controls
 
