@@ -18,6 +18,8 @@
     "scoreLimit": 75,
     "matchMs": 480000,
     "maxMoveSpeed": 5.7,
+    "sprintMult": 1.35,
+    "adsMoveMult": 0.62,
     "gravity": 22.0,
     "jumpSpeed": 7.0,
     "throw": {

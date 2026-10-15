@@ -21,6 +21,7 @@ import { buildGrenadeEffect, updateGrenadeEffect } from './grenadefx.js';
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
 import { MobileControls } from './mobile-controls.js';
+import { requestMobileFullscreen } from './mobile-fullscreen.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
@@ -262,7 +263,7 @@ async function boot() {
   setupPause();
   setupInvite();
   wireControls();
-  app.mobile = new MobileControls(app.controls, { parent: app.hud.el.hud, onPause: () => togglePause(true) });
+  app.mobile = new MobileControls(app.controls, { parent: app.hud.el.hud, onPause: () => togglePause(true), layout: profile.load().touchLayout, onLayoutSave: touchLayout => profile.save({touchLayout}) });
   app.hud.screen('menu');
   requestAnimationFrame(loop);
 }
@@ -509,6 +510,15 @@ function setupTutorial() {
  * change settings, or leave the match.
  */
 function setupPause() {
+  document.getElementById('btn-touch-layout').onclick = () => {
+    if (!app.controls.mobileMode) return;
+    app.hud.hidePause();
+    app.mobile.editLayout(() => { app.paused = false; togglePause(true); });
+  };
+  const fullscreen = () => requestMobileFullscreen(app.controls.mobileMode, text => app.hud.toast(t(text)));
+  for (const id of ['btn-deploy','btn-pause-resume','btn-mobile-fullscreen']) {
+    document.getElementById(id)?.addEventListener('click', fullscreen, {capture:true});
+  }
   app.hud.bindPause({
     onResume: () => togglePause(false),
     onSettings: () => {
@@ -520,6 +530,7 @@ function setupPause() {
   });
   // Esc itself: `controls` releases the mouse, then tells us here.
   app.controls.onEscape = () => {
+    if (app.mobile.editing) { app.mobile.finishLayout(false); return; }
     if (!app.playing) return;
     togglePause(!app.paused);
   };
@@ -533,6 +544,8 @@ function togglePause(on) {
   if (app.net) app.net.paused = want;
   if (want) {
     clearFlash();
+    document.getElementById('scope-overlay').classList.add('hidden');
+    document.body.classList.remove('scope-active');
     app.clickPending = false;
     app.controls.releaseLook();
     app.hud.showPause({
@@ -561,6 +574,8 @@ function leaveMatch() {
   app.paused = false;
   app.hud.hidePause();
   app.playing = false;
+  document.getElementById('scope-overlay').classList.add('hidden');
+  document.body.classList.remove('scope-active');
   app.objectiveView?.setState(null);
   try { app.controls.releaseLook(); } catch { /* nothing to release */ }
   app.controls.enabled = false;
@@ -1756,7 +1771,8 @@ async function onMessage(m) {
       if (app.playing && !app.paused && app.net?.lastMe?.alive) {
         const now = performance.now(), old = app.flash;
         app.flash = { start: now, dur: Math.max(100, m.ms || 0, old ? old.dur-(now-old.start) : 0),
-          strength: Math.min(matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.35 : 0.78, Math.max(0, m.strength || 0, old?.strength || 0)) };
+          strength: Math.min(1, Math.max(0, m.strength || 0, old?.strength || 0)) };
+        document.getElementById('flash-veil').style.opacity = '1';
       }
       break;
     case 'fx':
@@ -1954,8 +1970,9 @@ function clearEffects() {
 function updateEffects(now) {
   const veil = document.getElementById('flash-veil');
   if (app.flash && veil) {
-    const left = Math.min(1,Math.max(0,1-(now-app.flash.start)/app.flash.dur));
-    veil.style.opacity = String(app.flash.strength*left*left);
+    const phase = Math.min(1,Math.max(0,(now-app.flash.start)/app.flash.dur));
+    const left = phase < .35 ? 1 : Math.max(0,1-(phase-.35)/.65);
+    veil.style.opacity = String(app.flash.strength*left);
     if (!left) app.flash = null;
   }
   for (let i = app.effects.length - 1; i >= 0; i--) {
@@ -2306,7 +2323,10 @@ function tick(dt, now) {
     app.camera.rotateZ(punch.punchRoll * D);
   }
   // in third person the character body replaces the viewmodel
-  app.vm.root.visible = !tp;
+  const scoped = alive && app.controls.ads && w.class === 'scout';
+  document.getElementById('scope-overlay').classList.toggle('hidden', !scoped);
+  document.body.classList.toggle('scope-active', scoped);
+  app.vm.root.visible = !tp && !scoped;
   app.camera.updateProjectionMatrix();
 
   // 30 Hz input upload
@@ -2314,6 +2334,8 @@ function tick(dt, now) {
   if (app.inputAcc >= 1 / 30) {
     app.inputAcc = 0;
     app.net.input(app.controls.pos, app.controls.yaw, app.controls.pitch, {
+      sprint: app.controls.sprinting,
+      ads: app.controls.ads,
       crouch: app.controls.crouch,
       move: app.controls.moveSpeed > 0.5,
       ground: app.controls.grounded,
@@ -2322,7 +2344,7 @@ function tick(dt, now) {
 
   app.vm.update(dt, {
     ads: app.controls.ads,
-    sprinting: false,
+    sprinting: app.controls.sprinting,
     moveSpeed: app.controls.moveSpeed,
   });
   syncFpArms();
@@ -2393,7 +2415,7 @@ function fireOnce(w, eye, dir) {
   const style = gunStyle(w);
   app.vm.kick(style.kick.vm);
   // Apply this shot's pose before reading sockets, not one frame afterwards.
-  app.vm.update(0, { ads: app.controls.ads, sprinting: false, moveSpeed: app.controls.moveSpeed });
+  app.vm.update(0, { ads: app.controls.ads, sprinting: app.controls.sprinting, moveSpeed: app.controls.moveSpeed });
   syncFpArms();
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
   app.sfx.shot(w, style);
@@ -2478,7 +2500,7 @@ function syncSelfAvatar(dt, alive) {
   const tnow = performance.now();
   app.self.update(dt, {
     speed: c.moveSpeed,
-    sprint: false,
+    sprint: c.sprinting,
     crouch: c.crouch,
     pitch: c.pitch,
     reloading: !!(me && me.reloading),
@@ -2504,7 +2526,7 @@ const _fpGunRotation = new THREE.Quaternion();
 
 function syncFpArms() {
   if (!app.playing) return;
-  if (thirdPersonView()) {
+  if (thirdPersonView() || document.body.classList.contains('scope-active')) {
     if (app.fpArms) app.fpArms.holder.visible = false;
     return;
   }

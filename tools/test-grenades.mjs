@@ -108,7 +108,8 @@ export async function testLiveGrenades(page) {
       await page.waitForFunction(eid=>!window.__trench.app.effects.some(e=>e.eid===eid),eid,{timeout:9000});
     }
     if(kind==='flash') {
-      await page.waitForFunction(()=>Number(document.getElementById('flash-veil').style.opacity)>.05);
+      await page.waitForFunction(()=>Number(document.getElementById('flash-veil').style.opacity)===1);
+      assert.ok(await page.evaluate(()=>{const el=document.getElementById('flash-veil'),r=el.getBoundingClientRect(),s=getComputedStyle(el);return s.backgroundColor==='rgb(255, 255, 255)' && Number(s.zIndex)>=1000 && r.width===innerWidth && r.height===innerHeight;}),'Flash must cover the full viewport with opaque white');
       await page.waitForFunction(()=>!window.__trench.app.flash && Number(document.getElementById('flash-veil').style.opacity)<.01,null,{timeout:5000});
     }
     await page.keyboard.press('b');

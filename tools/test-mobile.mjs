@@ -112,7 +112,13 @@ export async function testMobile(browser, origin) {
     const liveTouch=await touches(page),liveStick=await center(page,'.touch-stick');
     await liveTouch.down(1,liveStick.x,liveStick.y-liveStick.r);
     await page.waitForFunction(()=>window.__trench.app.controls.pos.x>1);
+    await page.waitForFunction(()=>{const {app}=window.__trench;return app.controls.sprinting && app.net._engine.py.runPython(`_host.room.match.players[${app.myId}]['flags'].get('sprint',False)`);});
+    await liveTouch.tap(action('aim'),2);
+    await page.waitForFunction(()=>{const {app}=window.__trench;return app.controls.ads && !app.controls.sprinting && app.controls.moveSpeed<app.data.combat.maxMoveSpeed*.75;});
+    await liveTouch.tap(action('aim'),2);
+    await page.waitForFunction(()=>!window.__trench.app.controls.ads && !window.__trench.app.controls.sprinting);
     await liveTouch.up(1);
+    assert.ok(await page.evaluate(()=>window.__trench.app.controls.touchSprintAt===null));
     const mag=await page.evaluate(()=>window.__trench.app.net.lastMe.mag);
     await liveTouch.tap(action('fire'));
     await page.waitForFunction(before=>window.__trench.app.net.lastMe.mag<before,mag);
@@ -138,6 +144,14 @@ export async function testMobile(browser, origin) {
     await page.waitForFunction(()=>window.__trench.app.net.lastMe.w==='smle' && window.__trench.app.vm.weapon.id==='smle');
     await page.evaluate(()=>{const {app}=window.__trench;app.nextShot=0;app.boltWait=false;app.mobile.press('fire');app.mobile.release('fire',false);});
     await page.waitForFunction(()=>window.__trench.app.net.lastMe.mag===9);
+    await liveTouch.tap(action('aim'));
+    await page.waitForFunction(()=>document.body.classList.contains('scope-active'));
+    assert.ok(await page.evaluate(()=>{
+      const {app}=window.__trench,button=document.querySelector('#mobile-controls [data-action="aim"]'),b=button.getBoundingClientRect(),lens=document.querySelector('.scope-lens').getBoundingClientRect();
+      return !app.vm.root.visible && !app.fpArms?.holder.visible && Math.abs(lens.width-lens.height)<1 && document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)===button;
+    }),'Mobile scope must stay circular and leave touch controls visible/clickable');
+    await liveTouch.tap(action('aim'));
+    await page.waitForFunction(()=>document.getElementById('scope-overlay').classList.contains('hidden'));
     await page.evaluate(saved=>{const {app}=window.__trench;app.boltWait=false;app.nextShot=0;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['cls']='${saved.c}';p['weapon']='${saved.w}';p['mag']=${saved.mag};p['reserve']=${saved.reserve};p['last_shot']=0`);},original);
     await page.waitForFunction(id=>window.__trench.app.net.lastMe.w===id && window.__trench.app.vm.weapon.id===id,original.w);
     await liveTouch.tap(action('reload'));await page.waitForFunction(()=>window.__trench.app.net.lastMe.reloading);
@@ -153,7 +167,24 @@ export async function testMobile(browser, origin) {
     await liveTouch.tap(action('pause'),5);await liveTouch.cancel();
     await page.waitForFunction(()=>window.__trench.app.paused && !window.__trench.app.mobile.visible);
     assert.ok(await page.evaluate(()=>!window.__trench.app.charge && !window.__trench.app.controls.mouse.left && window.__trench.app.controls.touchKeys.size===0));
+    // Exercise the actual pause-menu editor with real touch capture, not only
+    // a mouse-driven layout fixture. A drag must not fire while paused.
+    const beforeEdit=await page.evaluate(()=>window.__trench.app.net.lastMe.mag);
+    await page.locator('#btn-touch-layout').tap();
+    await page.waitForFunction(()=>window.__trench.app.mobile.editing && window.__trench.app.mobile.visible);
+    const editFire=await center(page,action('fire'));
+    await liveTouch.down(8,editFire.x,editFire.y);await liveTouch.move(8,300,200);await liveTouch.up(8);
+    assert.ok(await page.evaluate(()=>window.__trench.app.mobile.layout.landscape.fire && !window.__trench.app.controls.mouse.left));
+    await page.locator('[data-layout="save"]').tap();
+    await page.waitForFunction(()=>!window.__trench.app.mobile.editing && !document.getElementById('pause').classList.contains('hidden'));
+    assert.equal(await page.evaluate(()=>window.__trench.app.net.lastMe.mag),beforeEdit);
+    assert.ok(await page.evaluate(async()=>!!(await import('/js/profile.js')).load().touchLayout.landscape.fire));
+    // Restore native placement for the viewport/overlap checks below.
+    await page.locator('#btn-touch-layout').tap();await page.locator('[data-layout="reset"]').tap();await page.locator('[data-layout="save"]').tap();
     await page.locator('#btn-pause-resume').tap();await page.waitForFunction(()=>!window.__trench.app.paused && window.__trench.app.controls.canLook && window.__trench.app.mobile.visible);
+    // Deploy/Resume now really enter fullscreen. Exit it before Playwright's
+    // desktop-window resize used to emulate orientation changes.
+    await page.evaluate(async()=>{if(document.fullscreenElement)await document.exitFullscreen();});
     await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>window.__trench.app.mobile.visible);
     for(const name of ['fire','aim','reload','jump','ability','grenade','crouch','cycle','score','view','chat','pause']) {
       const box=await page.locator(action(name)).boundingBox();assert.ok(box && box.x>=0 && box.y>=0 && box.x+box.width<=390.1 && box.y+box.height<=844.1,`${name} is outside portrait viewport`);
@@ -202,7 +233,7 @@ export async function testMobile(browser, origin) {
     await page.waitForFunction(()=>!window.__trench.app.playing && !window.__trench.app.mobile.visible && !window.__trench.app.controls.enabled);
 
     assert.deepEqual(errors,[]);
-    console.log('PASS: actual mobile auto-detect/saved mode, touch deploy/movement/fire/reload/ADS/view/grenades/pause, 320px/short-landscape touch targets and no pointer-lock prompt');
+    console.log('PASS: actual mobile auto-detect/saved mode, native fullscreen, timed sprint/ADS, sniper scope, touch drag/save editor, combat/pause, 320px/short-landscape targets and no pointer-lock prompt');
   } finally {
     // The bundled Chromium uses --single-process. Destroying an isolated
     // context while other WebRTC contexts are live can crash that process;

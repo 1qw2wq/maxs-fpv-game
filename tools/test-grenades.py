@@ -227,6 +227,17 @@ class GrenadeTests(unittest.TestCase):
         self.tick_to(e['start']+1)
         self.assertEqual(self.enemy['flash_until'], 0)
 
+    def test_flash_is_opaque_at_edge_but_not_outside_range(self):
+        e = self.effect('flash', [0, 1.5, 0])
+        self.enemy.update(pos=[13.7, 0, 0], yaw=0, pitch=0)
+        self.ally.update(pos=[20, 0, 0])
+        events = self.tick_to(e['start']+1)
+        hits = [ev for ev in events if ev['msg'].get('t') == 'flash']
+        enemy = next(ev['msg'] for ev in hits if ev['to'] == self.enemy['id'])
+        self.assertEqual(enemy['strength'], 1)
+        self.assertGreaterEqual(enemy['ms'], 200)
+        self.assertFalse(any(ev['to'] == self.ally['id'] for ev in hits))
+
     def test_late_join_includes_ongoing_fire_smoke_and_flight_age(self):
         e = self.effect('incendiary')
         self.clock = e['start']+1000

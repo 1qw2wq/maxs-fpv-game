@@ -242,6 +242,34 @@ or score/tools overlap, and readable ammo. Quick-tap authority checks include SM
 emulation, not physical iOS/Android devices; GPU performance and browser support still vary.
 Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the portrait fixture.
 
+### Fullscreen, custom touch layout, sprint and sniper optics
+
+- Mobile **Deploy** and **Resume** request native fullscreen directly from the tap; **Pause → Full screen**
+  retries it. Browser/iframe permissions cannot be overridden. Unsupported browsers show an explanation;
+  on iOS, use **Add to Home Screen** and launch there when native fullscreen is unavailable.
+- **Pause → Customize touch layout:** drag the joystick and bottom combat buttons. **Save layout** persists
+  positions locally; **Cancel** discards edits and **Reset layout** restores the current orientation's defaults.
+  Portrait and landscape have separate layouts. Overlapping controls cannot be saved; positions are clamped
+  after resize, with the native layout as a safe fallback if a smaller screen no longer fits the saved one.
+  Editing keeps the match paused, and dragging Fire does not shoot.
+- **Shift** sprints at **1.35×** walking speed. Crouch moved to **C** (Ctrl also works). On mobile, hold the
+  joystick off-center for **more than 1.5 seconds** to sprint; releasing/centering it, aiming, crouching or
+  interrupted input resets the timer. The joystick outline highlights sprinting.
+- **Aim** slows movement to **62%** of walking speed and overrides sprint. Client and authoritative engine
+  share these multipliers. Scout rifles get a circular scope, black outer mask, lens shading and centered
+  graduated reticle; the gun/arms hide while scoped, but HUD/touch controls stay above the optic.
+- Third-person rifles stay anchored in the character's frame; IK fits the hands to the gun, not the gun
+  to previously IK-modified wrists. Reload releases the support hand without making the rifle orbit.
+- Flashbangs use bright, full-screen white before fading. Cover still protects players; range/facing
+  determine recovery time rather than allowing visibility through a translucent veil.
+
+`tools/test-mobile-features.mjs` covers sprint timing/priority, the real layout editor (drag/save/reset/cancel,
+collision checks, rotation and sanitized persistence), and fullscreen success/denial/unsupported paths.
+It is part of `node tools/test-vercel.mjs`; live mobile tests also exercise actual touch editing, sprint and
+scoping. `python tools/test-movement.py` checks engine sprint/ADS/crouch authority. Third-person stability
+checks run through hold, run, fire, reload, throw and sprint on all four shipped skeletons. Optionally use
+`TP_SCREENSHOT=/tmp/tp.png` to capture a third-person hold. Tests use browser emulation, not physical phones.
+
 ### Non-overlapping UI and transparent touch controls
 
 Menu content and weapon lists keep their natural height instead of being squeezed over buttons;
@@ -327,7 +355,7 @@ static-deployment test, **not** a live Vercel deployment or a cross-NAT connecti
 The same command also runs `tools/test-effects.mjs`: 12 imported models / 84 weapon poses,
 third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
 and an actual solo deploy/fire/reload/grenade render. `python tools/test-grenades.py` covers
-20 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
+21 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
 visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q controls and effects. `tools/test-hands.mjs` additionally exercises
 all four shipped skeletons across 384 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
@@ -348,7 +376,8 @@ Use `TEST_DEPS` to change the external test-dependency directory; no npm build s
 | `W` `A` `S` `D` | Move |
 | Left mouse button | Fire (hold to keep firing with automatic weapons) |
 | Right mouse button | Aim down sights / raise the weapon (tighter spread, narrower view) |
-| `Shift` | Crouch (half height, the only way through low passages) |
+| `Shift` (hold) | Sprint (+35% movement speed; disabled by aiming/crouching) |
+| `C` / `Ctrl` | Crouch (half height, the only way through low passages) |
 | `Space` | Jump |
 | `R` | Reload |
 | `Q` | Use your class ability (hold/release to throw smoke or a flare) |
@@ -378,7 +407,7 @@ pointer lock cancel an unthrown grenade without spending a charge. The shared in
 | **Frag** | 2.6-second fuse; brief flame fireball, sparks and a blast report. Up to 120 damage with radial falloff inside 7 m. |
 | **Incendiary** | Bursts on impact (3-second safety fuse); fuel spreads onto the floor below the contact. Animated flames and embers burn for 7 seconds, dealing 28 damage/second within 4 m. |
 | **Smoke** | 1.8-second fuse; small ignition pop followed by the existing 14-second, 13 m sight-blocking cloud. |
-| **Flash** | 1.6-second fuse; one fading flash, not a strobe. Cover, distance and facing limit blindness; bots also temporarily lose sight. Reduced-motion mode uses a dimmer grey veil. |
+| **Flash** | 1.6-second fuse; exposed players within 14m get a fully opaque **white screen**, then a smooth recovery (not a strobe). Distance/facing change duration, solid cover blocks exposure, and bots temporarily lose sight too. |
 
 Solid cover blocks blast/fire damage and flash exposure. Frag/fire can hurt the thrower but not
 teammates; suicide never awards a kill or team point. Flashes can affect either team. Scout flares

@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>堑壕前线 Trench Front</title>
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
@@ -100,7 +102,7 @@
       <p id="skin-note" class="hint dim"></p>
 
       <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
-      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
+      <p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
       <p class="hint dim"><a class="debug-link" href="debug.html">API 调试页</a>：看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步</p>
     </div>
     <p id="menu-error" class="error"></p>
@@ -302,7 +304,7 @@
     </div>
   </div>
 
-  <div id="flash-veil" aria-hidden="true"></div>
+
   <div id="event-toast" class="hidden"></div>
 
   <!-- 死亡 / 重新部署 -->
@@ -342,6 +344,9 @@
 
 </section>
 
+  <div id="flash-veil" aria-hidden="true"></div>
+  <div id="scope-overlay" class="hidden" aria-hidden="true"><div class="scope-lens"><svg viewBox="0 0 100 100"><path d="M0 50H46 M54 50H100 M50 0V46 M50 54V100 M30 48V52 M40 48V52 M60 48V52 M70 48V52 M48 30H52 M48 40H52 M48 60H52 M48 70H52"/><circle cx="50" cy="50" r=".45"/></svg></div></div>
+
   <!-- Pause menu and invite panel. They used to sit inside the HUD screen,
        which meant "join with an invite code" on the menu opened a panel inside
        a hidden box -- invisible and unclickable. They belong to the page itself. -->
@@ -358,6 +363,8 @@
       </label>
       <div class="pause-actions">
         <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>
+        <button id="btn-touch-layout" class="ghost-btn mobile-option" type="button">自定义触屏布局</button>
+        <button id="btn-mobile-fullscreen" class="ghost-btn mobile-option" type="button">全屏</button>
         <button id="btn-pause-settings" class="ghost-btn" type="button">设置</button>
         <button id="btn-pause-invite" class="ghost-btn" type="button">邀请朋友</button>
         <button id="btn-pause-leave" class="ghost-btn" type="button">离开对局</button>

@@ -293,7 +293,8 @@ class Match:
         if isinstance(flags, dict):
             p["flags"] = {
                 "crouch": bool(flags.get("crouch")),
-                "sprint": bool(flags.get("sprint")),
+                "sprint": bool(flags.get("sprint")) and not bool(flags.get("ads")) and not bool(flags.get("crouch")),
+                "ads": bool(flags.get("ads")),
                 "move": bool(flags.get("move")),
                 "ground": bool(flags.get("ground", True)),
             }
@@ -303,8 +304,10 @@ class Match:
         p["last_input"] = now
 
         speed = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"]
-        if p["flags"].get("sprint"):
-            speed *= 1.35
+        if p["flags"].get("ads"):
+            speed *= COMBAT.get("adsMoveMult", 0.62)
+        elif p["flags"].get("sprint"):
+            speed *= COMBAT.get("sprintMult", 1.35)
         if p["flags"].get("crouch"):
             speed *= 0.55
         maxd = speed * dt * 1.8 + 0.3
@@ -326,7 +329,7 @@ class Match:
         # the geometry. oy caps how far one tick can climb, so walls still block.
         floor = combat.floor_at(nx, nz, oy)
         ny = clamp(target[1], floor - 0.05, floor + 1.6)
-        cap = COMBAT["maxMoveSpeed"] * 1.35
+        cap = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * COMBAT.get("sprintMult", 1.35)
         p["velocity"] = [clamp((nx-ox)/dt, -cap, cap), clamp((ny-oy)/dt, -cap, cap), clamp((nz-oz)/dt, -cap, cap)]
         p["pos"] = [nx, ny, nz]
 
@@ -678,8 +681,11 @@ class Match:
                 facing = dir_from_angles(victim["yaw"], victim["pitch"])
                 toward = normalize(tuple(e["p"][i]-eye_pos(victim)[i] for i in range(3)))
                 dot = sum(facing[i]*toward[i] for i in range(3))
-                strength = (1-distance/e["r"]) * (1.0 if dot > 0.25 else 0.35)
-                duration = int(spec["flashMs"]*strength)
+                # Every exposed player in range gets a genuinely opaque flash.
+                # Distance/facing affect recovery time, not see-through white.
+                strength = 1.0
+                exposure = (0.35 + 0.65*(1-distance/e["r"])) * (1.0 if dot > 0.25 else 0.55)
+                duration = max(200, int(spec["flashMs"]*exposure))
                 victim["flash_until"] = max(victim["flash_until"], now+duration)
                 self.outbox.append({"to": victim["id"], "msg": {"t": "flash", "strength": strength, "ms": duration}})
             else:

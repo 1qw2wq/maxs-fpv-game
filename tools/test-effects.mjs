@@ -194,11 +194,26 @@ export async function testEffects(context, origin) {
   await game.mouse.down();
   await game.waitForFunction(() => window.__trench.app.gunfx.stats.flashes > 1);
   await game.mouse.up();
-  await game.keyboard.press('r');
-  try { await game.waitForFunction(() => window.__trench.app.vm.reloadT >= 0, null, { timeout: 8000 }); }
+  // Record the real authority -> viewmodel transition before dispatching R.
+  // A slow CDP key-up round trip can otherwise finish after the whole 2.1s
+  // reload, making a successful reload look like a timeout on software WebGL.
+  await game.evaluate(() => {
+    const {app}=window.__trench;
+    app.reloadObserved=false;app.reloadSyncOriginal=app.vm.syncReload;
+    app.vm.syncReload=function(...args) {
+      app.reloadSyncOriginal.apply(this,args);
+      if(args[2] && this.reloadT>=0)app.reloadObserved=true;
+    };
+  });
+  try { await Promise.all([
+    game.waitForFunction(() => window.__trench.app.reloadObserved, null, { timeout: 8000 }),
+    game.keyboard.press('r'),
+  ]); }
   catch (error) {
     console.error('LIVE RELOAD STATE', await game.evaluate(() => { const { app } = window.__trench; return { me: app.net.lastMe, paused: app.paused, focused: document.activeElement?.tagName, enabled: app.controls.enabled, keys: [...app.controls.keys], reloadT: app.vm.reloadT }; }));
     throw error;
+  } finally {
+    await game.evaluate(()=>{const {app}=window.__trench;app.vm.syncReload=app.reloadSyncOriginal;delete app.reloadSyncOriginal;});
   }
   if (process.env.EFFECT_SCREENSHOT) {
     await game.evaluate(() => { const { app } = window.__trench; app.paused = app.net.paused = true; app.vm.syncReload(2500, 1300, true); app.vm.update(0, { ads: false, moveSpeed: 0 }); app.renderer.render(app.scene, app.camera); });

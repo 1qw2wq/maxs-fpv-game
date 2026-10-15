@@ -43,7 +43,6 @@ export const JOINT_LABEL = Object.fromEntries(JOINTS.map((j) => [j.key, j.label]
 export const TARGET_HEIGHT = 1.70;
 
 const _down = new THREE.Vector3(0, -1, 0);
-const _up = new THREE.Vector3(0, 1, 0);
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
 
@@ -108,27 +107,10 @@ const GUN_SIDE = -0.13;
 /** Armpit height as an offset down from the chest centre (shoulder line). */
 const GUN_DROP = 0.15;
 
-/**
- * Fine-tune nudge applied to every weapon, in the character's own frame:
- * +Z forward, -Y down (the same frame placeWeapon already uses for its "slightly
- * forward" term). The clip-driven hold seats the gun off the wrists, which leaves
- * the buttstock riding high on top of the shoulder — carried rather than
- * shouldered. Sliding the whole gun down and forward drops the stock onto the
- * shoulder so it presses there instead. Small on purpose: a nudge, not a re-park.
- */
+/** Shoulder offset in avatar space; never accumulated from animated wrists. */
 const GUN_NUDGE = new THREE.Vector3(0, -0.05, 0.15);
 
-/**
- * A whisper of cant on every weapon, applied in the mount's own frame. The
- * muzzle swings slightly to the character's right and the stock comes left, the
- * way a shouldered rifle sits canted rather than dead straight. Post-multiplied
- * (local) about +Y, and folded in after the grip is seated, so the gun pivots
- * around the trigger hand and the right hand stays on the grip.
- *
- * Negative because local +X is the character's LEFT: the rips face +Z and a
- * humanoid's right is -X, so a rotation about +Y that sends local +Z (the barrel)
- * to -X is the negative one.
- */
+/** A small fixed cant toward the character's right (-X), not a wrist orbit. */
 const GUN_CANT = new THREE.Quaternion()
   .setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.20);
 
@@ -609,10 +591,6 @@ export function createExternalGirl({ template, meta, data, team }) {
   const _poleL = new THREE.Vector3();
   const _fallback = new THREE.Vector3();
   const _axisSide = new THREE.Vector3();
-  const _barrel = new THREE.Vector3();
-  const _bx = new THREE.Vector3();
-  const _by = new THREE.Vector3();
-  const _basis = new THREE.Matrix4();
 
   /** World-space rotate: new world = dq * old world, written back as a local quat. */
   function applyWorldDelta(bone, dq) {
@@ -756,55 +734,8 @@ export function createExternalGirl({ template, meta, data, team }) {
     root.updateMatrixWorld(true);
   }
 
-  /**
-   * Clip mode. The arms are driven by the baked Mixamo hold here, so the gun has
-   * to follow the hands rather than the hands follow the gun. The receiver is
-   * dropped onto the two wrist bones — the trigger grip lands on the right wrist
-   * and the barrel swings onto the line between the wrists — which seats the
-   * weapon exactly where the clip shoulders it (at the right shoulder, hands
-   * closed on it) instead of a fixed armpit park that left the gun hanging below
-   * the hands, disconnected from them.
-   */
-  function placeWeaponOnHands(s) {
-    // The hands are read from their world matrices, and this runs right after the
-    // upper mixer has written this frame's arm pose, so refresh them here rather
-    // than trusting whatever updateMatrixWorld the caller happened to do earlier.
-    root.updateMatrixWorld(true);
-    const hL = driven.handL && driven.handL.bone.getWorldPosition(_sA).clone();
-    const hR = driven.handR && driven.handR.bone.getWorldPosition(_sB).clone();
-    if (!hL || !hR) { placeWeapon(s); return; }
-    const lL = root.worldToLocal(hL);
-    const lR = root.worldToLocal(hR);
-    _barrel.copy(lL).sub(lR);
-    if (_barrel.lengthSq() < 1e-8) { placeWeapon(s); return; }
-    _barrel.normalize();
-    // mount frame straight off the wrist line: +Z down the barrel, +Y up
-    _bx.crossVectors(_up, _barrel);
-    if (_bx.lengthSq() < 1e-8) _bx.set(1, 0, 0);
-    _bx.normalize();
-    _by.crossVectors(_barrel, _bx).normalize();
-    _basis.makeBasis(_bx, _by, _barrel);
-    if (s.reloading && st.weaponHold) {
-      // A reload's support hand visits the feed/magazine. It is not the barrel
-      // direction: following that wrist swung the entire rifle off the grip.
-      weaponMount.quaternion.copy(st.weaponHold);
-    } else {
-      weaponMount.quaternion.setFromRotationMatrix(_basis);
-      weaponMount.quaternion.multiply(GUN_CANT);
-      if (!st.weaponHold) st.weaponHold = new THREE.Quaternion();
-      st.weaponHold.copy(weaponMount.quaternion);
-    }
-    // seat the trigger grip on the right wrist (the cant is already baked into
-    // the mount rotation, so the gun pivots around the grip and the hand stays
-    // on it). Do not apply a post-seating nudge: it separates the palm and grip.
-    const g = mountedGrips(st.weapon);
-    _grip.set(g.hand[0], g.hand[1], g.hand[2]).applyQuaternion(weaponMount.quaternion);
-    weaponMount.position.copy(lR).sub(_grip);
-    root.updateMatrixWorld(true);
-  }
-
   /** Solve both arms onto the gun's two grips. */
-  function solveArms(s) {
+  function solveArms(s, support = true) {
     const g = mountedGrips(st.weapon);
     _grip.set(g.hand[0], g.hand[1], g.hand[2]);
     weaponMount.localToWorld(_grip);
@@ -822,24 +753,17 @@ export function createExternalGirl({ template, meta, data, team }) {
 
     weaponMount.getWorldQuaternion(gripGunRotation);
     solveGrip('R', _grip, _poleR, gripGunRotation);
-    solveGrip('L', _fore, _poleL, gripGunRotation);
-  }
-
-  /** Park the gun on the chest, then solve both arms onto its two grips. */
-  function poseWeapon(s) {
-    placeWeapon(s);
-    solveArms(s);
+    if (support) solveGrip('L', _fore, _poleL, gripGunRotation);
   }
 
   /** Put the gun where the current body/arm pose wants it. */
   function layWeapon(s, upperKey) {
     if (st.dead || !st.weapon) return;
-    // The clip still owns the gun's location; never pull it to a fixed chest
-    // mount. Finish holding/firing with contact-aware wrists and fingers on
-    // THAT moving gun. Reload/toss gestures intentionally release the support.
-    if (!upperKey) { poseWeapon(s); return; }
-    placeWeaponOnHands(s);
-    if (upperKey === 'hold' || upperKey === 'runHold' || upperKey === 'fire') solveArms(s);
+    // Never derive the next mount from wrists that IK modified last frame:
+    // frozen/crossfaded clips do not rewrite every wrist, causing feedback and
+    // an orbiting rifle. Anchor to the posed chest in avatar-local coordinates.
+    placeWeapon(s);
+    if (upperKey !== 'toss') solveArms(s, upperKey !== 'reload');
   }
 
   /**
@@ -1085,7 +1009,6 @@ export function createExternalGirl({ template, meta, data, team }) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
-      st.weaponHold = null;
       weaponMount.clear();
       const built = buildWeapon(weapon);
       built.group.position.set(0.04, -0.03, 0.06);

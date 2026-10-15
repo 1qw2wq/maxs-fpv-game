@@ -92,7 +92,8 @@ export async function testLiveAim(context, origin) {
     const centered = await page.evaluate(async()=>{
       const {app}=window.__trench,T=await import('/vendor/three.module.js');
       const point=app.controls.eye().addScaledVector(app.controls.aim(),24).project(app.camera);
-      if (!app.vm.root.visible || app.self.root.visible) throw new Error('ADS still uses shoulder/body rendering');
+      const scoped=app.vm.weapon.class==='scout';
+      if (app.vm.root.visible===scoped || app.self.root.visible || document.getElementById('scope-overlay').classList.contains('hidden')===scoped) throw new Error('Wrong ADS scope/body rendering');
       if (!document.getElementById('crosshair').classList.contains('aiming')) throw new Error('Aim reticle missing');
       return Math.hypot(point.x,point.y);
     });

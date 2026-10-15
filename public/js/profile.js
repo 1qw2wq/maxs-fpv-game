@@ -10,6 +10,7 @@
 // with an in-memory profile instead of throwing on start-up.
 
 import { store, session } from './storage.js';
+import { sanitizeTouchLayout } from './mobile-layout.js';
 
 const KEY = 'tf.profile';
 const VERSION = 2;
@@ -28,6 +29,7 @@ export const DEFAULT_PROFILE = {
   mapId: '',
   sensitivity: 0.0022,
   controlMode: 'auto',
+  touchLayout: sanitizeTouchLayout(null),
   stats: { matches: 0, wins: 0, kills: 0, deaths: 0, playMs: 0 },
   lastSeen: 0,
 };
@@ -48,7 +50,7 @@ function num(v, lo, hi, dflt) {
 
 /** Coerce anything that came out of storage into a valid profile. */
 export function sanitize(raw) {
-  const p = { ...DEFAULT_PROFILE, stats: { ...DEFAULT_PROFILE.stats }, recentRooms: [] };
+  const p = { ...DEFAULT_PROFILE, stats: { ...DEFAULT_PROFILE.stats }, recentRooms: [], touchLayout: sanitizeTouchLayout(null) };
   if (!raw || typeof raw !== 'object') return p;
   p.name = clampStr(raw.name, 16);
   p.cls = clampStr(raw.cls, 24) || p.cls;
@@ -64,6 +66,7 @@ export function sanitize(raw) {
     }
   }
   p.controlMode = ['auto', 'desktop', 'mobile'].includes(raw.controlMode) ? raw.controlMode : 'auto';
+  p.touchLayout = sanitizeTouchLayout(raw.touchLayout);
   p.tutorialDone = !!raw.tutorialDone;
   p.soloBots = [0, 4, 6, 8, 12, 16].includes(Number(raw.soloBots)) ? Number(raw.soloBots) : 6;
   p.mapId = clampStr(raw.mapId, 32);
@@ -93,7 +96,7 @@ export function load() {
     }
     cache = sanitize(raw);
   }
-  return { ...cache, stats: { ...cache.stats }, recentRooms: [...cache.recentRooms] };
+  return { ...cache, touchLayout: sanitizeTouchLayout(cache.touchLayout), stats: { ...cache.stats }, recentRooms: [...cache.recentRooms] };
 }
 
 export function save(patch) {

@@ -11,6 +11,7 @@ export async function testHands(context, origin) {
     const { ViewModel } = await import('/js/viewmodel.js');
     const { BUILTIN_SKINS, createExternalGirl, loadGltfFromUrl, prepareTemplate } = await import('/js/rig.js');
     const { prepareHandGrip } = await import('/js/handpose.js');
+    const { ensureMotions } = await import('/js/motion.js');
     const data = await (await fetch('/shared/weapons.json')).json();
     const rigData = { ...data, teamById: Object.fromEntries(data.teams.map((t) => [t.id, t])) };
     const scene = new THREE.Scene();
@@ -29,7 +30,8 @@ export async function testHands(context, origin) {
     if (prepareHandGrip(new THREE.Bone(), 'R') !== null) throw new Error('Fingerless uploads must retain positional fallback');
     for (const meta of Object.values(BUILTIN_SKINS)) {
       const gltf = await loadGltfFromUrl(meta.file);
-      const girl = createExternalGirl({ template: prepareTemplate(gltf.scene), meta, data: rigData, team: data.teams[0] });
+      const template=prepareTemplate(gltf.scene);
+      const girl = createExternalGirl({ template, meta, data: rigData, team: data.teams[0] });
       girl.marker.visible = girl.shadow.visible = false;
       girl.setHeadHidden(true);
       holder.add(girl.root);
@@ -78,6 +80,7 @@ export async function testHands(context, origin) {
       }
       // Normal third-person hold/run/fire also finish the wrists and fingers,
       // including when the asynchronously baked upper-body clips are ready.
+      await ensureMotions(template);
       girl.setWeapon(data.weapons[0]);
       for (const state of [{ speed: 0 }, { speed: 3 }, { speed: 0, firing: true }]) {
         for (let i = 0; i < 30; i++) girl.update(1 / 60, state);
@@ -92,6 +95,17 @@ export async function testHands(context, origin) {
           for (const joint of grip.joints) if (joint.bone.quaternion.angleTo(joint.rest.clone().multiply(joint.curl).normalize()) > 1e-6) throw new Error(`${meta.id}: world-character open fingers`);
         }
       }
+      const mount=girl.root.getObjectByName('weapon-hand').parent.parent;
+      for(let frame=0;frame<180;frame++) {
+        const phase=Math.floor(frame/30);
+        girl.root.rotation.y=frame*.04;
+        girl.update(1/60,{speed:phase===1 || phase===5 ? 5 : 0,sprint:phase===5,firing:phase===2,reloading:phase===3,ability:phase===4});
+        girl.root.updateMatrixWorld(true);
+        const local=girl.root.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(mount.getWorldQuaternion(new THREE.Quaternion()));
+        const barrel=new THREE.Vector3(0,0,1).applyQuaternion(local);
+        if(barrel.z<.94 || Math.abs(mount.position.x)>.5 || mount.position.z<0 || mount.position.z>.7)throw new Error(`${meta.id}: third-person weapon orbits body in phase ${phase}`);
+      }
+      girl.root.rotation.y=0;
       holder.remove(girl.root);
       previews.push(girl);
     }
@@ -133,6 +147,17 @@ export async function testHands(context, origin) {
       holder.visible = false; vm.armMeshes.visible = true; renderer.render(scene, camera);
     });
     await page.screenshot({ path: process.env.HAND_SCREENSHOT.replace(/\.png$/, '-gloves.png') });
+  }
+  if (process.env.TP_SCREENSHOT) {
+    await page.evaluate(()=>{
+      const {vm,girl,renderer,scene,camera}=window.handPreview;
+      vm.root.visible=false;scene.add(girl.root);girl.root.position.set(0,0,0);girl.root.rotation.set(0,0,0);
+      girl.setHeadHidden(false);girl.root.getObjectByName('weapon-hand').parent.parent.visible=true;
+      camera.position.set(2,1.5,3);camera.lookAt(0,.95,0);
+      for(let i=0;i<60;i++)girl.update(1/60,{speed:0});
+      renderer.render(scene,camera);
+    });
+    await page.screenshot({path:process.env.TP_SCREENSHOT});
   }
   await page.close();
 }

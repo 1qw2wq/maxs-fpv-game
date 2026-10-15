@@ -26,6 +26,17 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  '自定义触屏布局': 'Customize touch layout',
+  '全屏': 'Full screen',
+  '拖动底部按钮和摇杆 · 横竖屏分别保存': 'Drag bottom controls and joystick · Saved per orientation',
+  '保存布局': 'Save layout',
+  '重置布局': 'Reset layout',
+  '取消': 'Cancel',
+  '按钮重叠，请分开后保存。': 'Controls overlap. Separate them before saving.',
+  '此浏览器不支持全屏，请使用浏览器的「添加到主屏幕」后打开游戏。': 'Full screen is unavailable here. Use Add to Home Screen in your browser, then launch the game there.',
+  '浏览器禁止了全屏。请在独立标签页打开游戏后重试全屏。': 'The browser blocked full screen. Open the game in its own tab, then retry Full screen.',
+  '摇杆持续推动 1.5 秒冲刺 · 右侧滑动瞄准 · 开火键也可滑动': 'Hold joystick 1.5s to sprint · Swipe right side to aim · Fire also aims',
+
   '视角灵敏度': 'Look sensitivity',
   '按住手榴弹投掷 · 点击切换': 'Hold Grenade · Tap to cycle',
   '点击继续战斗返回战场。': 'Tap Resume to return to the battle.',
@@ -153,8 +164,8 @@ const EN = {
   '新手指引': 'Tutorial',
   '学习移动 / 手榴弹 / 据点控制 / 联机': 'Movement, grenades, flags and multiplayer',
   '第一次玩？从这里开始 · 学会手榴弹与据点控制': 'First time? Start here',
-  '操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
-    'WASD move · Shift crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · hold G throw · B grenade type · V camera · Tab scoreboard · Esc pause',
+  '操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
+    'WASD move · Shift sprint · C crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · hold G throw · B grenade type · V camera · Tab scoreboard · Esc pause',
   '角色出现白块 / 黑块（头发、衣服、鞋子变色）？': 'Character pieces showing up white or black (hair, clothes, shoes discoloured)?',
   '打开颜色修复者 ColorFixer': 'Open the ColorFixer tool',
 
@@ -372,7 +383,7 @@ const EN = {
   // --------------------------------------------------------------- tutorial
   '① 移动': '① Movement',
   '按住 W A S D 走动，方向跟着你的准星走。': 'Hold W A S D to move; you go where you are looking.',
-  'Shift 蹲下能从低矮的坑道里钻过去，收益是更小的暴露面积。': 'Shift crouches, which fits through low tunnels and makes you a smaller target.',
+  'C 蹲下能从低矮的坑道里钻过去，收益是更小的暴露面积。': 'C crouches, which fits through low tunnels and makes you a smaller target.',
   '② 视角': '② Looking around',
   '鼠标': 'Mouse',
   '点击画面锁定鼠标，然后移动鼠标环顾四周；按 Esc 释放。':
@@ -390,7 +401,7 @@ const EN = {
   '按 R 换弹。弹匣空了会自动换，但主动换弹更安全。': 'Press R to reload — a dry magazine reloads itself, but early is safer.',
   '换弹时左下角会显示进度条，被打断会重新开始。': 'A progress bar shows in the corner; an interrupted reload starts over.',
   '⑥ 蹲下 / 跳跃': '⑥ Crouch and jump',
-  '按 Shift 蹲下，按 Space 跳过障碍。': 'Shift crouches, Space jumps over obstacles.',
+  '按 C 蹲下，按 Space 跳过障碍。': 'C crouches, Space jumps over obstacles.',
   '蹲下时移动更慢但更难被打中，也是穿过低矮通道的唯一办法。':
     'Crouching is slower and harder to hit, and the only way through low passages.',
   '⑦ 兵种技能': '⑦ Class ability',

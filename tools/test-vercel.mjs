@@ -5,6 +5,7 @@
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
 import { testMobile } from './test-mobile.mjs';
+import { testMobileFeatures } from './test-mobile-features.mjs';
 import { testLayouts } from './test-layout.mjs';
 import { testMouseControls, testMouseSettings } from './test-mouse.mjs';
 import { testPerformance, testLiveCover } from './test-performance.mjs';
@@ -350,6 +351,7 @@ try {
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
   await testLayouts(context, origin);
+  await testMobileFeatures(context, origin);
   await testMouseControls(context, origin);
   await testMouseSettings(context, origin);
   await testPerformance(context, origin);

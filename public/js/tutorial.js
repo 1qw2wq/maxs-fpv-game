@@ -21,7 +21,7 @@ const STEPS = [
   {
     id: 'move', title: '① 移动', key: 'W A S D',
     text: '按住 W A S D 走动，方向跟着你的准星走。',
-    tip: 'Shift 蹲下能从低矮的坑道里钻过去，收益是更小的暴露面积。',
+    tip: 'C 蹲下能从低矮的坑道里钻过去，收益是更小的暴露面积。',
     test: (s, dt, ctx) => {
       if (ctx.speed > 2.5) s.move += dt;
       return s.move > 1.2;
@@ -62,8 +62,8 @@ const STEPS = [
     test: (s) => s.events.reload >= 1,
   },
   {
-    id: 'crouch', title: '⑥ 蹲下 / 跳跃', key: 'Shift · Space',
-    text: '按 Shift 蹲下，按 Space 跳过障碍。',
+    id: 'crouch', title: '⑥ 蹲下 / 跳跃', key: 'C · Space',
+    text: '按 C 蹲下，按 Space 跳过障碍。',
     tip: '蹲下时移动更慢但更难被打中，也是穿过低矮通道的唯一办法。',
     test: (s, dt, ctx) => {
       if (ctx.crouch) s.crouch += dt;

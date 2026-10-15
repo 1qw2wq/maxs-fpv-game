@@ -53,6 +53,9 @@ export class Controls {
     this._aimHeld = false;
     this.lookFov = 78;
     this.crouch = false;
+    this.sprinting = false;
+    this.touchSprintAt = null;
+    this.inputNow = () => performance.now();
     this.moveSpeed = 0;
     this.enabled = false;
     this.locked = false;
@@ -267,6 +270,7 @@ export class Controls {
    * and clicking the view takes the mouse again.
    */
   releaseLook() {
+    this.sprinting = false; this.touchSprintAt = null;
     this.touchActive = false;
     this.touchFirePending = false;
     this.touchMove.x = this.touchMove.y = 0;
@@ -318,6 +322,7 @@ export class Controls {
   }
 
   reset(pos, yaw) {
+    this.sprinting = false; this.touchSprintAt = null;
     if (this.mobileMode) {
       this.releaseLook();
       this.requestLock();
@@ -378,7 +383,7 @@ export class Controls {
     this.eyeGround += (this.pos.y - this.eyeGround) * ease;
 
     const k = this.keys;
-    const wantsCrouch = k.has('ShiftLeft') || k.has('ShiftRight') || this.touchKeys.has('ShiftLeft');
+    const wantsCrouch = k.has('KeyC') || k.has('ControlLeft') || k.has('ControlRight') || this.touchKeys.has('KeyC');
     // Refuse to stand up where the head would hit geometry: a body that crouched
     // into a low passage stays crouched on release instead of getting wedged.
     const canStand = !this.world.blocked(this.pos.x, this.pos.z, this.pos.y,
@@ -391,6 +396,7 @@ export class Controls {
 
     if (!alive || !this.enabled) {
       this.moveSpeed = 0;
+      this.sprinting = false; this.touchSprintAt = null;
       this.vel.set(0,0,0);
       this._jumpBuffer = this._coyote = 0;
       this._jumpHeld = false;
@@ -414,9 +420,15 @@ export class Controls {
     const len = Math.hypot(fx, fz);
     if (len > 1) { fx /= len; fz /= len; }
 
+    const touchRun = this.mobileMode && this.canLook && Math.hypot(this.touchMove.x,this.touchMove.y) > .1 && !this.ads && !this.crouch && canMove;
+    if (!touchRun) this.touchSprintAt = null;
+    else if (this.touchSprintAt === null) this.touchSprintAt = this.inputNow() + 1500;
+    this.sprinting = canMove && len > .1 && !this.ads && !this.crouch &&
+      (k.has('ShiftLeft') || k.has('ShiftRight') || (touchRun && this.inputNow() >= this.touchSprintAt));
     let speed = this.combat.maxMoveSpeed * this.speedMult;
+    if (this.sprinting) speed *= this.combat.sprintMult || 1.35;
     if (this.crouch) speed *= 0.55;
-    if (this.ads) speed *= 0.62;
+    if (this.ads) speed *= this.combat.adsMoveMult || .62;
     if (suppressed) speed *= 0.92;
 
     const yawRad = (this.yaw * Math.PI) / 180;
