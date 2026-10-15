@@ -242,6 +242,26 @@ or score/tools overlap, and readable ammo. Quick-tap authority checks include SM
 emulation, not physical iOS/Android devices; GPU performance and browser support still vary.
 Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the portrait fixture.
 
+### Non-overlapping UI and transparent touch controls
+
+Menu content and weapon lists keep their natural height instead of being squeezed over buttons;
+short desktop windows and phones scroll to the action/footer. The language switch has a separate
+header outside the menu scrollport. Room/mode/settings/footer rows wrap, and tall modals scroll.
+The in-game score, room-copy button and objective cards now share a flow layout, rather than
+competing fixed offsets. Mobile portrait loadout summaries sit in their own row; landscape uses
+the free center lane for room/objective information. The room code remains a real, reachable button.
+
+Mobile game buttons use translucent backgrounds (16–18% idle tint, 24% held tint), opaque text,
+light outlines and fully rounded circles/pills. The joystick is lighter too. Only the backgrounds
+are faded, so labels stay readable; desktop/menu button styling remains separate.
+
+`tools/test-layout.mjs`, included in `node tools/test-vercel.mjs`, adds 172 layout checks in English
+and Chinese across desktop and mobile sizes. It covers menus, selection/deploy, settings, pause,
+invites and the multiplayer + point-control HUD, including scroll reachability, non-overlapping
+button rectangles, room-code hit testing, and transparent/rounded idle and held touch styles.
+Set `LAYOUT_SCREENSHOT=/tmp/layout.png` for a portrait HUD fixture screenshot. These are browser
+layout/emulation checks, not a claim that every physical phone/browser has been tested.
+
 ### Stable mouse input and mixed bot skills
 
 - Pointer-lock packets are coalesced once per frame with a short (~8 ms) filter. Non-finite input,

@@ -225,25 +225,45 @@
 <!-- ================================== HUD ================================== -->
 <section id="screen-hud" class="hidden">
 
-  <div id="topbar">
-    <div class="tb-score tb-left">
-      <span class="tb-name" id="tb-name-0">协约国</span>
-      <span class="tb-num" id="tb-score-0">0</span>
+  <div class="hud-header">
+    <div id="topbar">
+      <div class="tb-score tb-left">
+        <span class="tb-name" id="tb-name-0">协约国</span>
+        <span class="tb-num" id="tb-score-0">0</span>
+      </div>
+      <div class="tb-center">
+        <span id="tb-timer">8:00</span>
+        <span class="tb-limit">/ <b id="tb-limit">75</b></span>
+        <span id="tb-map" class="tb-map"></span>
+      </div>
+      <div class="tb-score tb-right">
+        <span class="tb-num" id="tb-score-1">0</span>
+        <span class="tb-name" id="tb-name-1">同盟国</span>
+      </div>
     </div>
-    <div class="tb-center">
-      <span id="tb-timer">8:00</span>
-      <span class="tb-limit">/ <b id="tb-limit">75</b></span>
-      <span id="tb-map" class="tb-map"></span>
-    </div>
-    <div class="tb-score tb-right">
-      <span class="tb-num" id="tb-score-1">0</span>
-      <span class="tb-name" id="tb-name-1">同盟国</span>
-    </div>
-  </div>
 
-  <div id="room-chip" class="hidden" title="点击复制房号">
-    <span class="rc-label">房号</span><b id="room-code">--------</b>
-    <span id="room-copy" class="rc-copy">复制</span>
+    <div class="match-info">
+      <button id="room-chip" class="hidden" type="button" title="点击复制房号">
+        <span class="rc-label">房号</span><b id="room-code">--------</b>
+        <span id="room-copy" class="rc-copy">复制</span>
+      </button>
+      <div id="objective-hud" class="hidden"><b id="objective-mode">据点控制</b><div id="objective-cards"></div><p id="objective-status"></p></div>
+    </div>
+
+    <div class="loadout-info">
+      <div id="ability-chip">
+        <div class="ab-key">Q</div>
+        <div class="ab-body">
+          <b id="ab-name">炸药包</b>
+          <div class="ab-cd"><i id="ab-fill"></i></div>
+        </div>
+      </div>
+      <div id="grenade-chip" aria-live="polite">
+        <span class="ab-key">G</span>
+        <div class="ab-body"><b id="grenade-name">破片手榴弹</b><small id="grenade-info"></small><div class="ab-cd"><i id="grenade-fill"></i></div></div>
+        <span class="grenade-cycle">B ↻</span>
+      </div>
+    </div>
   </div>
 
   <div id="crosshair">
@@ -282,20 +302,6 @@
     </div>
   </div>
 
-  <div id="ability-chip">
-    <div class="ab-key">Q</div>
-    <div class="ab-body">
-      <b id="ab-name">炸药包</b>
-      <div class="ab-cd"><i id="ab-fill"></i></div>
-    </div>
-  </div>
-
-  <div id="objective-hud" class="hidden"><b id="objective-mode">据点控制</b><div id="objective-cards"></div><p id="objective-status"></p></div>
-  <div id="grenade-chip" aria-live="polite">
-    <span class="ab-key">G</span>
-    <div class="ab-body"><b id="grenade-name">破片手榴弹</b><small id="grenade-info"></small><div class="ab-cd"><i id="grenade-fill"></i></div></div>
-    <span class="grenade-cycle">B ↻</span>
-  </div>
   <div id="flash-veil" aria-hidden="true"></div>
   <div id="event-toast" class="hidden"></div>
 
