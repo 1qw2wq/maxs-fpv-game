@@ -346,6 +346,32 @@ sector hysteresis; slow/crouched movement has a slower cadence, fallback gaits e
 remote avatars turn smoothly along the shortest angle. Native pointer lock remains the only mouse
 look scheme; there is no drag or cursor steering fallback.
 
+### Frame-rate and shooting-cover improvements
+
+- Static Somme boxes and their outlines are instanced by material, without removing scenery.
+  The same-scene overhead WebGL check renders the same triangles with **159 → 95 draw calls**.
+  Map transforms are frozen after loading (including Italy), avoiding repeated static-node matrix work.
+- First person no longer animates a second invisible full-body avatar. Off-screen remote rigs are
+  culled and skip pose evaluation; visible rigs use distance-based 60 / 30 / 15 / 8 Hz animation
+  budgets while their position and facing still update each frame. Simulation/network rates are unchanged.
+- The 3D buffer starts within a two-million-pixel / 1.5× DPR budget and adapts gradually under sustained
+  load, recovering detail when headroom returns. CSS HUD/text stays sharp. This may soften the 3D
+  image on slower hardware; it targets smoother frames, not a guaranteed FPS on every device.
+  Background-tab stalls are ignored. Diagnostics: `window.__trench.app.performance.stats`.
+- Visual bullet rays now use the collision grid and match authoritative wall/floor/solid-ramp hits.
+  No 5 cm near-wall exemption: an embedded origin stops immediately. Muzzles animated past cover
+  cannot start a tracer on its far side; each muzzle-to-end tracer is clipped again against solids.
+- Authority checks the entire segment from its eye to a reported firing origin, so the existing
+  1.5 m network tolerance cannot hop a thin wall. Non-finite directions are rejected. Ramp sides
+  and undersides are solid, but rays above the actual slope still pass. No wall penetration is added;
+  shooting remains continuous hitscan, preserving range/damage/lag compensation and normal open shots.
+
+Validation: `python tools/test-shooting.py` adds 10 cover/security cases, including all 12 guns and
+bots. The full `node tools/test-vercel.mjs` runner adds **612 Python/JS ray parity cases**, grid-vs-linear
+checks (15,281 vs 1,135,260 candidate tests), batching/quality-budget regressions, and actual-game
+wall-blocked damage/tracers, rejected origin hops, open hits and off-screen pose skipping.
+These are local/static-browser measurements, not live Vercel or real-device FPS guarantees.
+
 ### Aiming down sights
 
 Hold the right mouse button for ADS. Each imported gun now has a geometry-calibrated sight

@@ -10,6 +10,8 @@ import { loadConfig } from './config.js';
 import { World } from './map.js';
 import { ObjectivesView } from './objectives.js';
 import { updateContactShadow } from './lighting.js';
+import { rayWorld, safeMuzzle, clipTracer } from './ballistics.js';
+import { AdaptiveResolution, poseInterval } from './performance.js';
 import { resolveCamera } from './camera-collision.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
@@ -195,7 +197,7 @@ async function boot() {
       t('请在浏览器设置里打开「使用硬件加速」「使用图形加速」后重开页面；若仍不行，换 Chrome / Edge / Firefox 试试。'));
     return;
   }
-  app.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  app.performance = new AdaptiveResolution(app.renderer,{width:innerWidth,height:innerHeight,dpr:devicePixelRatio});
   app.renderer.setSize(innerWidth, innerHeight);
   app.renderer.outputColorSpace = THREE.SRGBColorSpace;
   app.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -227,6 +229,7 @@ async function boot() {
   app.gunfx = new GunFx({ group: app.fxGroup, scene: app.scene });
 
   addEventListener('resize', () => {
+    app.performance.resize(innerWidth,innerHeight,devicePixelRatio);
     app.renderer.setSize(innerWidth, innerHeight);
     app.camera.aspect = innerWidth / innerHeight;
     app.camera.updateProjectionMatrix();
@@ -2157,6 +2160,7 @@ const tracerGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 5, 1, true);
 tracerGeo.rotateX(Math.PI / 2);
 
 function spawnTracer(from, to, style) {
+  to = clipTracer(app.world, from, to);
   const dir = new THREE.Vector3().subVectors(to, from);
   const len = dir.length();
   if (len < 0.4) return;
@@ -2188,37 +2192,17 @@ function updateTracers(now) {
 
 /** Nearest solid hit along a ray, using the same boxes the server collides against. */
 function rayEnd(origin, dir, maxT = 140) {
-  let best = maxT;
-  const boxes = app.world.solid;
-  for (let i = 0; i < boxes.length; i++) {
-    const b = boxes[i];
-    const lo = [b.x - b.w * 0.5, b.y - b.h * 0.5, b.z - b.d * 0.5];
-    const hi = [b.x + b.w * 0.5, b.y + b.h * 0.5, b.z + b.d * 0.5];
-    const o = [origin.x, origin.y, origin.z];
-    const d = [dir.x, dir.y, dir.z];
-    let tmin = 0, tmax = best, hit = true;
-    for (let a = 0; a < 3; a++) {
-      if (Math.abs(d[a]) < 1e-8) {
-        if (o[a] < lo[a] || o[a] > hi[a]) { hit = false; break; }
-      } else {
-        let t1 = (lo[a] - o[a]) / d[a];
-        let t2 = (hi[a] - o[a]) / d[a];
-        if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
-        if (t1 > tmin) tmin = t1;
-        if (t2 < tmax) tmax = t2;
-        if (tmin > tmax) { hit = false; break; }
-      }
-    }
-    if (hit && tmin > 0.05 && tmin < best) best = tmin;
-  }
-  return origin.clone().addScaledVector(dir, best);
+  const hit = rayWorld(app.world, origin, dir, maxT);
+  return origin.clone().addScaledVector(dir, hit ?? maxT);
 }
 
 // ---------------------------------------------------------------- game loop
 
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min(0.05, app.last ? (now - app.last) / 1000 : 0.016);
+  const frameMs = app.last ? now-app.last : 16;
+  app.performance?.update(frameMs,now,app.playing&&!app.paused&&!document.hidden);
+  const dt = Math.min(0.05, frameMs / 1000);
   app.last = now;
   // Paused (Esc menu): the clock still runs for the effects that are already in
   // the air, but the match itself is frozen -- no input is sent, and a room
@@ -2385,6 +2369,7 @@ function fireOnce(w, eye, dir) {
       from.copy(eye); eject.copy(eye);
     } else attachment = app.vm.muzzle;
   }
+  if (!safeMuzzle(app.world, eye, from)) attachment = null;
   const barrelDir = attachment ? attachment.getWorldDirection(new THREE.Vector3()) : dir;
   app.gunfx.fire(w, from, barrelDir, { eject, attachment });
   const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
@@ -2432,7 +2417,10 @@ function syncSelfAvatar(dt, alive) {
   app.self.root.visible = alive && thirdPersonView();
   app.self.root.position.copy(c.pos);
   app.self.root.rotation.y = yawToRotation(c.yaw);
-  updateContactShadow(app.self, app.world, alive);
+  updateContactShadow(app.self, app.world, alive && app.self.root.visible);
+  // First person already solves a separate pair of arms. Do not animate a
+  // second, invisible full-body rig every frame as well.
+  if (!app.self.root.visible) return;
   // Upper-body layer state. The server only tells us about reloads; firing and
   // the throw are local, so they are timed off the wall clock here. Each pose is
   // held for a short window after the input ends so the clip can finish rather
@@ -2467,6 +2455,10 @@ const _fpGunRotation = new THREE.Quaternion();
 
 function syncFpArms() {
   if (!app.playing) return;
+  if (thirdPersonView()) {
+    if (app.fpArms) app.fpArms.holder.visible = false;
+    return;
+  }
 
   const cls = app.data.classById[app.loadout.cls];
   const skinId = app.loadout.skin || DEFAULT_CLASS_SKIN[cls.id] || '';
@@ -2505,12 +2497,6 @@ function syncFpArms() {
     app.fpArms = girl;
   }
 
-  // the gear is drawn by the viewmodel; only hide the placeholder pair here
-  if (thirdPersonView()) {
-    if (app.vm.armMeshes) app.vm.armMeshes.visible = true;
-    return;
-  }
-
   // camera first: the viewmodel hangs off it, so its world matrices must be
   // current before the two anchors can be read out
   app.camera.updateMatrixWorld(true);
@@ -2535,7 +2521,11 @@ function aimFromAngles(out, yawDeg, pitchDeg) {
   return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
 }
 
+const remoteFrustum = new THREE.Frustum(), remoteView = new THREE.Matrix4();
+const remoteSphere = new THREE.Sphere(new THREE.Vector3(),2);
 function updateRemotePlayers(dt, me) {
+  app.camera.updateMatrixWorld(true);
+  remoteFrustum.setFromProjectionMatrix(remoteView.multiplyMatrices(app.camera.projectionMatrix, app.camera.matrixWorldInverse));
   const poses = app.net.sample();
   const seen = new Set();
   // Distant gunfire is capped per frame: twelve bots firing together must not
@@ -2591,18 +2581,27 @@ function updateRemotePlayers(dt, me) {
       const desiredYaw = yawToRotation(p.yaw);
       const turn = Math.atan2(Math.sin(desiredYaw-girl.root.rotation.y),Math.cos(desiredYaw-girl.root.rotation.y));
       girl.root.rotation.y += turn*(1-Math.exp(-20*dt));
-      girl.update(dt, {
-        speed: p.speed,
-        sprint: (p.flags & 2) !== 0,
-        crouch: (p.flags & 1) !== 0,
-        pitch: p.pitch,
-      });
-    }
-    updateContactShadow(girl, app.world, !!p.alive);
+      remoteSphere.center.set(p.x,p.y+.9,p.z);
+      const visible = remoteFrustum.intersectsSphere(remoteSphere);
+      const becameVisible = visible && !girl.root.visible;
+      girl.root.visible = visible;
+      girl.poseElapsed = Math.min(.2,(girl.poseElapsed||0)+dt);
+      const distance = girl.root.position.distanceTo(app.camera.position);
+      if (visible && (becameVisible || girl.poseElapsed+1e-6 >= poseInterval(distance))) {
+        girl.update(girl.poseElapsed, {
+          speed: p.speed, sprint: (p.flags & 2) !== 0,
+          crouch: (p.flags & 1) !== 0, pitch: p.pitch,
+        });
+        girl.poseElapsed=0;app.performance.stats.poseUpdates++;
+      } else app.performance.stats.poseSkips++;
+    } else girl.root.visible=false;
+    updateContactShadow(girl, app.world, !!p.alive && girl.root.visible);
     // Read sockets AFTER the live avatar pose. Accepted-shot sequences avoid
     // missing bolt shots between snapshots or repeating one shot's flag pulse.
     if (remoteShotDue(girl, p, rw, performance.now()) && girl.muzzleWorld?.(_shotFrom)) {
-      const attachment = girl.root.getObjectByName('weapon-muzzle');
+      let attachment = girl.root.getObjectByName('weapon-muzzle');
+      const eye = new THREE.Vector3(p.x, p.y + ((p.flags & 1) ? app.data.combat.crouchEyeHeight : app.data.combat.standEyeHeight), p.z);
+      if (!safeMuzzle(app.world, eye, _shotFrom)) attachment = null;
       if (attachment) attachment.getWorldDirection(_shotDir);
       else aimFromAngles(_shotDir, p.yaw, p.pitch);
       const eject = new THREE.Vector3();
@@ -2610,7 +2609,6 @@ function updateRemotePlayers(dt, me) {
       app.gunfx?.remote(rw, _shotFrom, _shotDir, { eject, attachment });
       const style = gunStyle(rw);
       if (tracerRound(style, p.shotSeq ?? Math.round(performance.now() / (60000 / rw.rpm)))) {
-        const eye = new THREE.Vector3(p.x, p.y + ((p.flags & 1) ? app.data.combat.crouchEyeHeight : app.data.combat.standEyeHeight), p.z);
         const direction = aimFromAngles(new THREE.Vector3(), p.yaw, p.pitch);
         spawnTracer(_shotFrom, rayEnd(eye, direction), style);
       }

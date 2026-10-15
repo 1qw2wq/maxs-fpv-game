@@ -378,12 +378,20 @@ class Match:
                 o = eye
         else:
             o = eye
+        # Network/eye-smoothing tolerance must never put the origin through a
+        # thin wall. Sweep the entire offset, even when it is under 1.5 metres.
+        offset = dist3(eye, o)
+        if offset > 1e-6:
+            shift = normalize(tuple(o[i]-eye[i] for i in range(3)))
+            obstruction = ray_world(eye, shift, offset)
+            if obstruction is not None:
+                o = eye
         d = msg.get("d")
         if isinstance(d, (list, tuple)) and len(d) == 3:
             d = normalize((_f(d[0]), _f(d[1]), _f(d[2])))
         else:
             d = dir_from_angles(p["yaw"], p["pitch"])
-        if d == (0.0, 0.0, 0.0):
+        if d == (0.0, 0.0, 0.0) or not all(math.isfinite(v) for v in d):
             return []
 
         p["last_shot"] = now

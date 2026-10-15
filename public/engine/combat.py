@@ -69,6 +69,7 @@ DECOR = {}
 # footprint touches, so a query only ever visits the handful of boxes near it.
 GRID_CELL = 2.0
 GRID = {}
+RAMP_PLANES = {}
 
 # Navigation flow field, one per team: cell -> the one step that shortens the
 # walk to the enemy's spawn area. Cells are finer than the collision grid so a
@@ -81,7 +82,8 @@ NAV_FLOW = {}
 
 def _build_grid():
     """Rebuild GRID from SOLID. Called by set_map."""
-    global GRID
+    global GRID, RAMP_PLANES
+    RAMP_PLANES = {}
     g = {}
     c = GRID_CELL
     for b in SOLID:
@@ -595,40 +597,37 @@ def ray_box(origin, d, box, max_t):
 
 
 def ray_ramp(origin, d, b, max_t):
-    """Ray vs a ramp's sloped top surface. Returns t or None.
+    """Ray vs the entire solid wedge, including its sides and underside.
 
-    The ramp is a walkable slope built from a staircase, so only its top plane is
-    solid to a ray: a bullet skims up the treads instead of stopping on an
-    invisible bounding box.
+    Clip against the real slope, not its AABB roof or an open top plane.
+    Planes are cached until the collision grid/map is rebuilt.
     """
-    x0 = b["x"] - b["w"] * 0.5
-    x1 = b["x"] + b["w"] * 0.5
-    z0 = b["z"] - b["d"] * 0.5
-    z1 = b["z"] + b["d"] * 0.5
-    y0, y1 = b["y0"], b["y1"]
-    if b.get("ax") == "z":
-        if abs(z1 - z0) < 1e-9:
+    key = id(b)
+    shape = RAMP_PLANES.get(key)
+    if shape is None:
+        x0, x1 = b['x']-b['w']/2, b['x']+b['w']/2
+        z0, z1 = b['z']-b['d']/2, b['z']+b['d']/2
+        along_z = b.get('ax') == 'z'
+        slope = (b['y1']-b['y0']) / max(1e-6, b['d'] if along_z else b['w'])
+        shape = [(1,0,0,x1),(-1,0,0,-x0),(0,0,1,z1),(0,0,-1,-z0),
+                 (0,-1,0,-(b['y']-b['h']/2)),
+                 (0 if along_z else -slope,1,-slope if along_z else 0,
+                  b['y0']-slope*(z0 if along_z else x0))]
+        RAMP_PLANES[key] = shape
+    enter, leave = 0.0, max_t
+    for nx, ny, nz, offset in shape:
+        start = nx*origin[0]+ny*origin[1]+nz*origin[2]-offset
+        speed = nx*d[0]+ny*d[1]+nz*d[2]
+        if abs(speed) < 1e-9:
+            if start > 0:
+                return None
+        elif speed < 0:
+            enter = max(enter,-start/speed)
+        else:
+            leave = min(leave,-start/speed)
+        if enter > leave:
             return None
-        s = (y1 - y0) / (z1 - z0)
-        n = (0.0, 1.0, -s)
-        c = y0 - s * z0
-    else:
-        if abs(x1 - x0) < 1e-9:
-            return None
-        s = (y1 - y0) / (x1 - x0)
-        n = (-s, 1.0, 0.0)
-        c = y0 - s * x0
-    denom = n[0] * d[0] + n[1] * d[1] + n[2] * d[2]
-    if abs(denom) < 1e-9:
-        return None
-    t = (c - (n[0] * origin[0] + n[1] * origin[1] + n[2] * origin[2])) / denom
-    if t < 0.0 or t > max_t:
-        return None
-    hx = origin[0] + d[0] * t
-    hz = origin[2] + d[2] * t
-    if not (x0 - 1e-6 <= hx <= x1 + 1e-6 and z0 - 1e-6 <= hz <= z1 + 1e-6):
-        return None
-    return t
+    return enter
 
 
 def ray_world(origin, d, max_t, skip_ground=False):

@@ -40,6 +40,7 @@ export class World {
     this.style = sceneStyle(map.style);
     this.solid = map.boxes.filter((b) => b.t !== 'ground');
     this.grid = this._buildGrid();
+    this.gridCell = GRID_CELL;
     this.ground = map.boxes.find((b) => b.t === 'ground');
     this.bounds = map.bounds;
     this.groundY = map.groundY;
@@ -64,6 +65,10 @@ export class World {
     this._lights();
     if (this.map.scene) await this._model();
     else this._boxes();
+    // Scenery never animates. Avoid recomposing thousands of static model-node
+    // matrices each rendered frame, while keeping their world-space bounds.
+    this.group.updateMatrixWorld(true);
+    this.group.traverse(o=>{o.matrixAutoUpdate=false;o.matrixWorldAutoUpdate=false;});
   }
 
   // ------------------------------------------------------------- collision
@@ -233,6 +238,7 @@ export class World {
       plank: toonMat('#8a6a44', { map: plankTexture() }),
     };
 
+    const batches = new Map();
     for (const b of this.map.boxes) {
       if (b.t === 'ground') {
         const g = new THREE.BoxGeometry(b.w, b.h, b.d);
@@ -248,15 +254,21 @@ export class World {
       // model map, whose visuals come from the GLB.
       if (b.t === 'floor' || b.t === 'ramp') continue;
 
-      const outlined = b.t === 'sandbag' || b.t === 'concrete' || b.t === 'wall';
-      const geo = new THREE.BoxGeometry(b.w, b.h, b.d);
-      part(this.group, geo, {
-        material: mats[b.t],
-        pos: [b.x, b.y, b.z],
-        outline: outlined,
-        outlineColor: 0x241c22,
-        outlineScale: 1.02,
-      });
+      if (!batches.has(b.t)) batches.set(b.t,[]);
+      batches.get(b.t).push(b);
+    }
+    const unit = new THREE.BoxGeometry(1,1,1), matrix = new THREE.Matrix4();
+    for (const [type, boxes] of batches) {
+      const mesh = new THREE.InstancedMesh(unit,mats[type]||mats.wall,boxes.length);
+      const outlined = ['sandbag','concrete','wall'].includes(type);
+      const ink = outlined ? new THREE.InstancedMesh(unit,new THREE.MeshBasicMaterial({color:0x241c22,side:THREE.BackSide}),boxes.length) : null;
+      for (let i=0;i<boxes.length;i++) {
+        const b=boxes[i];
+        matrix.makeScale(b.w,b.h,b.d).setPosition(b.x,b.y,b.z);mesh.setMatrixAt(i,matrix);
+        if(ink){matrix.makeScale(b.w*1.02,b.h*1.02,b.d*1.02).setPosition(b.x,b.y,b.z);ink.setMatrixAt(i,matrix);}
+      }
+      mesh.computeBoundingSphere();this.group.add(mesh);
+      if(ink){ink.computeBoundingSphere();this.group.add(ink);}
     }
 
     this._decor();
@@ -264,13 +276,16 @@ export class World {
 
   /** Tear the map down so a swap does not leak geometry or textures. */
   dispose() {
+    const geometries=new Set(),materials=new Set(),textures=new Set();
     this.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+      if(o.isInstancedMesh)o.dispose();
+      if (o.geometry && !geometries.has(o.geometry)) { geometries.add(o.geometry);o.geometry.dispose(); }
       const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
       for (const m of mats) {
+        if(materials.has(m))continue;materials.add(m);
         for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap',
           'emissiveMap', 'aoMap', 'alphaMap', 'specularMap']) {
-          if (m[k]) m[k].dispose();
+          if (m[k] && !textures.has(m[k])) {textures.add(m[k]);m[k].dispose();}
         }
         m.dispose();
       }
