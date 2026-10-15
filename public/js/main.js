@@ -12,6 +12,8 @@ import { resolveCamera } from './camera-collision.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
 import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
+import { simulateThrow, sampleThrow } from './throwing.js';
+import { buildGrenadeEffect, updateGrenadeEffect } from './grenadefx.js';
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
 import { Hud } from './hud.js';
@@ -76,8 +78,10 @@ const app = {
   // rounds), which is what the per-gun cadence is judged on.
   tracerStats: { spawned: 0 },
   effects: [],
-  // {t0} while Q is held on a thrown ability; null otherwise
+  // {t0, source, kind} while Q/G is charging; null otherwise
   charge: null,
+  grenadeKind: 'frag',
+  flash: null,
   // the map's own fog/background, saved while a smoke screen overrides them
   smokeBase: null,
   smokeOn: false,
@@ -512,6 +516,7 @@ function togglePause(on) {
   // A room running in this tab (solo engine or a hosted match) stops with it.
   if (app.net) app.net.paused = want;
   if (want) {
+    clearFlash();
     app.clickPending = false;
     app.controls.releaseLook();
     app.hud.showPause({
@@ -1453,7 +1458,15 @@ function wireControls() {
     if (kind === 'smoke' || kind === 'flare') beginCharge();
     else { app.sfx.ability(kind); app.net.ability(c.aim()); }
   };
-  c.onAbilityUp = () => releaseCharge();
+  c.onAbilityUp = () => releaseCharge('ability');
+  c.onGrenadeDown = () => beginCharge('grenade');
+  c.onGrenadeUp = () => releaseCharge('grenade');
+  c.onGrenadeCycle = () => {
+    if (!app.playing || app.paused || app.charge) return;
+    const types = app.data.grenades;
+    app.grenadeKind = types[(types.findIndex(g=>g.id===app.grenadeKind)+1)%types.length].id;
+    app.sfx.ui();
+  };
   c.onAbilityCancel = () => cancelCharge();
   c.onScoreboard = (show) => {
     if (!app.playing) return;
@@ -1465,6 +1478,7 @@ function wireControls() {
   };
   c.onChat = () => {
     if (!app.playing) return;
+    cancelCharge();
     app.hud.chatOpen((text) => { app.net.chat(text); c.requestLock(); });
   };
   c.onViewToggle = () => {
@@ -1606,6 +1620,8 @@ function onMe(me) {
   app.wasAlive = alive;
 
   if (!alive) {
+    clearFlash();
+    cancelCharge();
     if (!app.deathShown) {
       app.deathShown = true;
       app.hud.showDeath(app.killedBy?.name, app.killedBy?.weaponName, me.c, me.w);
@@ -1655,6 +1671,7 @@ async function onMessage(m) {
         // wedge can point back at it instead of just flashing everywhere
         if (Array.isArray(m.p)) app.hud.damageDirection(bearingTo(m.p));
         app.sfx.hurt(m.dmg);
+        if (m.zone === 'fire') app.hud.toast(t('遭受燃烧伤害'), 1000);
         if (m.zone === 'blast') app.hud.toast(t('遭受爆炸冲击'), 1200);
       }
       break;
@@ -1662,7 +1679,7 @@ async function onMessage(m) {
     case 'kill': {
       app.hud.addKill(m.k, m.v, m.w, m.head, app.myId);
       if (m.v.id === app.myId) {
-        app.killedBy = { name: m.k.n, weaponName: data.weaponById[m.w]?.name };
+        app.killedBy = { name: m.k.n, weaponName: nameOf(data.weaponById[m.w] || data.grenadeById[m.w] || { name: m.w }) };
         app.sfx.death();
       } else if (m.k.id === app.myId) {
         app.sfx.kill();
@@ -1677,6 +1694,13 @@ async function onMessage(m) {
       app.sfx.spawn();
       break;
     }
+    case 'flash':
+      if (app.playing && !app.paused && app.net?.lastMe?.alive) {
+        const now = performance.now(), old = app.flash;
+        app.flash = { start: now, dur: Math.max(100, m.ms || 0, old ? old.dur-(now-old.start) : 0),
+          strength: Math.min(matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.35 : 0.78, Math.max(0, m.strength || 0, old?.strength || 0)) };
+      }
+      break;
     case 'fx':
       spawnEffect(m.fx);
       break;
@@ -1721,7 +1745,10 @@ const FX_STYLES = {
   smoke: { kind: 'cloud', proj: 0x9aa4ad },
   heal: { kind: 'crate' },
   ammo: { kind: 'crate' },
-  flare: { kind: 'sphere', color: 0xff5a5a, grow: 0.2, proj: 0xff6a4a, lit: true },
+  flare: { kind: 'detonation', proj: 0xff6a4a },
+  frag: { kind: 'detonation', proj: 0x687449 },
+  incendiary: { kind: 'detonation', proj: 0xdf6b2d },
+  flash: { kind: 'detonation', proj: 0xd8dce0 },
 };
 
 // The shell a thrown ability spends its flight as. One shared geometry (never
@@ -1787,54 +1814,42 @@ function spawnEffect(fx) {
   const now = performance.now();
   const rec = {
     eid: fx.eid, start: now, dur: Math.max(300, fx.dur || 700),
-    persist: !!fx.persist, style,
+    persist: !!fx.persist, style, kind: fx.k,
   };
 
   if (style.kind === 'cloud') {
     Object.assign(rec, buildSmokeCloud(fx));
     // kept so the veil can tell whether the camera is standing in this cloud
     rec.r = fx.r || 0;
+    rec.detonation = buildGrenadeEffect(fx, app.world);
+    rec.detonation.obj.position.set(0,0,0);
+    rec.obj.add(rec.detonation.obj);
   } else if (style.kind === 'crate') {
     Object.assign(rec, buildCrate(fx));
   } else {
-    const mat = new THREE.MeshBasicMaterial({
-      color: style.color, transparent: true, opacity: 0.62,
-      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 10), mat);
-    mesh.position.set(fx.p[0], fx.p[1], fx.p[2]);
-    const light = new THREE.PointLight(style.color, 26, 26, 2);
-    light.position.copy(mesh.position);
-    app.fxGroup.add(light);
-    rec.obj = mesh;
-    rec.light = light;
+    rec.detonation = buildGrenadeEffect(fx, app.world);
+    rec.obj = rec.detonation.obj;
   }
   app.fxGroup.add(rec.obj);
 
-  // A thrown ability spends its first `delay` ms in the air: a small shell flies
-  // the same arc the thrower's preview drew, and the cloud/flare only appears
-  // where it lands.
+  // Use the host's collision/bounce samples, never a client-invented curve.
+  // Late joiners receive age so an existing fire does not restart its lifetime.
+  const age = Math.max(0, fx.age || 0);
   const flyMs = fx.from && fx.delay > 0 ? fx.delay : 0;
-  if (flyMs > 0) {
-    const from = new THREE.Vector3(fx.from[0], fx.from[1], fx.from[2]);
-    const to = new THREE.Vector3(fx.p[0], fx.p[1], fx.p[2]);
-    const dist = Math.hypot(to.x - from.x, to.z - from.z);
-    const apex = dist * (app.data.combat.throw?.apexPerM ?? 0.26);
-    rec.flyMs = flyMs;
-    rec.flyStart = now;
-    rec.flyFrom = from;
-    rec.flyTo = to;
-    rec.flyCtrl = throwCurve(from, to, apex);
+  rec.flyMs = flyMs;
+  rec.flyStart = now-age;
+  rec.start = now-age+flyMs;
+  rec.landed = age >= flyMs;
+  rec.playDetonation = flyMs > 0 && age < flyMs;
+  if (flyMs > 0 && !rec.landed) {
+    rec.flyPath = fx.path;
+    rec.flyFrom = new THREE.Vector3(...fx.from);
+    rec.flyTo = new THREE.Vector3(...fx.p);
+    rec.flyCtrl = throwCurve(rec.flyFrom, rec.flyTo, rec.flyFrom.distanceTo(rec.flyTo)*0.26); // old-host compatibility
     rec.proj = new THREE.Mesh(projGeo, new THREE.MeshBasicMaterial({ color: style.proj ?? 0xdddddd }));
-    rec.proj.position.copy(from);
+    rec.proj.position.copy(rec.flyFrom);
     app.fxGroup.add(rec.proj);
-    if (style.lit) {
-      rec.projLight = new THREE.PointLight(style.proj ?? 0xff6a4a, 18, 16, 2);
-      rec.projLight.position.copy(from);
-      app.fxGroup.add(rec.projLight);
-    }
     rec.obj.visible = false;
-    rec.start = now + flyMs;
   }
   app.effects.push(rec);
 }
@@ -1865,12 +1880,25 @@ function removeEffect(eid) {
 }
 
 /** Drop every live effect, e.g. when the whole map is swapped between rounds. */
+function clearFlash() {
+  app.flash = null;
+  const veil = document.getElementById('flash-veil');
+  if (veil) veil.style.opacity = '0';
+}
+
 function clearEffects() {
+  clearFlash();
   for (const e of app.effects) disposeEffect(e);
   app.effects.length = 0;
 }
 
 function updateEffects(now) {
+  const veil = document.getElementById('flash-veil');
+  if (app.flash && veil) {
+    const left = Math.max(0,1-(now-app.flash.start)/app.flash.dur);
+    veil.style.opacity = String(app.flash.strength*left*left);
+    if (!left) app.flash = null;
+  }
   for (let i = app.effects.length - 1; i >= 0; i--) {
     const e = app.effects[i];
     // Flight first: while the shell is in the air its payload stays hidden and
@@ -1878,7 +1906,9 @@ function updateEffects(now) {
     if (e.flyMs && !e.landed) {
       const f = (now - e.flyStart) / e.flyMs;
       if (f < 1) {
-        bezierPoint(e.flyFrom, e.flyCtrl, e.flyTo, Math.max(0, f), e.proj.position);
+        if (e.flyPath) sampleThrow(e.flyPath, Math.max(0,now-e.flyStart), e.proj.position);
+        else bezierPoint(e.flyFrom, e.flyCtrl, e.flyTo, Math.max(0, f), e.proj.position);
+        e.proj.rotation.set((now-e.flyStart)*0.006,(now-e.flyStart)*0.009,0);
         e.projLight?.position.copy(e.proj.position);
         continue;
       }
@@ -1886,9 +1916,17 @@ function updateEffects(now) {
       e.proj.visible = false;
       if (e.projLight) e.projLight.visible = false;
       e.obj.visible = true;
-      e.start = now;
     }
-    const k = (now - e.start) / e.dur;
+    if (e.playDetonation) {
+      e.playDetonation = false;
+      // A short pop must get at least one visible frame even after a long GPU
+      // stall. This affects only the visual burst, never the host's fuse/damage.
+      if (['frag','flash','smoke'].includes(e.kind)) e.detonationStart = now;
+      app.sfx.detonate(e.kind, e.obj.position.distanceTo(app.camera.position));
+    }
+    if (e.detonation) updateGrenadeEffect(e.detonation, now-(e.detonationStart ?? e.start));
+    const visualStart = e.kind === 'frag' || e.kind === 'flash' ? (e.detonationStart ?? e.start) : e.start;
+    const k = (now - visualStart) / e.dur;
     if (!e.persist && k >= 1) {
       disposeEffect(e);
       app.effects.splice(i, 1);
@@ -1987,11 +2025,9 @@ function updateSmokeVision() {
 
 // ------------------------------------------------------- thrown ability aiming
 
-// Smoke and flare are lobbed, not placed: holding Q charges the throw and draws
-// the arc it will follow, so the landing spot is picked before the key is let go.
-// The arc is a quadratic Bezier whose crest scales with the throw's range, and it
-// is cut short at the first thing it meets -- ground or cover. The server is sent
-// the crest's landing point, so the marker and the real impact always agree.
+// Q keeps class abilities; G charges the grenade slot and B selects its type.
+// Preview and host share fixed-step gravity, inherited motion and sphere sweeps.
+// Fuses start on release (no cooking); losing lock/death/pausing cancels charge.
 
 /** Control point that lifts a Bezier's crest `apex` above the O-L chord. */
 function throwCurve(origin, end, apex) {
@@ -2012,47 +2048,13 @@ function bezierPoint(o, c, l, s, out) {
   );
 }
 
-/** March the arc to the first surface it meets; returns the polyline + impact. */
-function traceThrow(origin, dir, dist) {
-  const cfg = app.data.combat.throw;
-  const hl = Math.hypot(dir.x, dir.z) || 1e-6;
-  const end = new THREE.Vector3(origin.x + (dir.x / hl) * dist, origin.y,
-    origin.z + (dir.z / hl) * dist);
-  let ctrl = throwCurve(origin, end, dist * cfg.apexPerM);
-  const scratch = new THREE.Vector3();
-  const prev = origin.clone();
-  const impact = end.clone();
-  const N = 56;
-  for (let i = 1; i <= N; i++) {
-    bezierPoint(origin, ctrl, end, i / N, scratch);
-    const floor = app.world.floorAt(scratch.x, scratch.z, scratch.y);
-    if (scratch.y <= floor + 0.05) { impact.set(scratch.x, floor, scratch.z); break; }
-    if (app.world.blocked(scratch.x, scratch.z, scratch.y, 0.12)) { impact.copy(prev); break; }
-    prev.copy(scratch);
-  }
-  // The server pulls the landing back inside the map, so mirror that here: a
-  // flare's long reach must still mark the point it really comes down on.
-  const b = app.world.bounds;
-  impact.x = Math.min(Math.max(impact.x, b.minX + 1), b.maxX - 1);
-  impact.z = Math.min(Math.max(impact.z, b.minZ + 1), b.maxZ - 1);
-  impact.y = app.world.floorAt(impact.x, impact.z, impact.y);
-  // Redraw ending exactly on the impact so the dotted line touches the marker.
-  const realDist = Math.hypot(impact.x - origin.x, impact.z - origin.z);
-  ctrl = throwCurve(origin, impact, realDist * cfg.apexPerM);
-  const points = [];
-  for (let i = 0; i <= 24; i++) {
-    points.push(bezierPoint(origin, ctrl, impact, i / 24, new THREE.Vector3()));
-  }
-  return { points, impact };
-}
-
 let _arcLine = null;
 let _arcRing = null;
 
 function ensureArc() {
   if (_arcLine) return;
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(25 * 3), 3));
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(512 * 3), 3));
   _arcLine = new THREE.Line(geo, new THREE.LineDashedMaterial({
     color: 0xffe08a, dashSize: 0.34, gapSize: 0.22, transparent: true, opacity: 0.9,
     depthWrite: false,
@@ -2077,39 +2079,32 @@ function hideArc() {
   app.hud.setAbilityCharge(null);
 }
 
-/** Range the throw would reach at this charge, and the point it lands on. */
+/** This exact fixed-step preview is mirrored by the host's throw solver. */
 function aimThrow(power, kind) {
-  const cfg = app.data.combat.throw;
-  const origin = app.controls.eye();
-  const dir = app.controls.aim();
-  // A flare is lobbed far further than a smoke grenade, so the reach is per-kind.
-  const maxDist = kind === 'flare' ? cfg.flareMaxDist : cfg.smokeMaxDist;
-  const dist = cfg.minDist + (maxDist - cfg.minDist) * power;
-  return traceThrow(origin, dir, dist);
+  const flight = simulateThrow(app.world, app.controls.eye().toArray(), app.controls.aim().toArray(), power, kind,
+    app.data.combat.throw, app.data.grenades, [app.controls.vel.x, app.controls.vy, app.controls.vel.z], app.data.combat.maxMoveSpeed);
+  return { ...flight, points: flight.path.map(row=>new THREE.Vector3(row[1],row[2],row[3])), impact: new THREE.Vector3(...flight.p) };
 }
 
-function beginCharge() {
-  if (!app.playing || !app.world) return;
+function beginCharge(source = 'ability') {
+  if (!app.playing || app.paused || !app.world || app.charge || !app.controls.canLook) return;
   const me = app.net?.lastMe;
-  if (!me || !me.alive) return;
-  if (me.abilityIn > 0) return;      // still cooling down
-  app.charge = { t0: performance.now() };
+  if (!me?.alive) return;
+  if (source === 'grenade' && (me.grenadeIn > 0 || me.grenades === 0)) { app.hud.toast(t('手榴弹补充中'), 1000); return; }
+  if (source === 'ability' && me.abilityIn > 0) return;
+  app.charge = { t0: performance.now(), source, kind: source === 'grenade' ? app.grenadeKind : app.data.classById[me.c].ability };
 }
 
-function releaseCharge() {
+function releaseCharge(source = 'ability') {
   const charge = app.charge;
-  if (!charge) return;
+  if (!charge || charge.source !== source) return;
   cancelCharge();
-  if (!app.playing || !app.world) return;
-  const me = app.net?.lastMe;
-  if (!me || !me.alive) return;
-  const cfg = app.data.combat.throw;
-  const kind = app.data.classById[me.c].ability;
-  const power = Math.min(1, (performance.now() - charge.t0) / cfg.chargeMs);
-  const { impact } = aimThrow(power, kind);
-  app.sfx.ability(kind);
+  if (!app.playing || app.paused || !app.world || !app.net?.lastMe?.alive || !app.controls.canLook) return;
+  const power = Math.min(1, (performance.now()-charge.t0)/app.data.combat.throw.chargeMs);
+  app.sfx.ability(charge.kind);
   app.throwAt = performance.now();
-  app.net.ability(app.controls.aim(), impact);
+  if (source === 'grenade') app.net.grenade(app.controls.aim(), charge.kind, power);
+  else app.net.ability(app.controls.aim(), null, power);
 }
 
 function cancelCharge() {
@@ -2117,13 +2112,15 @@ function cancelCharge() {
   hideArc();
 }
 
-/** Runs every frame in the loop: draws the arc while Q is held. */
+/** Runs every frame: inventory readout and a charged Q/G throw preview. */
 function updateThrowAim(now) {
+  const powerNow = app.charge ? Math.min(1, (now-app.charge.t0)/app.data.combat.throw.chargeMs) : null;
+  app.hud?.updateGrenade(app.grenadeKind, app.net?.lastMe, app.charge?.source === 'grenade' ? powerNow : null);
   if (!app.charge) return;
   const me = app.net?.lastMe;
   if (!app.playing || !app.world || !me || !me.alive) { cancelCharge(); return; }
   const cfg = app.data.combat.throw;
-  const kind = app.data.classById[me.c].ability;
+  const kind = app.charge.kind;
   const power = Math.min(1, (now - app.charge.t0) / cfg.chargeMs);
   const { points, impact } = aimThrow(power, kind);
   ensureArc();
@@ -2139,7 +2136,7 @@ function updateThrowAim(now) {
   _arcLine.visible = true;
   _arcRing.position.set(impact.x, impact.y + 0.03, impact.z);
   _arcRing.visible = true;
-  app.hud.setAbilityCharge(power);
+  if (app.charge.source === 'ability') app.hud.setAbilityCharge(power);
 }
 
 // ------------------------------------------------------------------ tracers

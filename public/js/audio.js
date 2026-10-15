@@ -266,6 +266,15 @@ export class Sfx {
     this._thump(0.12, 0.11 * gain * 2, 110 * tone, 42 * tone);
   }
 
+  detonate(kind, distance = 0) {
+    const gain = Math.max(0, 1-distance/100);
+    if (!gain || !this.enabled) return;
+    if (kind === 'flash') { this._noise(0.16,0.18*gain,2600,0.5); return; }
+    if (kind === 'smoke' || kind === 'flare') { this._noise(0.22,0.12*gain,900,0.7); return; }
+    this._noise(kind === 'incendiary' ? 0.65 : 0.4,0.55*gain,700,0.6,'lowpass');
+    this._thump(0.4,0.65*gain,90,28);
+  }
+
   reload() {
     this._blip(0.05, 0.16, 900, 380, 'square');
     setTimeout(() => this._blip(0.05, 0.14, 760, 320, 'square'), 130);

@@ -27,7 +27,18 @@
       "flareMaxDist": 75.0,
       "flightBaseMs": 420,
       "flightPerMMs": 26,
-      "apexPerM": 0.26
+      "apexPerM": 0.26,
+      "gravity": 16.0,
+      "radius": 0.09,
+      "minSpeed": 4.0,
+      "maxSpeed": 18.0,
+      "flareSpeed": 29.0,
+      "upBoost": 3.2,
+      "restitution": 0.42,
+      "friction": 0.72,
+      "stepHz": 120,
+      "grenadeCharges": 2,
+      "grenadeCdMs": 24000
     }
   },
   "teams": [
@@ -857,6 +868,48 @@
         }
       },
       "descEn": "The hardest single shot in the game: torso-lethal from 40-120 m, with a fast, flat bullet."
+    }
+  ],
+  "grenades": [
+    {
+      "id": "frag",
+      "name": "破片手榴弹",
+      "nameEn": "Frag grenade",
+      "fuseMs": 2600,
+      "dur": 1000,
+      "radius": 7,
+      "damage": 120,
+      "color": "#ffb33f"
+    },
+    {
+      "id": "incendiary",
+      "name": "燃烧弹",
+      "nameEn": "Incendiary grenade",
+      "fuseMs": 3000,
+      "impact": true,
+      "dur": 7000,
+      "radius": 4,
+      "damagePerSecond": 28,
+      "color": "#ff632c"
+    },
+    {
+      "id": "smoke",
+      "name": "烟雾弹",
+      "nameEn": "Smoke grenade",
+      "fuseMs": 1800,
+      "dur": 14000,
+      "radius": 13,
+      "color": "#b7c0c7"
+    },
+    {
+      "id": "flash",
+      "name": "闪光弹",
+      "nameEn": "Flash grenade",
+      "fuseMs": 1600,
+      "dur": 650,
+      "radius": 14,
+      "flashMs": 2300,
+      "color": "#fff1ce"
     }
   ]
 }

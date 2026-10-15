@@ -28,7 +28,7 @@ const ENGINE_DIR = new URL('../engine/', import.meta.url);
 const SHARED_DIR = new URL('../shared/', import.meta.url);
 
 // Everything combat.py / bots.py / game.py / room.py import, plus the driver.
-const ENGINE_FILES = ['combat.py', 'bots.py', 'game.py', 'room.py', 'host.py'];
+const ENGINE_FILES = ['combat.py', 'throwing.py', 'bots.py', 'game.py', 'room.py', 'host.py'];
 const SHARED_FILES = ['weapons.json', 'maps.json', 'map.json'];
 
 /** Battlefield JSON/JS in the engine's own layout. A 404 names the file. */

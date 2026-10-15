@@ -63,6 +63,9 @@ export class Controls {
     // Q is held to charge a throw: down opens the aim preview, up releases it.
     this.onAbilityDown = null;
     this.onAbilityUp = null;
+    this.onGrenadeDown = null;
+    this.onGrenadeUp = null;
+    this.onGrenadeCycle = null;
     // Charge dropped without a throw (lost lock, tab blur, death).
     this.onAbilityCancel = null;
     this.onScoreboard = null;
@@ -145,6 +148,8 @@ export class Controls {
       this.keys.add(e.code);
       if (e.code === 'KeyR') this.onReload?.();
       if (e.code === 'KeyQ') this.onAbilityDown?.();
+      if (e.code === 'KeyG') this.onGrenadeDown?.();
+      if (e.code === 'KeyB') this.onGrenadeCycle?.();
       if (e.code === 'KeyV') this.onViewToggle?.();
       if (e.code === 'Enter') this.onChat?.();
       if (e.code === 'Space') e.preventDefault();
@@ -152,6 +157,7 @@ export class Controls {
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Tab') { this.onScoreboard?.(false); return; }
       if (e.code === 'KeyQ') this.onAbilityUp?.();
+      if (e.code === 'KeyG') this.onGrenadeUp?.();
       this.keys.delete(e.code);
     });
     window.addEventListener('blur', () => this.releaseLook());

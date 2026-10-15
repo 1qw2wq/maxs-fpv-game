@@ -304,12 +304,14 @@ export class Net {
 
   reload() { this.send({ t: 'reload' }); }
   /** Ability cast. `land` is the aim preview's landing point for a thrown one. */
-  ability(dir, land) {
+  ability(dir, land, power) {
     const msg = { t: 'ability' };
     if (dir) msg.d = [r3(dir.x), r3(dir.y), r3(dir.z)];
+    if (Number.isFinite(power)) msg.power = Math.max(0, Math.min(1, power));
     if (land) msg.p = [r2(land.x), r2(land.y), r2(land.z)];
     this.send(msg);
   }
+  grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
   respawn(cls, weapon) { this.send({ t: 'respawn', c: cls, w: weapon }); }
   chat(text) { this.send({ t: 'chat', m: text }); }
 

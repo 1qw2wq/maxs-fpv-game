@@ -14,6 +14,8 @@ export async function loadConfig() {
 
   const data = {
     combat: w.combat,
+    grenades: w.grenades,
+    grenadeById: Object.fromEntries(w.grenades.map(g=>[g.id,g])),
     teams: w.teams,
     teamById: Object.fromEntries(w.teams.map((t) => [t.id, t])),
     classes: w.classes,

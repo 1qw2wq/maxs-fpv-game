@@ -26,6 +26,15 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  '投掷力度 {n}%': 'Throw power {n}%',
+  '补充倒计时 {n}秒': 'Resupply in {n}s',
+  '按住 G 投掷 · B 切换': 'Hold G to throw · B to cycle',
+  '手榴弹补充中': 'Grenades resupplying',
+  '遭受燃烧伤害': 'Taking fire damage',
+  '破片手榴弹': 'Frag grenade',
+  '燃烧弹': 'Incendiary grenade',
+  '闪光弹': 'Flash grenade',
+
   // ---------------------------------------------------------------- document
   '堑壕前线': 'Trench Front',
   '堑壕前线 Trench Front': 'Trench Front',
@@ -76,8 +85,8 @@ const EN = {
   '新手指引': 'Tutorial',
   '60 秒学会移动 / 射击 / 联机房号': 'Controls and room codes',
   '第一次玩？从这里开始 · 60 秒学会操作与联机房号': 'First time? Start here',
-  '操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩':
-    'WASD move · Shift crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · V camera · Tab scoreboard',
+  '操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
+    'WASD move · Shift crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · hold G throw · B grenade type · V camera · Tab scoreboard · Esc pause',
   '角色出现白块 / 黑块（头发、衣服、鞋子变色）？': 'Character pieces showing up white or black (hair, clothes, shoes discoloured)?',
   '打开颜色修复者 ColorFixer': 'Open the ColorFixer tool',
 

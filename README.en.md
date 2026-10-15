@@ -246,7 +246,9 @@ without alternative steering. This is a local
 static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
 The same command also runs `tools/test-effects.mjs`: 12 imported models / 84 weapon poses,
 third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
-and an actual solo deploy/fire/reload/grenade render. `tools/test-hands.mjs` additionally exercises
+and an actual solo deploy/fire/reload/grenade render. `python tools/test-grenades.py` covers
+20 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
+visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q controls and effects. `tools/test-hands.mjs` additionally exercises
 all four shipped skeletons across 384 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
 hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
@@ -269,7 +271,9 @@ Use `TEST_DEPS` to change the external test-dependency directory; no npm build s
 | `Shift` | Crouch (half height, the only way through low passages) |
 | `Space` | Jump |
 | `R` | Reload |
-| `Q` | Use your class ability |
+| `Q` | Use your class ability (hold/release to throw smoke or a flare) |
+| `G` (hold/release) | Charge and throw the selected grenade |
+| `B` | Cycle frag → incendiary → smoke → flash |
 | `V` | First / third person camera |
 | `Tab` (hold) | Scoreboard |
 | `Enter` | Chat input (`Esc` cancels) |
@@ -278,6 +282,33 @@ Use `TEST_DEPS` to change the external test-dependency directory; no npm build s
 Click the screen to continue with native pointer lock. The first entry into a match needs one click
 before the mouse turns the view. If the browser refuses capture, click to retry or open the game in
 its own tab; the game never switches to a different mouse control scheme.
+
+### Grenades and throwing
+
+Every class has a **separate two-charge grenade slot**. **B** selects a type; hold **G** for up to
+900 ms to increase throwing speed, then release. Aim upward for a longer lob or downward for a
+short toss. The gold preview follows gravity and previews wall, ramp and ground bounces. Throws
+inherit part of your validated movement, lose energy on impact and settle instead of sliding forever.
+Fuses start **on release**, not while charging; Esc, blur, opening chat, death and loss of native
+pointer lock cancel an unthrown grenade without spending a charge. The shared inventory refills
+24 seconds after the second grenade is used, and respawning restores both. Q abilities are separate.
+
+| Type | Detonation and effect |
+| --- | --- |
+| **Frag** | 2.6-second fuse; brief flame fireball, sparks and a blast report. Up to 120 damage with radial falloff inside 7 m. |
+| **Incendiary** | Bursts on impact (3-second safety fuse); fuel spreads onto the floor below the contact. Animated flames and embers burn for 7 seconds, dealing 28 damage/second within 4 m. |
+| **Smoke** | 1.8-second fuse; small ignition pop followed by the existing 14-second, 13 m sight-blocking cloud. |
+| **Flash** | 1.6-second fuse; one fading flash, not a strobe. Cover, distance and facing limit blindness; bots also temporarily lose sight. Reduced-motion mode uses a dimmer grey veil. |
+
+Solid cover blocks blast/fire damage and flash exposure. Frag/fire can hurt the thrower but not
+teammates; suicide never awards a kill or team point. Flashes can affect either team. Scout flares
+now visibly burn too, without turning their spotting ability into an incendiary attack.
+
+The browser host solves each trajectory and broadcasts a timed bounce path, rather than accepting
+a client-selected landing point. Python authority and the JavaScript preview share fixed-step
+physics tested on both maps, both ramp axes, thin walls and bounds. Joining mid-round retains the
+remaining lifetime of existing smoke/fire and in-flight grenades. All effects are procedural and
+run with the existing Vercel-only browser engine: no new backend, asset service or broker.
 
 ### The four classes
 

@@ -5,6 +5,7 @@
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
 import { testEffects } from './test-effects.mjs';
+import { testGrenades } from './test-grenades.mjs';
 import { testHands } from './test-hands.mjs';
 import { testCamera } from './test-camera.mjs';
 import { testArsenal } from './test-arsenal.mjs';
@@ -153,6 +154,14 @@ try {
   await chatBetween(remote, host, 'real-webrtc-guest');
   await chatBetween(host, remote, 'real-webrtc-host');
   console.log('PASS: real WebRTC invite/answer, open-channel acknowledgement, join/state/chat across isolated contexts');
+  await remote.evaluate(()=>net.grenade({x:0,y:0.2,z:1},'smoke',.7));
+  const remoteId=await remote.evaluate(()=>net.id);
+  await host.waitForFunction(id=>messages.some(m=>m.t==='fx'&&m.fx?.by===id&&m.fx.k==='smoke'&&m.fx.path?.length>2),remoteId);
+  await remote.waitForFunction(()=>net._lastMe.grenades===1);
+  const remoteFx=await remote.evaluate(()=>messages.find(m=>m.t==='fx'&&m.fx?.by===net.id&&m.fx.k==='smoke'));
+  const hostFx=await host.evaluate(id=>messages.find(m=>m.t==='fx'&&m.fx?.by===id&&m.fx.k==='smoke'),remoteId);
+  assert.deepEqual(remoteFx,hostFx);
+  console.log('PASS: real WebRTC grenade authority, private inventory acknowledgement and identical remote bounce paths');
 
   // Closed/invalid invites fail explicitly instead of hanging or claiming success.
   await remote.evaluate(async () => {
@@ -326,6 +335,7 @@ try {
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
+  await testGrenades(context, origin);
   await testCamera(context, origin);
   await testArsenal(context, origin);
   await testHands(context, origin);

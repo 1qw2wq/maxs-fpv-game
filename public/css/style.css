@@ -1017,3 +1017,12 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 .rig-shared-row.on { border-color: var(--gold); background: rgba(255, 207, 92, .14); }
 .rig-shared-row b { font-size: 13px; font-weight: 900; }
 .rig-shared-row em { font-style: normal; font-size: 11px; color: rgba(244, 241, 234, .45); }
+
+/* Separate grenade inventory; Q remains the class ability. */
+#grenade-chip { position:absolute; left:50%; bottom:80px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; padding:8px 13px 8px 8px; background:rgba(8,11,18,.82); border:1px solid rgba(255,207,92,.4); border-radius:12px; min-width:210px; }
+#grenade-chip.charging { border-color:#ffe08a; box-shadow:0 0 18px #ffb52d44; }
+#grenade-chip small { font-size:10px; color:#bdc6d0; }
+.grenade-cycle { font-size:11px; color:var(--gold); margin-left:auto; }
+#grenade-chip .ab-cd { width:130px; }
+#flash-veil { position:fixed; inset:0; background:#fff4d8; opacity:0; pointer-events:none; z-index:80; }
+@media (prefers-reduced-motion:reduce) { #flash-veil { background:#909397; } }

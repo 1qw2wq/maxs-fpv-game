@@ -133,7 +133,7 @@ class Room:
             "spawn": [round(v, 2) for v in p["pos"]], "yaw": p["yaw"],
             "cls": p["cls"], "weapon": p["weapon"], "skin": p["skin"],
             "botsOn": self.bots_on,
-            # Crates already standing, so joining mid-round still shows them.
+            # Existing clouds, fire, crates and pending flights retain their age.
             "fx": self.match.standing_crates(),
         }
 

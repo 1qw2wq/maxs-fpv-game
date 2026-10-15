@@ -127,6 +127,8 @@ def _target_point(q):
 
 
 def _can_see(match, p, q, eye):
+    if now_ms() < p.get("flash_until", 0):
+        return False
     if not q or not q["alive"] or q["team"] == p["team"]:
         return False
     d = dist3(p["pos"], q["pos"])
@@ -373,5 +375,6 @@ def think(match, p, dt_ms):
     if nxt:
         st["detour"] = None if off == 0 else off
         p["pos"] = [nxt[0], combat.floor_at(nxt[0], nxt[1], old[1]), nxt[1]]
+    p["velocity"] = [(p["pos"][i]-old[i])/max(dt, 0.001) for i in range(3)]
     p["flags"] = {"move": dist3(old, p["pos"]) > 0.005, "sprint": False, "crouch": crouch, "ground": True}
     return events

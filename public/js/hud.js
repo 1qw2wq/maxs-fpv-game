@@ -39,6 +39,7 @@ export class Hud {
       ammoMag: $('ammo-mag'), ammoMax: $('ammo-max'), ammoReserve: $('ammo-reserve'),
       ammoWrap: document.querySelector('.ammo-wrap'),
       reloadFill: $('reload-fill'), reloadText: $('reload-text'),
+      grenade: $('grenade-chip'), grenadeName: $('grenade-name'), grenadeInfo: $('grenade-info'), grenadeFill: $('grenade-fill'),
       ability: $('ability-chip'), abName: $('ab-name'), abFill: $('ab-fill'),
       eventToast: $('event-toast'),
       death: $('death-panel'), deathBy: $('death-by'), deathCount: $('death-count'),
@@ -489,7 +490,7 @@ export class Hud {
     // remembered so a language change can redraw the class and ability names
     this._loadout = [clsId, weaponId];
     const cls = this.data.classById[clsId];
-    const w = this.data.weaponById[weaponId];
+    const w = this.data.weaponById[weaponId] || this.data.grenadeById?.[weaponId];
     this.el.hpCls.textContent = nameOf(cls);
     this.el.abName.textContent = descOf(cls, 'abilityName');
     this.el.ammoMax.textContent = `/${w.mag}`;
@@ -589,6 +590,19 @@ export class Hud {
   }
 
   /** Floating damage number shown to the shooter on every confirmed hit. */
+  updateGrenade(kind, me, power = null) {
+    const spec = this.data.grenadeById[kind];
+    if (!spec || !this.el.grenade) return;
+    const count = me?.grenades ?? 2, cooldown = Math.ceil((me?.grenadeIn || 0) / 1000);
+    const name = `${nameOf(spec)} ×${count}`;
+    const info = power !== null ? t('投掷力度 {n}%', { n: Math.round(power*100) }) : cooldown > 0 ? t('补充倒计时 {n}秒', { n: cooldown }) : t('按住 G 投掷 · B 切换');
+    if (this.el.grenadeName.textContent !== name) this.el.grenadeName.textContent = name;
+    if (this.el.grenadeInfo.textContent !== info) this.el.grenadeInfo.textContent = info;
+    this.el.grenade.classList.toggle('charging', power !== null);
+    const fill = power !== null ? power : cooldown ? 1-(me.grenadeIn / this.data.combat.throw.grenadeCdMs) : 1;
+    this.el.grenadeFill.style.width = `${Math.max(0, Math.min(1, fill))*100}%`;
+  }
+
   damagePopup(amount, zone, killed) {
     const pop = document.createElement('div');
     pop.className = `dmg-pop${zone === 'head' ? ' head' : ''}${killed ? ' kill' : ''}`;
@@ -754,7 +768,7 @@ export class Hud {
   // -------------------------------------------------------------- kill feed
 
   addKill(k, v, weaponId, headshot, myId) {
-    const w = this.data.weaponById[weaponId];
+    const w = this.data.weaponById[weaponId] || this.data.grenadeById?.[weaponId];
     const killerMe = k.id === myId;
     const victimMe = v.id === myId;
     const div = document.createElement('div');

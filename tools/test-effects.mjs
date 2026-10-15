@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { testLiveArsenal } from './test-arsenal.mjs';
 import { testLiveCamera } from './test-camera.mjs';
+import { testLiveGrenades } from './test-grenades.mjs';
 export async function testEffects(context, origin) {
   const page = await context.newPage();
   const errors = [];
@@ -171,7 +172,8 @@ export async function testEffects(context, origin) {
   // Exercise the actual main.js render/input wiring, not only isolated maths.
   const game = await context.newPage();
   const gameErrors = [];
-  game.on('pageerror', (e) => gameErrors.push(e.message));
+  game.on('pageerror', (e) => { gameErrors.push(e.message); console.error('LIVE PAGE:', e.stack); });
+  game.on('console', m=>{if(m.type()==='error') console.error('LIVE CONSOLE:',m.text());});
   await game.goto(origin + '/');
   await game.locator('#btn-mode-solo').waitFor({ state: 'visible', timeout: 30000 });
   await game.locator('#input-name').fill('Effects QA');
@@ -204,6 +206,7 @@ export async function testEffects(context, origin) {
   });
   await testLiveArsenal(game);
   await testLiveCamera(game);
+  await testLiveGrenades(game);
   assert.deepEqual(gameErrors, []);
   console.log('PASS: real main.js solo deploy, native mouse firing, reload and landed smoke rendering');
   await game.close();
