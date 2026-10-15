@@ -112,7 +112,7 @@ function place(scene, cfg) {
  * A placeholder length is not a muzzle socket: it was floating ahead of some
  * guns and buried inside others. Sample the foremost 2% in gun-local space.
  */
-export function calibrateMuzzle(holder, muzzle) {
+export function calibrateMuzzle(holder, muzzle, sight) {
   holder.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(holder, true);
   if (bounds.isEmpty()) return;
@@ -131,6 +131,20 @@ export function calibrateMuzzle(holder, muzzle) {
     cap.getCenter(muzzle.position);
     muzzle.position.z = bounds.max.z + 0.005;
   }
+  if (sight) {
+    // Use only the bore's lane, not an offset magazine/bipod. Keep the reticle
+    // just above the tallest obstruction in that lane (including pan-fed guns).
+    let top = -Infinity;
+    holder.traverse((mesh) => {
+      const positions = mesh.isMesh && mesh.geometry?.attributes.position;
+      if (!positions) return;
+      for (let i = 0; i < positions.count; i++) {
+        point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+        if (Math.abs(point.x - muzzle.position.x) < .035 && point.z > bounds.min.z + .15) top = Math.max(top, point.y);
+      }
+    });
+    if (Number.isFinite(top)) sight.position.set(muzzle.position.x, top + .006, .2);
+  }
 }
 
 /**
@@ -148,7 +162,7 @@ export function attachGunModel(weapon, group, muzzle) {
   const procedural = group.children.filter((c) => c.isMesh);
   group.userData.modelReady = load(id).then((scene) => {
     const holder = place(scene.clone(true), cfg);
-    calibrateMuzzle(holder, muzzle);
+    calibrateMuzzle(holder, muzzle, group.userData.anchors?.sight);
     for (const c of procedural) group.remove(c);
     group.add(holder);
   }).catch((err) => {

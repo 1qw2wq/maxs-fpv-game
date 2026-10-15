@@ -16,14 +16,9 @@ import { buildGripGlove, gripRotation, gloveWrist } from './handpose.js';
 const GUNMETAL = '#2f343d';
 const GUNMETAL_L = '#454c58';
 
-// ADS mount, in camera space. Most guns share one spot, but two imports are
-// tall enough that at this height a part sat straight across the sight line, so
-// they get mounted lower: the Chauchat's receiver and the Lewis's pan magazine.
-// Measured by ray-casting the crosshair — both block every sample ray at the
-// common height and none of them once lowered, while the barrel still runs
-// forward.
-const ADS_Y = -0.145;
-const ADS_DROP = { chauchat: 0.06, lewis: 0.03 };
+// The sight anchor is calibrated from the normalized imported geometry. ADS
+// cancels that anchor's X/Y offset, not the model origin (MP18 is off-axis).
+const ADS_Z = -0.48;
 
 /**
  * The soldier's bare arms. Shared by the third-person body (character.js) and
@@ -127,6 +122,11 @@ export function buildWeapon(weapon) {
     group.add(node);
     anchors[key] = node;
   }
+  const sight = new THREE.Object3D();
+  sight.name = 'weapon-sight';
+  sight.position.set(0, weapon.shape === 'lmg' ? .105 : .075, .2);
+  group.add(sight);
+  anchors.sight = sight;
   group.userData.anchors = anchors;
   attachGunModel(weapon, group, muzzle);
 
@@ -215,13 +215,9 @@ export class ViewModel {
     this.gunMount.add(built.group);
     // Hip fire holds the gun out to the lower right rather than up at the eye:
     // the imported models are bulky, and a centred one covers the very lane the
-    // player is trying to look down. ADS brings it back in low and centred.
+    // player is trying to look down. ADS instead uses the calibrated sight anchor.
     this._base = new THREE.Vector3(0.16, -0.245, -0.30);
-    // ADS parks the gun LOW rather than dead centre: the imported models are
-    // bulkier than the procedural placeholder, and centring them put the whole
-    // receiver across the sight line. Keeping the mount well below the eye line
-    // leaves the crosshair clear while the barrel still runs forward.
-    this._adsPos = new THREE.Vector3(0.0, ADS_Y - (ADS_DROP[weapon.id] || 0), -0.335);
+    this._adsPos = new THREE.Vector3(0, -.075, ADS_Z);
     this._applyPose(0);
     this.gunMount.traverse((o) => { o.frustumCulled = false; });
     return this.muzzle;
@@ -302,6 +298,8 @@ export class ViewModel {
 
   _applyPose(adsFactor) {
     if (!this._base) return;
+    const sight = this.anchors?.sight;
+    if (sight) this._adsPos.set(sight.position.x, -sight.position.y, ADS_Z);
     const p = this._base.clone().lerp(this._adsPos, adsFactor);
     this.gunMount.position.copy(p);
     this.gunMount.rotation.set(
@@ -349,12 +347,12 @@ export class ViewModel {
 
     this._applyPose(this.ads);
 
-    this.gunMount.position.x += bobX * (1 - this.ads * 0.7) + breathe;
-    this.gunMount.position.y += bobY * (1 - this.ads * 0.7) + breathe - reload.present * 0.075 + reload.seat
+    this.gunMount.position.x += bobX * (1 - this.ads) + breathe * (1 - this.ads);
+    this.gunMount.position.y += bobY * (1 - this.ads) + breathe * (1 - this.ads) - reload.present * 0.075 + reload.seat
       - boltDrop * 0.045;
     this.gunMount.position.z += this.recoil * 0.045;
-    this.gunMount.rotation.x += reload.present * 0.28 + boltDrop * 0.14 + Math.sin(this.bobT * 0.5) * 0.006;
-    this.gunMount.rotation.z += Math.sin(this.bobT * 0.5) * 0.02 - reload.present * 0.24 + boltDrop * 0.24;
+    this.gunMount.rotation.x += reload.present * 0.28 + boltDrop * 0.14 + Math.sin(this.bobT * 0.5) * 0.006 * (1 - this.ads);
+    this.gunMount.rotation.z += Math.sin(this.bobT * 0.5) * 0.02 * (1 - this.ads) - reload.present * 0.24 + boltDrop * 0.24;
 
     if (this.anchors) {
       const sockets = weaponSockets(this.weapon);

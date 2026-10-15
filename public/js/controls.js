@@ -49,6 +49,8 @@ export class Controls {
     this.keys = new Set();
     this.mouse = { left: false, right: false };
     this.ads = false;
+    this._aimHeld = false;
+    this.lookFov = 78;
     this.crouch = false;
     this.moveSpeed = 0;
     this.enabled = false;
@@ -95,21 +97,25 @@ export class Controls {
   _bind() {
     const c = this.canvas;
     c.addEventListener('mousedown', (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || typing()) return;
+      if (e.button === 2) this._aimHeld = true;
       if (!this.canLook) { this.requestLock(); return; }
       if (e.button === 0) { this.mouse.left = true; this.onFireDown?.(); }
       if (e.button === 2) { this.mouse.right = true; }
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouse.left = false;
-      if (e.button === 2) this.mouse.right = false;
+      if (e.button === 2) { this.mouse.right = false; this._aimHeld = false; }
     });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
     window.addEventListener('mousemove', (e) => {
       if (!this.canLook || !this.enabled || typing()) return;
       // yaw grows clockwise (0 = +X, 90 = +Z), so mouse-right must add.
-      const k = this.sensitivity * 57.2958;
+      // Match screen-space precision to the actual zoom, including transitions.
+      const fov = Math.max(10, Math.min(78, this.lookFov || 78));
+      const zoomScale = Math.tan(fov * Math.PI / 360) / Math.tan(78 * Math.PI / 360);
+      const k = this.sensitivity * 57.2958 * zoomScale;
       this.yaw += e.movementX * k;
       this.pitch -= e.movementY * k;
       this.yaw = ((this.yaw % 360) + 360) % 360;
@@ -126,11 +132,13 @@ export class Controls {
       this._lockRequestId += 1;
       if (this.locked) {
         this.lockUnavailable = false;
+        this.mouse.right = this._aimHeld;
       } else {
         this._wantLook = false;
         this._lockCooldownUntil = Math.max(this._lockCooldownUntil, performance.now() + 1300);
         this.mouse.left = false;
         this.mouse.right = false;
+        this._aimHeld = this.ads = false;
         this.keys.clear();
         this.onAbilityCancel?.();
       }
@@ -203,6 +211,7 @@ export class Controls {
     clearTimeout(this._lockWatch);
     this._lockPending = false;
     if (!this.enabled || !this._wantLook || this.locked) return;
+    this._aimHeld = this.ads = this.mouse.right = false;
     if (!this.lockUnavailable) {
       this.lockUnavailable = true;
       this.onLookMode?.('unavailable');
@@ -233,6 +242,7 @@ export class Controls {
     this._jumpHeld=false;this._jumpBuffer=this._coyote=0;
     this.mouse.left = false;
     this.mouse.right = false;
+    this._aimHeld = this.ads = false;
     this.onAbilityCancel?.();
     if (this.locked || document.pointerLockElement === this.canvas) {
       document.exitPointerLock?.();
@@ -294,7 +304,7 @@ export class Controls {
     return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
   }
 
-  update(dt, alive, suppressed) {
+  update(dt, alive, suppressed, reloading = false) {
     if (!this.world) return;
     // Ease the *camera* ground height. Vertical speed is unbounded on a jump or
     // a fall, so those track instantly; walking and stairs use a slow constant
@@ -314,7 +324,7 @@ export class Controls {
     this.crouch = wantsCrouch || !canStand;
     // Stance changes get their own click so crouching never feels silent.
     if (this.enabled && this.crouch !== wasCrouch) this.onStance?.(this.crouch);
-    this.ads = this.mouse.right;
+    this.ads = this.mouse.right && this.canLook && alive && this.enabled && !typing() && !reloading;
 
     if (!alive || !this.enabled) {
       this.moveSpeed = 0;

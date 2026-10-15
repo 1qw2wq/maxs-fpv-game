@@ -404,6 +404,7 @@ body { user-select: none; }
   box-shadow: 0 0 3px rgba(0, 0, 0, .9);
   transition: transform .05s linear;
 }
+#crosshair.aiming .ch { opacity: 0; }
 .ch-t, .ch-b { width: 2px; height: 9px; left: -1px; }
 .ch-l, .ch-r { width: 9px; height: 2px; top: -1px; }
 .ch-t { bottom: var(--gap, 8px); } .ch-b { top: var(--gap, 8px); }

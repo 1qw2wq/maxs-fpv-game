@@ -346,6 +346,24 @@ sector hysteresis; slow/crouched movement has a slower cadence, fallback gaits e
 remote avatars turn smoothly along the shortest angle. Native pointer lock remains the only mouse
 look scheme; there is no drag or cursor steering fallback.
 
+### Aiming down sights
+
+Hold the right mouse button for ADS. Each imported gun now has a geometry-calibrated sight
+anchor: lateral bore offsets (including MP18) are centered, tall receivers/magazines stay below
+the reticle, and idle/walking bob no longer drags fully raised sights off target. Zoom scales
+mouse sensitivity to the actual camera FOV, giving scout rifles precise control rather than
+magnifying the same hip-fire mouse movement. A bright central dot stays visible.
+
+When playing third-person, holding ADS temporarily uses the eye-aligned first-person sight view;
+release returns to the selected third-person view. The camera, visible weapon, borrowed arms and
+shot effects use the same view choice. Reload/death/chat/lost native lock cancel ADS; holding RMB
+resumes it after reload. The first held RMB can both acquire native pointer lock and aim. Shot
+origin/direction and hit decisions remain authoritative and unchanged.
+
+`tools/test-aim.mjs` adds all-12-model sight/clear-ray checks, zoom sensitivity and input-state
+regressions, plus real-game FP/TP hits with SMG, LMG and bolt rifles, reload resume and release/Esc.
+It runs as part of `node tools/test-vercel.mjs`.
+
 ### The four classes
 
 | Class | Role | Ability | Weapons |

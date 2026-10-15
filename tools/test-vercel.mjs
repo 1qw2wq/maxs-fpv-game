@@ -4,6 +4,7 @@
 // node tools/test-vercel.mjs
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
+import { testAim, testLiveAim } from './test-aim.mjs';
 import { testEffects } from './test-effects.mjs';
 import { testGrenades } from './test-grenades.mjs';
 import { testGameplay, testLiveControl } from './test-gameplay.mjs';
@@ -344,6 +345,7 @@ try {
   await allowedFrame.waitForFunction(() => !controls.canLook && !document.pointerLockElement);
   console.log('PASS: native pointer lock works inside an iframe with allow-pointer-lock');
 
+  await testAim(context, origin);
   await testGameplay(context, origin);
   await testGrenades(context, origin);
   await testCamera(context, origin);
@@ -351,6 +353,7 @@ try {
   await testHands(context, origin);
   await testEffects(context, origin);
   await testLiveControl(context, origin);
+  await testLiveAim(context, origin);
 
   assert.deepEqual(await host.evaluate(() => netErrors), []);
   assert.deepEqual(await guest.evaluate(() => netErrors), []);

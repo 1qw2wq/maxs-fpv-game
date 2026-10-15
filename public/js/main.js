@@ -2236,12 +2236,17 @@ function loop(now) {
   app.renderer.render(app.scene, app.camera);
 }
 
+// Holding ADS always uses the eye-aligned camera, then restores the selected
+// third-person view on release. Shoulder-height zoom alone misses the aim ray.
+function thirdPersonView() { return app.cameraMode === 'tp' && !app.controls.ads; }
+
 function tick(dt, now) {
   const me = app.net.lastMe;
   const alive = me ? !!me.alive : true;
   const suppressed = app.suppressed;
 
-  app.controls.update(dt, alive, suppressed);
+  const w = app.data.weaponById[me?.w || app.loadout.weapon];
+  app.controls.update(dt, alive, suppressed, !!me?.reloading);
 
   syncSelfAvatar(dt, alive);
 
@@ -2249,8 +2254,9 @@ function tick(dt, now) {
   // the eye, never the aim ray, so shooting and the server stay unchanged.
   const eye = app.controls.eye();
   const dir = app.controls.aim();
-  const tp = app.cameraMode === 'tp';
+  const tp = thirdPersonView();
   app.camera.fov = THREE.MathUtils.lerp(app.camera.fov, aimFov(me), Math.min(1, dt * 12));
+  app.controls.lookFov = app.camera.fov;
   // Preserve the near plane that clips the borrowed FP body; collision
   // protects its entire near-plane envelope, including widescreen corners.
   app.camera.near = tp ? 0.06 : FP_NEAR;
@@ -2293,7 +2299,6 @@ function tick(dt, now) {
   syncFpArms();
 
   // firing — the rate here is a courtesy; the server is the real gate
-  const w = app.data.weaponById[me?.w || app.loadout.weapon];
 
   // bolt rifles (every one except the straight-pull M95) only chamber the next
   // round after the player has come out of the sights and released the aim
@@ -2371,7 +2376,7 @@ function fireOnce(w, eye, dir) {
   const from = new THREE.Vector3();
   const eject = new THREE.Vector3();
   let attachment = null;
-  if (app.cameraMode === 'tp') {
+  if (thirdPersonView()) {
     if (!app.self?.muzzleWorld(from)) from.copy(eye);
     if (!app.self?.ejectWorld?.(eject)) eject.copy(from);
     attachment = app.self?.root.getObjectByName('weapon-muzzle') || null;
@@ -2391,7 +2396,8 @@ function updateCrosshair(w, suppressed) {
   const spread = w.spreadDeg * 7.0 + move * 11 + (app.controls.grounded ? 0 : 7) + (suppressed ? 9 : 0);
   const adsFactor = app.controls.ads ? 0.25 : 1;
   app.hud.crosshair(Math.max(3, spread * adsFactor));
-  app.hud.el.crosshair.style.opacity = app.controls.ads ? '0.35' : '1';
+  app.hud.el.crosshair.style.opacity = '1';
+  app.hud.el.crosshair.classList.toggle('aiming', app.controls.ads);
 }
 
 /**
@@ -2423,7 +2429,7 @@ function syncSelfAvatar(dt, alive) {
   const c = app.controls;
   app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
   app.self.setAlive(alive);
-  app.self.root.visible = alive && app.cameraMode === 'tp';
+  app.self.root.visible = alive && thirdPersonView();
   app.self.root.position.copy(c.pos);
   app.self.root.rotation.y = yawToRotation(c.yaw);
   updateContactShadow(app.self, app.world, alive);
@@ -2500,7 +2506,7 @@ function syncFpArms() {
   }
 
   // the gear is drawn by the viewmodel; only hide the placeholder pair here
-  if (app.cameraMode !== 'fp') {
+  if (thirdPersonView()) {
     if (app.vm.armMeshes) app.vm.armMeshes.visible = true;
     return;
   }
