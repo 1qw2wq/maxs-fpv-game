@@ -11,5 +11,5 @@ writeFileSync(path,JSON.stringify(map)+'\n');
 const registryPath=new URL('../public/shared/maps.json',import.meta.url);
 const registry=JSON.parse(readFileSync(registryPath));
 const meta=registry.maps.find(m=>m.id==='proc_city');
-if(meta){meta.seed=map.seed;meta.desc=`种子 ${map.seed} · 240×240 米 · 64 栋紧凑楼房 · 道路与连续掩体`;meta.descEn=`Seed ${map.seed} · 240×240 m · 64 dense blocks, marked roads and layered cover`;writeFileSync(registryPath,JSON.stringify(registry,null,2)+'\n');}
+if(meta){meta.seed=map.seed;meta.desc=`种子 ${map.seed} · 240×240 米 · 132 栋连体建筑 · 1–4 层 · 狭窄巷道`;meta.descEn=`Seed ${map.seed} · 240×240 m · 132 attached buildings, 1–4 floors, narrow alleys`;writeFileSync(registryPath,JSON.stringify(registry,null,2)+'\n');}
 console.log(`proc_city seed ${map.seed}: ${map.buildings.length} buildings, ${map.boxes.length} colliders, ${map.tiles.length} visual instances`);

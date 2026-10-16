@@ -49,7 +49,27 @@ No uploaded binary was rewritten. Other GLBs retain their source materials and a
 `weaponpose.js` supplies individual trigger, support, service and ejection contacts. All thirty weapons
 have their own first-person hip placement; ADS reach derives from the actual trigger, not one fixed
 camera Z position. The long M170, bullpup GM6, traditional rifles and machine guns therefore mount
-at different positions. Support span is anatomically capped before both FP and TP consume it.
+at different positions. The old global support-span clamp has been removed: sliding a contact along
+an arbitrary line could place palms on magazines or in air. Explicit per-model handguard/foregrip
+contacts are now used unchanged by both FP and TP; unreachable imported-arm poses use the existing
+connected procedural fallback rather than moving the contact or stretching a wrist.
+
+### Complete-model orientation/contact audit
+
+The LR300 was pointing stock-first and is now yawed correctly. Hellriegel/Chauchat source tilts are
+leveled in normalized space, with the same correction applied to contacts. GM6 now grips the trigger
+rather than its bipod; PMX/M170/MP5 grips and pistol support wraps were refitted. Several traditional
+rifle and LMG support contacts were moved onto actual handguards instead of the generic clamped point.
+All 30 assembled silhouettes were inspected (including legitimate Automatico top-feed geometry).
+
+`node tools/test-gun-calibration.mjs` checks every contact against actual assembled GLB triangles,
+with a maximum palm-contact distance of 2.7 cm and regression landmarks for the corrected handles.
+A loading-time viewmodel race is also guarded: the latest acknowledged snapshot wins over an older
+welcome, and acknowledgement checks the actual rendered gun as well as cached ids. The live suite
+reproduces a stale visual rebuild and verifies that the real acknowledged packet repairs it.
+
+An optional output directory writes a separate annotated SVG silhouette for every gun:
+`node tools/test-gun-calibration.mjs /tmp/gun-audit`. This is an offline diagnostic, not a build step.
 
 Pistols use a close two-handed grip, including a separate support-palm rotation rather than the rifle's
 under-fore-end grasp. The same hand frame is used by procedural gloves, imported character IK,
@@ -60,7 +80,7 @@ were no new recorded gunfire sounds in the upload. Synth fallback remains availa
 ## Tests
 
 `python tools/test-secondaries.py` has 12 inventory/validation/equip/reload/respawn/flare/room cases.
-The complete Python gameplay set totals 108 tests including city, sniper, AI, movement, cover, survival,
+The complete Python gameplay set totals 111 tests including city, sniper, AI, movement, cover, survival,
 grenade and control-point regressions. `node tools/test-proc-city.mjs` additionally checks 32 seeds.
 
 `tools/test-expanded-assets.py` loads all thirty actual GLBs and checks dimensions, fitted poses,
@@ -71,10 +91,11 @@ Physical-phone ergonomics and deployed-Vercel connectivity still require device/
 
 ### Verified in this workspace
 
-- 108 Python regressions and 32 deterministic map seeds passed.
-- Real WebGL: all 30 uploaded model loads/dimensions; 196,796 city collision samples and 144 ramp sprints.
+- 111 Python regressions and 32 deterministic map seeds passed.
+- Real WebGL: all 30 uploaded model loads/dimensions; 454,970 city collision samples and 513 ramp sprints.
+- All 30 assembled-geometry palm contacts passed the offline calibration audit.
 - All 30 ADS sight anchors and actual imported-mesh reticle rays passed, including short pistols.
-- Imported hands: **960 poses across four shipped skeletons**. 656 poses used the imported arms;
+- Imported hands: **960 poses across four shipped skeletons**. 429 poses used the imported arms;
   unreachable poses correctly fell back to the connected procedural glove pair, rather than stretching a wrist.
 - Third-person holds: **23,040 animated frames** across all 30 weapons/four skeletons, including
   direction changes, extreme pitch, reloads and throws. Both wrist-contact errors stayed below 0.001 mm.

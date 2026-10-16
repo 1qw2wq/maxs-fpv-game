@@ -29,15 +29,22 @@ with sync_playwright() as p:
           const {Controls}=await import('/js/controls.js');
           const controls=new Controls(document.querySelector('canvas'),world,data.combat,{});controls.enabled=true;
           let sprints=0;
-          for(const fps of[20,60,144])for(const b of map.buildings.filter(b=>b.stories>1)){
-            const p=b.ramp.start,q=b.ramp.end,dx=q[0]-p[0],dz=q[2]-p[2],length=Math.hypot(dx,dz);
-            controls.reset([p[0]-.7*dx/length,0,p[2]-.7*dz/length],Math.atan2(dz,dx)*180/Math.PI);
+          for(const fps of[20,60,144])for(const b of map.buildings)for(const ramp of b.ramps||[]){
+            const p=ramp.start,q=ramp.end,dx=q[0]-p[0],dz=q[2]-p[2],length=Math.hypot(dx,dz);
+            controls.reset([p[0]-.7*dx/length,p[1],p[2]-.7*dz/length],Math.atan2(dz,dx)*180/Math.PI);
             controls.keys.clear();controls.keys.add('KeyW');controls.keys.add('ShiftLeft');
             let top=0;
             for(let k=0;k<fps*3;k++){controls.update(1/fps,true,false);top=Math.max(top,controls.pos.y);}
-            if(top<2.99)throw Error(`${b.id} ${fps}fps ramp sprint failed at ${top}`);sprints++;
+            if(top<q[1]-.01)throw Error(`${b.id} ${fps}fps ramp sprint failed at ${top}`);sprints++;
           }
-          window.qa={scene,renderer,camera,world,data};return{...city.userData,samples,sprints,drawCalls:renderer.info.render.calls};
+          const {rayWorld,raySolid}=await import('/js/ballistics.js');let wallRays=0,stairRays=0;
+          for(const b of map.boxes.filter(b=>b.t==='ramp'))for(const [offset,solid]of[[-.11,true],[-.5,false],[.1,false]]){const hit=raySolid(new T.Vector3(b.x-b.w/2-1,(b.y0+b.y1)/2+offset,b.z),new T.Vector3(1,0,0),b,b.w+2);if((hit!==null)!==solid)throw Error('Stair slab bullet volume mismatch');stairRays++;}
+          for(const b of map.boxes.filter(b=>b.t==='wall'))for(const sign of[-1,1]){
+            const axis=b.w<b.d?'x':'z',size=axis==='x'?b.w:b.d,o=new T.Vector3(b.x,b.y,b.z),d=new T.Vector3();o[axis]+=sign*(size/2+.25);d[axis]=-sign;
+            const hit=rayWorld(world,o,d,size+.5);if(hit===null||hit>.250001)throw Error('Bullet crossed solid wall');wallRays++;
+          }
+          for(const c of map.connections){const hit=rayWorld(world,new T.Vector3(c.x-.75,c.y+1.58,c.z),new T.Vector3(1,0,0),1.5);if(hit!==null)throw Error('Connected door blocked');}
+          window.qa={scene,renderer,camera,world,data};return{...city.userData,samples,sprints,wallRays,stairRays,drawCalls:renderer.info.render.calls};
         }''')
         page.screenshot(path='/tmp/expanded-city.png');print('CITY',json.dumps(result),flush=True)
         if os.environ.get('CITY_ONLY_MAP'):
@@ -76,13 +83,24 @@ with sync_playwright() as p:
     assert selected['secondary']=='deagle',selected
     page.screenshot(path='/tmp/expanded-loadout.png')
     if os.environ.get('CITY_LIVE'):
-        page.evaluate("()=>{const a=window.__trench.app;a.mapPick='proc_city';a.hud.el.name.value='Sidearm QA';}")
+        page.evaluate("()=>{const a=window.__trench.app;a.mapPick='proc_city';a.hud.el.name.value='Sidearm QA';a.renderer.setPixelRatio(.25);}")
         page.click('#btn-deploy')
-        page.wait_for_function("window.__trench.app.playing&&window.__trench.app.mapId==='proc_city'",timeout=180000)
+        # This section tests controls/inventory, not combat. Stop autonomous
+        # opponents as soon as the real Solo engine exists, so slow software
+        # WebGL asset compilation cannot turn it into a spawn-death race.
+        page.wait_for_function("window.__trench.app.net?._engine?.py&&window.__trench.app.net.lastMe",timeout=180000)
+        page.evaluate("window.__trench.app.net._engine.py.runPython('_host.room.match.drop_bots();_host.room.bots_on=False')")
+        page.wait_for_function("window.__trench.app.playing&&window.__trench.app.mapId==='proc_city'&&window.__trench.app.net.lastMe?.alive",timeout=180000)
         page.wait_for_function("window.__trench.app.net.lastMe?.secondary==='deagle'",timeout=15000)
-        page.evaluate("()=>{const a=window.__trench.app;a.controls.setMobileMode(true);a.controls.requestLock();}")
+        page.evaluate("()=>{const a=window.__trench.app;document.activeElement?.blur();a.controls.setMobileMode(true);a.controls.requestLock();}")
         page.keyboard.press('Digit2')
-        page.wait_for_function("window.__trench.app.net.lastMe?.w==='deagle'&&window.__trench.app.vm.weapon.id==='deagle'",timeout=15000)
+        try:page.wait_for_function("window.__trench.app.net.lastMe?.w==='deagle'&&window.__trench.app.vm.weapon.id==='deagle'",timeout=15000)
+        except Exception:
+            print('SWITCH DIAGNOSTIC',page.evaluate("()=>{const a=window.__trench.app;return{playing:a.playing,paused:a.paused,me:a.net.lastMe,enabled:a.controls.enabled,canLook:a.controls.canLook,vm:a.vm.weapon?.id,tracked:a.vmWeapon,focus:document.activeElement?.tagName};}"),flush=True)
+            raise
+        # Reproduce a stale visual rebuild without changing inventory: an
+        # acknowledged packet must repair the actual VM, not just bookkeeping.
+        page.evaluate("()=>{const a=window.__trench.app;a.vm.setWeapon(a.data.weaponById.mp18);a.net.h.onMe({...a.net.lastMe});if(a.vm.weapon.id!=='deagle')throw Error('Stale viewmodel not repaired');}")
         page.wait_for_function("!window.__trench.app.net.lastMe.equipIn")
         page.evaluate("()=>{const a=window.__trench.app;a.net.fire(a.controls.eye(),a.controls.aim());}")
         page.wait_for_function("window.__trench.app.net.lastMe.mag===6")

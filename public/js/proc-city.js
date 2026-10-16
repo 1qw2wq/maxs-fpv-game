@@ -73,6 +73,7 @@ export const CITY_KIT={
   flowers_patch:['/models/maps/vege/veg.glb','Flowers'],
   wall_solid:[KIT+'wall-a-flat.glb','wall-a-flat','box'],
   floor:['/models/maps/house.glb','Wood_Tile','box'],
+  stair_slab:['/models/maps/house.glb','Wood_Tile','stairSlab'],
   courtyard:[KIT+'road-dirt-center.glb','road-dirt-center','box'],
   street:[KIT+'road-dirt-tile.glb','road-dirt-tile','box'],
   table:['/models/maps/inter.glb','M_Masa_P1'],
@@ -122,7 +123,7 @@ export async function extractCityKit() {
     // Structural solids use closed, unit boxes with the uploaded kit material.
     // This guarantees visible slab/wall thickness EXACTLY matches the AABBs,
     // including the ceiling undersides; furniture retains its real geometry.
-    if(mode==='box'){
+    if(mode==='box'||mode==='stairSlab'){
       const uv=geometry.attributes.uv;let u0=Infinity,v0=Infinity,u1=-Infinity,v1=-Infinity;
       for(let i=0;i<(uv?.count||0);i++){u0=Math.min(u0,uv.getX(i));u1=Math.max(u1,uv.getX(i));v0=Math.min(v0,uv.getY(i));v1=Math.max(v1,uv.getY(i));}
       geometry.dispose();shape=new THREE.BoxGeometry(1,1,1);shape.translate(0,.5,0);
@@ -131,8 +132,13 @@ export async function extractCityKit() {
         const a=shape.attributes.uv;a.setXY(i,u0+a.getX(i)*(u1-u0),v0+a.getY(i)*(v1-v0));
       }
     }
-    if(mode==='box')for(const mat of materials.splice(1))mat.dispose();
-    for(const mat of materials){mat.side=THREE.DoubleSide;mat.shadowSide=THREE.DoubleSide;if(mode==='box'){mat.transparent=false;mat.opacity=1;mat.alphaTest=0;mat.depthWrite=true;}}
+    if(mode==='stairSlab'){
+      const p=shape.attributes.position;
+      for(let i=0;i<p.count;i++)p.setY(i,p.getZ(i)+.5+(p.getY(i)-1)*(.22/3));
+      shape.computeVertexNormals();
+    }
+    if(mode==='box'||mode==='stairSlab')for(const mat of materials.splice(1))mat.dispose();
+    for(const mat of materials){mat.side=THREE.DoubleSide;mat.shadowSide=THREE.DoubleSide;if(mode==='box'||mode==='stairSlab'){mat.transparent=false;mat.opacity=1;mat.alphaTest=0;mat.depthWrite=true;}}
     const prototype=new THREE.Mesh(shape,materials.length>1?materials:materials[0]);
     fixImportedMaterials(prototype,{lightUnlit:true,metalCap:.2});
     if(['wall_solid','wall_brick','wall_stone','wall_ochre','street','courtyard','asphalt','pavement','grass','planter','dirt','curb','paint_white','paint_yellow'].includes(key)) {

@@ -29,14 +29,15 @@ export function generateCityTemplates(seed=1942,stories=2) {
   for(const [cx,cz]of [[-14,-14],[14,14],[-14,14],[14,-14]].slice(0,count)){
     const id='house'+bi++,prefix=id+':';
     const begin={boxes:m.boxes.length,tiles:m.tiles.length,nodes:m.bot_nav.nodes.length,edges:m.bot_nav.edges.length};
-    const variant=(seed>>>0)%4;
+    const variant=(seed>>>0)%8;
+    const levels=Array.from({length:stories},(_,i)=>i*3);
     const b={id,variant,x:cx,z:cz,w:12,d:12,stories,storyHeight:3,doors:[],ramp:{x:cx+3,z:cz-.5,z0:cz-3.5,z1:cz+2.5,w:2.2},rooms:[]};m.buildings.push(b);
     const S=(x,y,z,w,h,d,kind)=>solid(cx+x,y,cz+z,w,h,d,kind);
     // 4 m facade modules, 3 m stories. Door/window geometry is split into jambs,
     // sill and lintel: neither rendering nor collision bridges an opening.
-    for(const y of (stories===1?[0]:[0,3]))for(const side of ['n','s','e','w'])for(const c of [-4,0,4]){
+    for(const y of levels)for(const side of ['n','s','e','w'])for(const c of [-4,0,4]){
       const door=y===0&&(side==='n'||side==='s')&&c===-4;
-      const win=!door&&(y===3||c!==0);
+      const win=!door&&(y>0||c!==0);
       const wall=(u,v,width,height)=>{
         if(side==='n'||side==='s')S(u,y+v,side==='n'?-6:6,width,height,.24);
         else S(side==='w'?-6:6,y+v,u,.24,height,width);
@@ -51,38 +52,43 @@ export function generateCityTemplates(seed=1942,stories=2) {
     }
     // Ground floor is at zero. Slab top at Y=3; the entire flight stays open.
     S(0,-.1,0,12,.2,12,'floor');
-    if(stories>1){
-    S(-2.25,2.9,0,7.5,.2,12,'floor');S(5.25,2.9,0,1.5,.2,12,'floor');
-    S(3,2.9,-5.25,3,.2,1.5,'floor');S(3,2.9,4.25,3,.2,3.5,'floor');
-    m.floor_holes.push({building:id,x:cx+3,z:cz-1,w:3,d:7,y:3});
+    for(const y of levels.slice(1)){
+      S(-2.25,y-.1,0,7.5,.2,12,'floor');S(5.25,y-.1,0,1.5,.2,12,'floor');
+      S(3,y-.1,-4.75,3,.2,2.5,'floor');S(3,y-.1,4.25,3,.2,3.5,'floor');
+      m.floor_holes.push({building:id,x:cx+3,z:cz-.5,w:3,d:6,y});
     }
     S(0,stories*3+.1,0,12.3,.2,12.3,'floor');
     // Two left rooms plus stair hall on both floors; 1.8 m partition doors.
-    for(const y of (stories===1?[0]:[0,3])){
+    for(const y of levels){
       const doorZ=y===0?3:4;
       for(const [a,e]of [[-6,doorZ-.9],[doorZ+.9,6]])if(e>a)S(0,y+1.5,(a+e)/2,.2,3,e-a);
       S(0,y+2.75,doorZ,.2,.5,1.8);
-      if(!((variant===1&&y===0)||(variant===2&&y===3)||variant===3)){S(-4.95,y+1.5,0,2.1,3,.2);S(-1.05,y+1.5,0,2.1,3,.2);S(-3,y+2.75,0,1.8,.5,.2);}
+      if(!((variant%4===1&&y===0)||(variant%4===2&&y>0)||variant%4===3)){S(-4.95,y+1.5,0,2.1,3,.2);S(-1.05,y+1.5,0,2.1,3,.2);S(-3,y+2.75,0,1.8,.5,.2);}
       for(const rz of [-3,3]){
         b.rooms.push({x:cx-3,y,z:cz+rz});
-        const tableW=1.6+Math.floor(random()*3)*.1;
-        box(cx-4.5,y+.475,cz+rz,tableW,.95,1,'cover');tile(['table','coffee','sofa','table'][variant],cx-4.5,y,cz+rz,tableW,.95,1);
-        box(cx-5.35,y+1.1,cz+rz+1.25,1,2.2,.55,'cover');tile(variant===3?'cabinet_wide':'cabinet',cx-5.35,y,cz+rz+1.25,1,2.2,.55);
-        if(variant!==3)tile('rug',cx-2.5,y+.012,cz+rz,2.4,.018,2.2);
-        if(variant===3)tile('flowers',cx-5.55,y,cz+rz-.7,.35,.8,.35);
-        else tile(['painting_a','painting_b','wall_lamp'][variant],cx-5.75,y+.9,cz+rz,.7,.8,.12,Math.PI/2);
-        tile(variant===2?'ceiling_trim':'chandelier',cx-3,y+2.35,cz+rz,.6,.55,.6);
+        // Eight uses, with per-room omissions and different grounded contents.
+        // Keep the central circulation and party-wall passage at Z=1.5 clear.
+        const theme=(variant+(y/3)+(rz>0?Math.floor(random()*3):0))%8;
+        const item=['table','coffee','sofa','pallet','cabinet_wide','bench','rubble',null][theme];
+        const height=[.78,.45,.85,.42,1.45,.8,.55,0][theme],width=[1.6,1.5,1.6,1.6,1.3,1.7,1.3,0][theme];
+        if(item){box(cx-4.6,y+height/2,cz+rz,width,height,1,'cover');tile(item,cx-4.6,y,cz+rz,width,height,1);}
+        if([0,2,4].includes(theme)){
+          box(cx-5.35,y+1.1,cz+rz+1.25,1,2.2,.55,'cover');tile(theme===4?'cabinet_wide':'cabinet',cx-5.35,y,cz+rz+1.25,1,2.2,.55);
+        }
+        if(theme<3)tile('rug',cx-2.5,y+.012,cz+rz,2.4,.018,2.2);
+        if(theme===3||theme===6)tile('flowers',cx-5.55,y,cz+rz-.7,.35,.8,.35);
+        else if(theme!==7)tile(['painting_a','painting_b','wall_lamp'][theme%3],cx-5.75,y+.9,cz+rz,.7,.8,.12,Math.PI/2);
+        if(theme!==3&&theme!==7)tile(theme%2?'ceiling_trim':'chandelier',cx-3,y+2.35,cz+rz,.6,.55,.6);
       }
       b.rooms.push({x:cx+5,y,z:cz+(y===0?-4:4.5)});
       const rz=y===0?-4:4.5;
-      box(cx+5.35,y+.5,cz+rz,.35,1,1.3,'cover');tile('radiator',cx+5.35,y,cz+rz,1.3,1,.35,Math.PI/2);
+      if(y===0&&variant%2===0){box(cx+5.35,y+.5,cz+rz,.35,1,1.3,'cover');tile('radiator',cx+5.35,y,cz+rz,1.3,1,.35,Math.PI/2);}
     }
-    if(stories>1){
-    box(cx+3,1.5,cz-.5,2.2,3,6,'ramp',{ax:'z',y0:0,y1:3});
-    // Visual treads only; one smooth wedge is the sole staircase collider.
-    for(let step=0;step<18;step++)tile('stair_tread',cx+3,(step+1)/6-.08,cz-3.5+(step+.5)/3,2.2,.08,1/3);
-    // Upper well guard rails, never across the entry/exit of the flight.
-    for(const x of [1.5,4.5]){box(cx+x,3.5,cz-1,.10,1,7,'cover');tile('rail',cx+x,3,cz-1,.10,1,7);}
+    for(const y of levels.slice(0,-1)){
+      box(cx+3,y+1.39,cz-.5,2.2,3.22,6,'ramp',{ax:'z',y0:y,y1:y+3,thickness:.22});
+      tile('stair_slab',cx+3,y,cz-.5,2.2,3,6);
+      for(let step=0;step<18;step++)tile('stair_tread',cx+3,y+(step+1)/6-.08,cz-3.5+(step+.5)/3,2.2,.08,1/3);
+      for(const x of [1.5,4.5]){box(cx+x,y+3.5,cz-.5,.10,1,6,'cover');tile('rail',cx+x,y+3,cz-.5,.10,1,6);}
     }
     const N=(key,x,y,z,kind)=>node(prefix+key,cx+x,y,cz+z,kind);
     const dn=N('northDoor',-4,0,-7),rn=N('northRoom',-3,0,-3),rm=N('roomDoor',-3,0,0),rs=N('southRoom',-3,0,3),ds=N('southDoor',-4,0,7);
@@ -93,11 +99,17 @@ export function generateCityTemplates(seed=1942,stories=2) {
     }
     const hall=N('hall',1,0,3),entry=N('entry',1,0,-4.4),start=N('stairStart',3,0,-4.4),foot=N('stairFoot',3,0,-3.5);
     edge(rs,hall);edge(hall,entry);edge(entry,start);edge(start,foot);
-    if(stories>1){
-    let prev=foot;
-    for(let k=1;k<=12;k++){const n=N('ramp'+k,3,k/4,-3.5+k/2);edge(prev,n);prev=n;}
-    const landing=N('landing',3,3,3.7),upperDoor=N('upperDoor',-1,3,4),upperSouth=N('upperSouth',-3,3,3),upperMid=N('upperMid',-3,3,0),upperNorth=N('upperNorth',-3,3,-3),look=N('lookout',-3,3,-4.8,'lookout');
-    edge(prev,landing);edge(landing,upperDoor);edge(upperDoor,upperSouth);edge(upperSouth,upperMid);edge(upperMid,upperNorth);edge(upperNorth,look);
+    let currentFoot=foot;
+    for(let floor=1;floor<stories;floor++){
+      const y=floor*3,K=key=>floor===1?key:`L${floor}:`+key;
+      let prev=currentFoot;
+      for(let k=1;k<=12;k++){const n=N(K('ramp'+k),3,y-3+k/4,-3.5+k/2);edge(prev,n);prev=n;}
+      const landing=N(K('landing'),3,y,3.7),upperDoor=N(K('upperDoor'),-1,y,4),upperSouth=N(K('upperSouth'),-3,y,3),upperMid=N(K('upperMid'),-3,y,0),upperNorth=N(K('upperNorth'),-3,y,-3),look=N(K('lookout'),-3,y,-4.8,'lookout');
+      edge(prev,landing);edge(landing,upperDoor);edge(upperDoor,upperSouth);edge(upperSouth,upperMid);edge(upperMid,upperNorth);edge(upperNorth,look);
+      if(floor<stories-1){
+        const side=N(K('sideHall'),5.2,y,3.7),back=N(K('backHall'),5.2,y,-4.4),start=N(K('nextStairStart'),3,y,-4.4),foot=N(K('nextStairFoot'),3,y,-3.5);
+        edge(landing,side);edge(side,back);edge(back,start);edge(start,foot);currentFoot=foot;
+      }
     }
     b.ranges={begin,end:{boxes:m.boxes.length,tiles:m.tiles.length,nodes:m.bot_nav.nodes.length,edges:m.bot_nav.edges.length}};
   }

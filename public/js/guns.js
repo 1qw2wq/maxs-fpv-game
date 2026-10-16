@@ -6,8 +6,8 @@
 // place until the download finishes, so a weapon is never missing, and every
 // clone shares the prototype's geometry, so each model is parsed only once.
 //
-// The transforms below were solved offline: for each file the longest axis was
-// carried onto +Z, the muzzle end picked as the thinner of the two, and the
+// The transforms below are individually audited against assembled model
+// silhouettes (stock, trigger, magazine, muzzle), not just the longest axis. The
 // result scaled so the overall length matches the procedural gun's envelope
 // (smg 0.92 m, rifle 1.12 m, lmg 1.22 m, bolt 1.28 m). Hand contacts are
 // measured on these normalized meshes in weaponpose.js, not on the placeholder.
@@ -38,7 +38,7 @@ const MODELS = {
   flarepistol: {"file": "flare_gun.glb", "rot": [-27.4355, 0, 0], "off": [-3.1819213975229836e-08, -0.14842577487297914, -0.0812544057471825], "scale": 0.008760415602008277, "keepNodes": [8, 10, 12, 14]},
   g17: {"file": "g17_gen_5_handgun__olight_-_nsw_police_force.glb", "rot": [0, 0, 0], "off": [0.0, -0.122649, -0.0011884], "scale": 0.115163414, "keepNodes": [6, 10, 11, 13, 14], "muzzle": [0, 0, 0.101931]},
   gm6: {"file": "gm6_lynx.glb", "rot": [0, 90, 0], "off": [-0.0021992, -0.230899, -0.0939866], "scale": 0.223353962},
-  lr300: {"file": "lr-300_ml-a_assault_rifle.glb", "rot": [0, 0, 0], "off": [0.0020702, -0.0166523, -0.0], "scale": 0.902499967},
+  lr300: {"file": "lr-300_ml-a_assault_rifle.glb", "rot": [0, 180, 0], "off": [-0.0020702, -0.0166523, -0.0], "scale": 0.902499967},
   m170: {"file": "m170_sniper_rifle.glb", "rot": [0, 0, 0], "off": [0.0, -0.1754795, -0.0918632], "scale": 0.672082424},
   m249: {"file": "m249_machine_gun.glb", "rot": [0, 0, 0], "off": [0.0009524, -0.0265045, 0.0087307], "scale": 0.992120244},
   m4a1: {"file": "m4a1_rifle.glb", "rot": [0, 0, 0], "off": [-1.7e-06, -0.0460204, 0.0372036], "scale": 0.04572036},
@@ -51,14 +51,14 @@ const MODELS = {
   awp: { file: 'sniper_rifle_-_awp.glb', rot: [0, 180, 0], off: [-.0141, .03, -.30324], scale: 0.00561385 },
   longbow: { file: 'titanfall_2_weapon_longbow-dmr_sniper.glb', rot: [90, 0, 0], off: [0, -.14, -.054665], scale: 0.028769 },
   mp18:        { rot: [0, 90, 0],     off: [-0.099, -0.003, 0],        scale: 0.011274 },
-  hellriegel:  { rot: [97.216, 77.144, -84.05], off: [-0.0097, -0.0335, 0.0906], scale: 0.001328326 },
+  hellriegel:  { levelPitch: -10.5, rot: [97.216, 77.144, -84.05], off: [-0.0097, -0.0335, 0.0906], scale: 0.001328326 },
   auto1918:    { rot: [180, 0, 180],  off: [0.006, -0.033, -0.169],    scale: 0.795572 },
   cei:         { rot: [180, 0, 180],  off: [-0.021, -0.002, 0.09],     scale: 0.093122, flip: true },
   rsc1917:     { rot: [0, -90, 0],    off: [0.008, 0.014, 0.013],      scale: 0.339654 },
   federov:     { rot: [90, 0, 0],     off: [-0.016, -0.01, -0.014],    scale: 0.000902, flip: true },
   lewis:       { rot: [180, 0, 180],  off: [0.006, -0.078, 0.094],     scale: 0.009372, flip: true },
   bar:         { rot: [0, 0, 0],      off: [-0.009, -0.519, -0.004],   scale: 0.451322, flip: true },
-  chauchat:    { rot: [0, 90, 0],     off: [0, -0.189, 0],             scale: 0.015319, flip: true },
+  chauchat:    { levelPitch: 9.5, rot: [0, 90, 0],     off: [0, -0.189, 0],             scale: 0.015319, flip: true },
   smle:        { rot: [90, 0, 0],     off: [-0.007, -0.046, -0.007],   scale: 0.000362, flip: true },
   m95:         { rot: [0, -90, 0],    off: [0, 0, 0],                  scale: 0.64, flip: true },
   springfield: { rot: [180, 0, 180],  off: [0.04, 0.021, -0.331],      scale: 1.159914 },
@@ -143,6 +143,9 @@ function place(scene, cfg) {
   // x/z here keeps the mesh centred on the same mount point
   holder.position.set(cfg.flip ? -o[0] : o[0], o[1], cfg.flip ? -o[2] : o[2]);
   if (cfg.flip) outer.rotation.y = Math.PI;
+  // Barrel-level correction is applied in normalized gun space, not in the
+  // source asset's arbitrary Euler frame. Contacts use this same correction.
+  if(cfg.levelPitch)outer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),cfg.levelPitch*D2R));
 
   outer.traverse((obj) => { obj.frustumCulled = false; });
   return outer;

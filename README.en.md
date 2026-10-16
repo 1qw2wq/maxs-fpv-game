@@ -923,12 +923,13 @@ round restart flow. Run `node tools/test-vercel.mjs` for the full suite.
 ### Procedural City (`proc_city`)
 
 Select **Procedural City** in the map picker. The expanded seed **1942** is **240 × 240 m**:
-four times the previous width/depth and **16× its area**. It contains 64 differently sized/oriented
-one- and two-story buildings, four interior variants, asphalt/cobble/pavement/grass/dirt surfaces,
-500 planting/street placements, and the newly uploaded vegetation pack. Marked asphalt streets,
-crossings, sidewalks, 192 low-wall cover runs, 99 parked trucks and 64 shop awnings keep blocks
-compact and covered. Smooth ramps, openings and
-three-dimensional bot routes use the same committed collision JSON in Python, Pyodide and the browser.
+four times the previous width/depth and **16× its area**. Its 132 buildings form 66 attached pairs,
+with 114 internal door connections, eight interior uses and 1–4 stories. Building coverage is now
+56.5% (previously 22.8%); vehicle streets are reduced from 18 to five, with narrow pedestrian alleys
+between blocks instead. It includes 140 low-wall cover sections, 82 parked trucks, 132 shop awnings,
+295 other vegetation/street placements and varied furniture/room contents. Smooth stacked stair slabs,
+openings, bullet-blocking walls and three-dimensional bot routes use the same committed collision JSON
+in Python, Pyodide and the browser.
 No npm, frontend build or new physics dependency is required.
 
 The arsenal now includes **all 30 uploaded gun models** (26 primaries and 4 sidearms). Choose an

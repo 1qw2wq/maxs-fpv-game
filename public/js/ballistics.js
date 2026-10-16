@@ -9,6 +9,7 @@ export function raySolid(o, d, b, maxT) {
       const alongZ=b.ax==='z', slope=(b.y1-b.y0)/Math.max(1e-6,alongZ?b.d:b.w);
       shape=[[1,0,0,x1],[-1,0,0,-x0],[0,0,1,z1],[0,0,-1,-z0],[0,-1,0,-(b.y-b.h/2)],
         [alongZ?0:-slope,1,alongZ?-slope:0,b.y0-slope*(alongZ?z0:x0)]];
+      if(b.thickness)shape[4]=[alongZ?0:slope,-1,alongZ?slope:0,b.thickness-b.y0+slope*(alongZ?z0:x0)];
       rampPlanes.set(b,shape);
     }
     let enter=0,leave=maxT;

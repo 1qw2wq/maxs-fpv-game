@@ -267,11 +267,9 @@ def blocked(x, z, y, height=None):
     or ``crouchHeight`` while crouched -- so a low passage the crouched body fits
     through stops blocking it.
 
-    A ramp is a solid wedge: walkable on its slope but solid underneath. Where
-    the slope is within one step of the feet the body is on the ramp (fine);
-    where it is higher the body would be inside the wedge. Skipping ramps
-    outright is what used to let a body walk into a ramp footprint from the side
-    and then drop through the (unfloored) footprint to the backstop slab.
+    Ramps are closed wedges or finite-thickness sloped slabs. Bodies may step
+    onto the top surface or pass below a raised underside, never inside the
+    solid volume. City stair slabs preserve headroom between stacked flights.
     """
     h = COMBAT["playerHeight"] if height is None else height
     for b in _near(x, z, PLAYER_RADIUS):
@@ -281,14 +279,12 @@ def blocked(x, z, y, height=None):
             continue
         if b["t"] == "ramp":
             surface = ramp_height(b, x, z)
-            # Walkable on the slope (within a step) and passable underneath a
-            # higher flight *only where a real floor carries the body*. The
-            # generator drops the floor under every ramp footprint, so a body
-            # that steps in below the slope has nothing to stand on and would
-            # drop to the backstop slab -- the "between the ground and the
-            # texture" wedge bots used to get stuck in. Allow the move only when
-            # floor_at confirms support; otherwise the body is inside the wedge.
-            if surface - y > STEP_UP_MAX and floor_at(x, z, y) <= FLOOR_BASE + 1e-6:
+            underside = surface-b['thickness'] if b.get('thickness') else b['y']-b['h']*.5
+            # City stair slabs have parallel sloped undersides, preserving
+            # 2.78m of headroom between stacked flights. Legacy ramps remain wedges.
+            if underside >= y+h:
+                continue
+            if surface-y > STEP_UP_MAX:
                 return True
             continue
         top = b["y"] + b["h"] * 0.5
@@ -673,7 +669,7 @@ def ray_box(origin, d, box, max_t):
 
 
 def ray_ramp(origin, d, b, max_t):
-    """Ray vs the entire solid wedge, including its sides and underside.
+    """Ray vs a closed wedge/sloped slab, including its sides and underside.
 
     Clip against the real slope, not its AABB roof or an open top plane.
     Planes are cached until the collision grid/map is rebuilt.
@@ -689,6 +685,9 @@ def ray_ramp(origin, d, b, max_t):
                  (0,-1,0,-(b['y']-b['h']/2)),
                  (0 if along_z else -slope,1,-slope if along_z else 0,
                   b['y0']-slope*(z0 if along_z else x0))]
+        if b.get('thickness'):
+            shape[4] = (0 if along_z else slope, -1, slope if along_z else 0,
+                        b['thickness']-b['y0']+slope*(z0 if along_z else x0))
         RAMP_PLANES[key] = shape
     enter, leave = 0.0, max_t
     for nx, ny, nz, offset in shape:

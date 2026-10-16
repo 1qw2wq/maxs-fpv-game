@@ -49,7 +49,7 @@ class CityTests(unittest.TestCase):
                 direction=[-s*sign,0,-c*sign]
                 self.assertIsNone(combat.ray_world(P(-4,1.58,7*sign),direction,2*sz))
                 self.assertIsNotNone(combat.ray_world(P(-2.5,1.58,7*sign),direction,2*sz))
-            if b['stories']>1:
+            if b['stories']>1 and b.get('attachedSide')!='e':
                 self.assertIsNone(combat.ray_world(P(7,4.58,0),[-c,0,s],2*sx))
                 self.assertIsNotNone(combat.ray_world(P(7,3.5,0),[-c,0,s],2*sx))
 
@@ -61,7 +61,7 @@ class CityTests(unittest.TestCase):
             if b['y']-b['h']/2<.01:self.assertTrue(combat.blocked(b['x'],b['z'],0))
         for n in self.m['bot_nav']['nodes']:
             if n.get('kind')=='lookout':
-                x,y,z=n['p'];self.assertAlmostEqual(combat.floor_at(x,z,y),3)
+                x,y,z=n['p'];self.assertAlmostEqual(combat.floor_at(x,z,y),y)
 
     def test_all_upper_lookouts_have_routes_from_both_teams(self):
         for team in ('0','1'):
@@ -72,6 +72,55 @@ class CityTests(unittest.TestCase):
                 self.assertTrue(path)
                 for q in path:self.walk(start,q);start=q
                 start=[p['x'],p['y'],p['z']]
+
+    def test_stacked_flights_allow_under_headroom_but_not_inside_wedges(self):
+        for b in self.m['buildings']:
+            if b['stories']<3:continue
+            upper=b['ramps'][1];start,end=upper['start'],upper['end']
+            self.assertFalse(combat.blocked(start[0],start[2],0),b['id'])
+            self.assertFalse(combat.blocked(end[0],end[2]-.1,start[1]),b['id'])
+            self.assertTrue(combat.blocked(end[0],end[2]-.1,end[1]-1),b['id'])
+        for ramp in (r for r in combat.SOLID if r['t']=='ramp'):
+            surface=combat.ramp_height(ramp,ramp['x'],ramp['z'])
+            for offset,solid in [(-.11,True),(-.5,False),(.1,False)]:
+                hit=combat.ray_ramp([ramp['x']-ramp['w']/2-1,surface+offset,ramp['z']],[1,0,0],ramp,ramp['w']+2)
+                self.assertEqual(hit is not None,solid)
+
+    def test_all_wall_solids_stop_rays_from_both_sides(self):
+        for b in combat.SOLID:
+            if b['t']!='wall':continue
+            # Fire through the thin axis, from both sides, at the solid center.
+            axis=0 if b['w']<b['d'] else 2
+            width=b['w'] if axis==0 else b['d']
+            for sign in (-1,1):
+                origin=[b['x'],b['y'],b['z']];origin[axis]+=sign*(width/2+.25)
+                direction=[0,0,0];direction[axis]=-sign
+                hit=combat.ray_world(origin,direction,width+.5)
+                self.assertIsNotNone(hit,b)
+                self.assertLessEqual(hit,.250001,b)
+
+    def test_connected_doors_pass_shots_and_party_walls_stop_every_bullet_weapon(self):
+        match=game.Match();shooter=match.add_player('Wall audit',None);target=match.add_player('Behind wall',None)
+        clock=100000.
+        weapons=[w for w in combat.WEAPONS.values() if not w.get('utility')]
+        with patch.object(game,'now_ms',lambda:clock):
+            for connection in self.m['connections']:
+                x,y,z=connection['x'],connection['y'],connection['z']
+                for weapon in weapons:
+                    for doorway in (False,True):
+                        zz=z if doorway else z-3
+                        shooter.update(pos=[x-.75,y,zz],team=0,bot=True,weapon=weapon['id'],mag=100,last_shot=0,reload_end=0,equip_until=0)
+                        target.update(pos=[x+.75,y,zz],team=1,hp=10000,alive=True,shield_until=0)
+                        clock+=2000
+                        match._on_fire(shooter,dict(o=game.eye_pos(shooter),d=[1,0,0]))
+                        self.assertEqual(shooter['mag'],99)
+                        if doorway:self.assertLess(target['hp'],10000,(connection,weapon['id']))
+                        else:self.assertEqual(target['hp'],10000,(connection,weapon['id']))
+                # An origin reported just beyond the shared wall must not bypass it.
+                shooter.update(pos=[x-.75,y,z-3],weapon='mp18',mag=100,last_shot=0)
+                target.update(pos=[x+.75,y,z-3],hp=10000,alive=True)
+                clock+=2000;match._on_fire(shooter,dict(o=[x+.55,y+1.58,z-3],d=[1,0,0]))
+                self.assertEqual(target['hp'],10000)
 
     def test_multiplayer_room_authority_keeps_the_same_city(self):
         from room import Room
@@ -90,7 +139,10 @@ class CityTests(unittest.TestCase):
         match=game.Match()
         p=match.add_player('Route QA',None,cls='scout',bot=True)
         # Keep one team/no enemy so the bot exercises its navigation rather than a duel.
-        p.update(team=0,pos=[-27,0,0],shield_until=0)
+        lookouts=[n['p'] for n in self.m['bot_nav']['nodes'] if n.get('kind')=='lookout']
+        goal=lookouts[p['id']%len(lookouts)]
+        building=next(b for b in self.m['buildings'] if abs(b['x']-goal[0])<b['w']/2 and abs(b['z']-goal[2])<b['d']/2)
+        p.update(team=0,pos=list(building['ramp']['start']),shield_until=0)
         now=100000.
         top=0
         with patch.object(bots,'now_ms',lambda:now),patch.object(game,'now_ms',lambda:now):

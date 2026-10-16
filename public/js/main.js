@@ -1431,6 +1431,7 @@ async function installMap(meta) {
 // ------------------------------------------------------------------ welcome
 
 async function onWelcome(m) {
+  const meBeforeLoad=app.net?.lastMe;
   app.lastRecoverySeq = 0;
   app.shieldUntil = 0;
   app.playing = false;
@@ -1479,6 +1480,10 @@ async function onWelcome(m) {
   // so joining mid-round does not miss the medic's and support's boxes.
   for (const fx of m.fx || []) spawnEffect(fx);
 
+  // Snapshots keep arriving while a large map decodes. Do not let the
+  // welcome's old primary overwrite a newer acknowledged active weapon.
+  const newestMe=app.net?.lastMe;
+  if(newestMe&&newestMe!==meBeforeLoad&&newestMe.id===m.id)onMe(newestMe);
   app.playing = true;
   app.matchStartedAt = performance.now();
   if (app.controls.mobileMode) app.controls.requestLock();
@@ -1698,7 +1703,7 @@ function onMe(me) {
   // app.loadout is not enough: doRespawn() writes it optimistically before the
   // server acknowledges, so the two already matched and this block was skipped —
   // the previous gun stayed on screen while the HUD named the new one.
-  if (me.c !== app.vmCls || me.w !== app.vmWeapon) {
+  if (me.c !== app.vmCls || me.w !== app.vmWeapon || me.w !== app.vm.weapon?.id) {
     app.vmCls = me.c;
     app.vmWeapon = me.w;
     app.nextShot = 0;

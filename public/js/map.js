@@ -127,16 +127,10 @@ export class World {
       if (Math.abs(x - b.x) > b.w * 0.5 + PLAYER_RADIUS) continue;
       if (Math.abs(z - b.z) > b.d * 0.5 + PLAYER_RADIUS) continue;
       if (b.t === 'ramp') {
-        // Walkable on the slope (within a step), and passable under a higher
-        // flight only where a real floor carries the body. The generator drops
-        // the floor under every ramp footprint, so stepping in below the slope
-        // leaves nothing to stand on and the body falls to the backstop slab --
-        // the "between the ground and the texture" wedge bots got stuck in.
-        // Allow it only when floorAt() confirms support.
         const surface = rampHeight(b, x, z);
-        if (surface - y > STEP_UP_MAX && this.floorAt(x, z, y) <= this.floorBase + 1e-6) {
-          return true;
-        }
+        const underside=b.thickness?surface-b.thickness:b.y-b.h*.5;
+        if(underside>=y+h)continue;
+        if(surface-y>STEP_UP_MAX)return true;
         continue;
       }
       const top = b.y + b.h * 0.5;
