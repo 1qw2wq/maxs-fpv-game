@@ -61,13 +61,14 @@ body { user-select: none; }
 /* ------------------------------------------------------------ 主菜单 */
 .menu-inner {
   position: relative;
-  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 14px;
-  padding: 24px;
+  padding: 12px 24px 24px;
+  margin-top: 64px;
+  height: calc(100% - 64px);
   overflow: auto;
 }
 
@@ -333,7 +334,7 @@ body { user-select: none; }
 .cc-stats { position: relative; display: flex; gap: 10px; margin-top: 9px; font-size: 11px; color: rgba(244, 241, 234, .62); }
 .cc-stats b { color: #fff; }
 
-.weapon-block { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.weapon-block { flex: 0 0 auto; min-height: auto; display: flex; flex-direction: column; gap: 10px; }
 .weapon-block h3 {
   margin: 0;
   font-size: 13px;
@@ -404,6 +405,7 @@ body { user-select: none; }
   box-shadow: 0 0 3px rgba(0, 0, 0, .9);
   transition: transform .05s linear;
 }
+#crosshair.aiming .ch { opacity: 0; }
 .ch-t, .ch-b { width: 2px; height: 9px; left: -1px; }
 .ch-l, .ch-r { width: 9px; height: 2px; top: -1px; }
 .ch-t { bottom: var(--gap, 8px); } .ch-b { top: var(--gap, 8px); }
@@ -754,9 +756,8 @@ html[lang="en"] #tutorial .tut-tip { font-size: 12px; margin-bottom: 9px; paddin
 .lock-title { margin: 0; font-size: 25px; font-weight: 900; letter-spacing: .18em; text-shadow: 0 4px 0 rgba(0, 0, 0, .6); }
 .lock-sub { margin: 0; font-size: 12.5px; letter-spacing: .16em; color: rgba(244, 241, 234, .6); }
 
-/* Pointer lock refused (embedded frame / preview pane): the same slot carries a
-   short how-to-play hint instead of the full-screen "click to lock" prompt, so
-   it must not dim or cover the view the player is steering with the cursor. */
+/* Pointer lock refused: show a retry / open-in-new-tab explanation without
+   obscuring the scene. There is no alternative mouse steering mode. */
 #lockslot.soft {
   background: none;
   backdrop-filter: none;
@@ -1018,3 +1019,250 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 .rig-shared-row.on { border-color: var(--gold); background: rgba(255, 207, 92, .14); }
 .rig-shared-row b { font-size: 13px; font-weight: 900; }
 .rig-shared-row em { font-style: normal; font-size: 11px; color: rgba(244, 241, 234, .45); }
+
+/* Separate grenade inventory; Q remains the class ability. */
+#grenade-chip { position:absolute; left:50%; bottom:80px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; padding:8px 13px 8px 8px; background:rgba(8,11,18,.82); border:1px solid rgba(255,207,92,.4); border-radius:12px; min-width:210px; }
+#grenade-chip.charging { border-color:#ffe08a; box-shadow:0 0 18px #ffb52d44; }
+#grenade-chip small { font-size:10px; color:#bdc6d0; }
+.grenade-cycle { font-size:11px; color:var(--gold); margin-left:auto; }
+#grenade-chip .ab-cd { width:130px; }
+#flash-veil { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:1000; }
+
+
+.rules-field { margin:12px 0; } .rules-field select { padding:10px; color:#eef2f5; background:#192333; border:1px solid #65788d; border-radius:7px; } .rules-field small { color:#b8c8d8; line-height:1.5; }
+#objective-hud { position:absolute; top:85px; left:50%; transform:translateX(-50%); text-align:center; width:min(440px,95vw); pointer-events:none; }
+#objective-mode { color:#ffe08a; font-size:12px; text-shadow:0 1px 3px #000; }
+#objective-cards { display:flex; justify-content:center; gap:8px; margin-top:5px; }
+.objective-card { position:relative; min-width:100px; border:1px solid var(--point-color); border-radius:9px; background:#101926df; padding:6px 9px; text-align:left; box-shadow:0 2px 8px #0004; }
+.objective-card b { color:var(--point-color); font-size:21px; margin-right:10px; }.objective-distance { font-size:11px; color:#d2deec; }.objective-card small { display:block; font-size:10px; color:#e4ecf4; }
+.objective-progress { height:3px; background:#ffffff20; margin-top:5px; }.objective-progress i { display:block; height:100%; }
+#objective-status { font-size:11px; margin:5px 0; color:#f2e9c6; text-shadow:0 1px 3px #000,0 1px 5px #000; }
+
+/* One actionable lesson while playing; full checklist remains in the menu. */
+#tutorial { z-index:40; }
+#tutorial.in-game .tut-list li { display:none; }
+#tutorial.in-game .tut-list li.now { display:flex; }
+#tutorial.in-game .tut-tip { display:block; font-size:11px; line-height:1.5; }
+
+/* Shared menu/pause mouse setting; HUD text stays independent of 3D quality. */
+.sensitivity-field { margin: 12px 0; }
+.sensitivity-field > span { display: flex; justify-content: space-between; }
+.sensitivity-field output { color: var(--gold); font-variant-numeric: tabular-nums; }
+.sensitivity-field input { width: 100%; accent-color: var(--gold); }
+
+/* Explicit mobile mode: touch controls never replace denied desktop lock. */
+#mobile-controls { position:absolute; inset:0; z-index:6; pointer-events:none; touch-action:none; -webkit-touch-callout:none; }
+#mobile-controls button, .touch-stick, .touch-look { pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; }
+.touch-look { position:absolute; left:40%; right:0; top:calc(100px + env(safe-area-inset-top)); bottom:0; }
+.touch-stick { position:absolute; left:max(24px, env(safe-area-inset-left)); bottom:max(24px, env(safe-area-inset-bottom)); width:132px; height:132px; border:2px solid #e9f1ff66; border-radius:50%; background:radial-gradient(circle,#16233410,#080f2024); box-shadow:inset 0 0 0 24px #d3e5ff08; display:grid; place-items:center; }
+.touch-stick-knob { width:54px; height:54px; border-radius:50%; background:#d6e6ff30; border:2px solid #e7f1ff99; box-shadow:0 3px 12px #0006; pointer-events:none; }
+.touch-stick small { position:absolute; bottom:8px; font-size:10px; color:#ecf2ff99; pointer-events:none; }
+#mobile-controls button { min-width:46px; min-height:46px; padding:3px 2px; border:1px solid #e6edff66; border-radius:999px; color:#f3f6ff; background:rgba(12,24,45,.16); font:700 10px/1.2 var(--font); overflow-wrap:anywhere; text-shadow:0 1px 3px #000; }
+#mobile-controls button.held { color:#ffde8c; border-color:#ffcf5c; background:rgba(255,207,92,.24); box-shadow:0 0 12px #ffcf5c22; }
+.touch-tools { position:absolute; right:max(12px, env(safe-area-inset-right)); top:max(10px, env(safe-area-inset-top)); display:flex; gap:5px; }
+.touch-actions { position:absolute; right:max(16px, env(safe-area-inset-right)); bottom:max(18px, env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,50px); gap:7px; }
+#mobile-controls .touch-cycle { grid-column:span 2; min-height:44px; }
+#mobile-controls .touch-fire { position:absolute; right:max(22px, env(safe-area-inset-right)); bottom:calc(192px + env(safe-area-inset-bottom)); width:74px; height:74px; border-radius:50%; background:rgba(180,70,60,.18); border:2px solid #ffb4a899; font-size:15px; }
+.touch-guide { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); margin:0; font-size:10px; color:#dde7f6a0; white-space:nowrap; text-shadow:0 1px 3px #000; }
+.mobile-mode #screen-hud > .overlay { z-index:20; }
+.mobile-mode #topbar { left:max(12px,env(safe-area-inset-left)); top:max(10px,env(safe-area-inset-top)); transform:none; padding:7px 10px; gap:6px; }
+.mobile-mode .tb-name, .mobile-mode .tb-map, .mobile-mode .tb-limit { display:none; }
+.mobile-mode .tb-num { font-size:21px; }.mobile-mode .tb-center { padding:0 7px; }
+.mobile-mode #statusbar { top:calc(70px + env(safe-area-inset-top)); bottom:auto; left:max(14px,env(safe-area-inset-left)); right:max(14px,env(safe-area-inset-right)); }
+.mobile-mode .hp-wrap { width:120px; }.mobile-mode .hp-bar { height:10px; }.mobile-mode #hp-num { font-size:20px; }.mobile-mode #hp-cls { font-size:10px; letter-spacing:0; }
+.mobile-mode #ammo-mag { font-size:28px; }.mobile-mode #ammo-max, .mobile-mode #ammo-reserve { font-size:13px; }
+.mobile-mode #ability-chip, .mobile-mode #grenade-chip { left:max(12px,env(safe-area-inset-left)); top:calc(120px + env(safe-area-inset-top)); bottom:auto; transform:none; width:156px; min-width:0; padding:7px 9px; border-radius:9px; }
+.mobile-mode #grenade-chip { top:calc(168px + env(safe-area-inset-top)); }
+.mobile-mode .ab-key, .mobile-mode .grenade-cycle { display:none; }
+.mobile-mode .ab-body { min-width:0; width:100%; }.mobile-mode .ab-body b { font-size:10px; letter-spacing:0; }
+.mobile-mode .ab-cd, .mobile-mode #grenade-chip .ab-cd { width:100%; }
+.mobile-mode #grenade-chip small { font-size:9px; }
+.mobile-mode #objective-hud { top:calc(85px + env(safe-area-inset-top)); width:50vw; }
+.mobile-mode #killfeed { top:110px; right:12px; font-size:10px; max-width:35vw; }
+.mobile-mode #chat-log { bottom:175px; max-width:42vw; max-height:72px; overflow:hidden; }
+.mobile-mode .chat-line { font-size:10px; }
+.mobile-mode .menu-inner { justify-content:flex-start; padding:24px max(16px,env(safe-area-inset-left)) max(24px,env(safe-area-inset-bottom)); }
+.mobile-mode .menu-inner > * { flex-shrink:0; }
+.mobile-mode .select-inner { padding:16px; }
+.mobile-mode .class-card canvas { max-height:130px; object-fit:contain; }
+.mobile-mode .select-foot { flex-shrink:0; }
+.mobile-mode .pause-panel, .mobile-mode .invite-panel, .mobile-mode .death-panel, .mobile-mode .sb-panel { max-height:90dvh; overflow:auto; }
+@media (max-width:600px) {
+  .mobile-mode #objective-hud { top:calc(235px + env(safe-area-inset-top)); width:94vw; }
+  .mobile-mode .touch-guide { bottom:160px; max-width:90vw; white-space:normal; text-align:center; }
+  .mobile-mode #killfeed { max-width:44vw; }
+  .mobile-mode .select-head p { display:none; }
+}
+@media (max-height:420px) {
+  .mobile-mode .touch-stick { width:112px; height:112px; bottom:16px; }
+  .mobile-mode .touch-actions { grid-template-columns:repeat(3,48px); gap:5px; bottom:12px; }
+  .mobile-mode #mobile-controls .touch-fire { bottom:178px; width:64px; height:64px; }
+  .mobile-mode #grenade-chip { top:158px; }
+  .mobile-mode #ability-chip { top:112px; }
+  .mobile-mode .touch-guide { display:none; }
+  .mobile-mode #chat-log { display:none; }
+}
+/* Lessons describe touch inputs without covering or intercepting the buttons. */
+.mobile-mode #tutorial.in-game { --tut-top:112px; padding:112px 176px 8px; justify-content:center; }
+.mobile-mode #tutorial.in-game .tut-panel { width:min(360px,100%); max-height:160px; padding:8px 10px; pointer-events:none; }
+.mobile-mode #tutorial.in-game header, .mobile-mode #tutorial.in-game .tut-tip { display:none; }
+.mobile-mode #tutorial.in-game footer button { pointer-events:auto; padding:5px 9px; min-height:32px; font-size:11px; }
+@media (max-width:600px) {
+  .mobile-mode #tutorial.in-game { --tut-top:320px; padding:320px 16px 8px; }
+  .mobile-mode #tutorial.in-game .tut-panel { width:100%; }
+}
+
+.mobile-mode .pause-hint { display:none; }
+
+/* Small phones must keep joystick, combat buttons and score/tools separate. */
+.mobile-mode .objective-card { flex:1; min-width:0; }
+@media (max-width:360px) {
+  .mobile-mode #topbar { max-width:108px; padding:6px; gap:4px; }
+  .mobile-mode .tb-num { font-size:15px; }.mobile-mode #tb-timer { font-size:12px; }
+  .mobile-mode .tb-score { gap:0; }.mobile-mode .tb-center { padding:0 3px; }
+  .mobile-mode .touch-tools { right:max(8px,env(safe-area-inset-right)); gap:4px; }
+  .mobile-mode #mobile-controls .touch-tools button { min-width:44px; width:44px; }
+  .mobile-mode .touch-stick { left:max(12px,env(safe-area-inset-left)); width:104px; height:104px; }
+  .mobile-mode .touch-stick-knob { width:44px; height:44px; }
+  .mobile-mode .touch-actions { right:max(12px,env(safe-area-inset-right)); grid-template-columns:repeat(3,48px); gap:5px; }
+  .mobile-mode .objective-card { padding:5px; }.mobile-mode .objective-card b { font-size:17px; margin-right:5px; }
+  .mobile-mode .objective-distance { font-size:9px; }
+}
+@media (max-height:350px) and (orientation:landscape) {
+  .mobile-mode #statusbar { top:calc(62px + env(safe-area-inset-top)); }
+  .mobile-mode #mobile-controls .touch-fire { bottom:calc(166px + env(safe-area-inset-bottom)); width:56px; height:56px; }
+  .mobile-mode #ability-chip { top:108px; padding:5px 9px; }
+  .mobile-mode #grenade-chip { top:150px; padding:5px 9px; }
+  .mobile-mode #grenade-chip small { display:none; }
+  .mobile-mode #objective-hud { top:58px; width:calc(100vw - 350px); }
+  .mobile-mode #objective-mode, .mobile-mode .objective-card small { display:none; }
+  .mobile-mode .objective-card { padding:4px; }.mobile-mode .objective-card b { font-size:16px; margin-right:4px; }
+  .mobile-mode .objective-distance, .mobile-mode #objective-status { font-size:9px; }
+}
+
+/* Content determines menu height. Never shrink a panel over its own buttons
+   or collapse the weapon section into the deploy footer on short PC windows. */
+.menu-inner > *, .select-inner > *, .settings-inner > * { flex-shrink:0; }
+.menu-panel, .settings-grid > *, .class-row > *, .weapon-row > * { min-width:0; }
+.menu-panel { max-width:100%; }
+.select-foot, .select-room, .rig-stage-foot, .rig-shared-row, .bot-row, .seg, .local-actions { flex-wrap:wrap; }
+.select-foot { flex:0 0 auto; }
+.team-note { min-width:0; flex:1 1 140px; }
+.room-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(125px,100%),1fr)); }
+.room-btn { line-height:1.35; min-height:44px; overflow-wrap:anywhere; }
+.mode-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.mode-btn, .map-btn { min-width:0; overflow-wrap:anywhere; }
+.field, .field select, .field input, .rig-bone-row > * { min-width:0; max-width:100%; }
+.rig-bone-row { grid-template-columns:88px minmax(0,1fr); }
+.settings-inner .select-foot { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(145px,100%),1fr)); }
+.pause-panel, .invite-panel, .death-panel, .sb-panel, .result-panel { max-width:100%; max-height:calc(100dvh - 32px); overflow:auto; }
+.overlay { padding:16px; overflow:auto; }
+#screen-hud > .overlay { z-index:20; }
+#tutorial footer { flex-wrap:wrap; }
+@media (max-width:520px) {
+  .mode-row { grid-template-columns:minmax(0,1fr); }
+  .menu-panel { padding:18px 16px; }
+  .select-foot .team-note { order:3; flex-basis:100%; text-align:center; }
+  #btn-deploy { margin-left:auto; }
+  .select-room { gap:8px; }
+  .select-room b { overflow-wrap:anywhere; }
+}
+
+/* Scores, room-copy button and objectives share real document flow instead
+   of absolute offsets that collide when joining a room or changing language. */
+.hud-header { position:absolute; top:12px; left:0; right:0; margin:0 auto; width:min(520px,calc(100% - 24px)); display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; z-index:7; }
+.hud-header #topbar { position:relative; top:auto; left:auto; transform:none; max-width:100%; min-width:0; }
+.match-info { display:flex; flex-direction:column; align-items:center; gap:8px; max-width:100%; width:100%; }
+.match-info #room-chip { position:relative; top:auto; left:auto; transform:none; max-width:100%; min-height:36px; font-family:var(--font); pointer-events:auto; touch-action:manipulation; }
+.match-info #room-chip b { white-space:nowrap; }
+.match-info .rc-copy { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.match-info #objective-hud { position:relative; top:auto; left:auto; transform:none; width:min(440px,100%); }
+.loadout-info { display:contents; }
+.loadout-info #ability-chip, .loadout-info #grenade-chip { position:fixed; }
+
+/* Landscape keeps the informational stack in the free center lane; the room
+   button stays above the swipe surface so it can actually receive touches. */
+.mobile-mode .hud-header { display:contents; }
+.mobile-mode .hud-header #topbar { position:absolute; left:max(12px,env(safe-area-inset-left)); top:max(10px,env(safe-area-inset-top)); z-index:7; }
+.mobile-mode .match-info { position:absolute; top:calc(70px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); width:calc(100% - 360px); gap:6px; z-index:7; }
+.mobile-mode .match-info #room-chip { background:rgba(12,24,45,.16); border-radius:999px; min-height:44px; padding:4px 8px; font-size:11px; letter-spacing:0; }
+.mobile-mode .match-info #room-chip b { font-size:13px; letter-spacing:.1em; }
+.mobile-mode .match-info #objective-hud { width:100%; }
+@media (max-width:700px) {
+  body:not(.mobile-mode) .tb-name { display:none; }
+  body:not(.mobile-mode) .tb-center { padding:0 6px; }
+}
+@media (max-width:600px) and (min-height:421px) {
+  .mobile-mode .hud-header { position:absolute; display:flex; top:max(10px,env(safe-area-inset-top)); left:max(12px,env(safe-area-inset-left)); right:max(12px,env(safe-area-inset-right)); width:auto; align-items:stretch; }
+  .mobile-mode .hud-header #topbar { position:relative; top:auto; left:auto; align-self:flex-start; margin-bottom:52px; }
+  .mobile-mode .match-info { position:relative; top:auto; left:auto; transform:none; width:100%; }
+  .mobile-mode .loadout-info { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .mobile-mode .loadout-info #ability-chip, .mobile-mode .loadout-info #grenade-chip { position:relative; top:auto; left:auto; bottom:auto; width:auto; min-width:0; transform:none; padding:6px 8px; }
+  .mobile-mode .loadout-info .ab-body b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mobile-mode .loadout-info #grenade-chip small { display:none; }
+  .mobile-mode #objective-mode { display:none; }
+  .mobile-mode .objective-card { padding:4px 5px; }
+  .mobile-mode .objective-card b { font-size:17px; margin-right:4px; }
+  .mobile-mode .objective-card small, .mobile-mode #objective-status { font-size:9px; }
+}
+@media (max-height:350px) and (orientation:landscape) {
+  .mobile-mode .match-info { top:58px; width:calc(100% - 350px); }
+}
+
+#scope-overlay { position:fixed; inset:0; z-index:4; pointer-events:none; overflow:hidden; }
+.scope-lens { position:absolute; left:50%; top:50%; width:82vmin; height:82vmin; transform:translate(-50%,-50%); border-radius:50%; border:3px solid #131c21; box-shadow:0 0 0 200vmax #020305; background:radial-gradient(circle at 35% 25%,#80c4ff12,transparent 45%,#0b222c40 90%,#02080bd9); }
+.scope-lens svg { width:100%; height:100%; fill:#b33329; stroke:#111; stroke-width:.28; }
+.scope-active #crosshair { visibility:hidden; }
+.mobile-option { display:none; }
+.mobile-mode .mobile-option { display:inline-flex; }
+#touch-layout-editor { position:fixed; z-index:90; top:max(8px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%); width:min(580px,calc(100% - 20px)); padding:10px; border:1px solid #ffffff40; border-radius:16px; background:#142330ed; color:#fff; text-align:center; }
+#touch-layout-editor strong { display:block; font-size:12px; }
+#touch-layout-editor button { min-height:44px; padding:6px 14px; margin:4px 3px 0; border:1px solid #ffffff55; border-radius:999px; background:#ffffff15; color:#fff; font:inherit; cursor:pointer; }
+#touch-layout-editor [data-layout="save"] { border-color:#bada83; color:#def6b7; }
+.layout-status { display:block; color:#ffbda9; font-size:11px; }
+.layout-editing #screen-hud > :not(#mobile-controls), .layout-editing .touch-tools, .layout-editing .touch-guide { visibility:hidden; }
+.layout-editing .touch-look { pointer-events:none; }
+.layout-editing .touch-actions button, .layout-editing .touch-fire, .layout-editing .touch-stick { outline:2px dashed #d9f29b99; outline-offset:2px; cursor:move; }
+#mobile-controls.sprinting .touch-stick { border-color:#d9f29b; box-shadow:0 0 12px #d9f29b40; }
+
+/* Kept inside the health column, away from both desktop and touch actions. */
+#statusbar .hp-wrap { position:relative; }
+#spawn-shield-status { position:absolute; bottom:calc(100% + 3px); left:0; white-space:nowrap; color:#78deff; font-size:11px; font-weight:700; line-height:1.25; letter-spacing:.02em; }
+.mobile-mode #spawn-shield-status { font-size:10px; line-height:10px; bottom:calc(100% + 1px); }
+
+/* Secondary occupies the spare third-row touch cell; fire keeps its clear lane. */
+.secondary-row .weapon-card { text-align:left; color:inherit; font-family:inherit; }
+.slot-help { opacity:.7; font-size:12px; }
+#weapon-slot { display:block; font-size:10px; color:var(--gold); margin-bottom:4px; }
+
+
+/* Redeploy: both inventory slots use touch-sized, keyboard-accessible cards.
+   Only the choices scroll; the deploy button always stays within the panel. */
+.death-panel { width:min(600px, calc(100vw - 24px)); max-height:calc(100vh - 32px); display:flex; flex-direction:column; overflow:hidden; }
+.death-panel > :not(.death-loadout) { flex-shrink:0; }
+.death-panel .death-loadout { display:flex; flex-direction:column; gap:14px; overflow-y:auto; min-height:0; padding:2px 4px 12px; margin-bottom:14px; overscroll-behavior:contain; scrollbar-width:thin; }
+.death-panel .dl-classes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.death-panel .dl-weapons { min-width:0; display:flex; flex-direction:column; gap:16px; }
+.death-panel .dl-section h3 { margin:0 0 8px; color:var(--gold); font-size:12px; letter-spacing:.06em; text-align:left; }
+.death-panel .dl-secondary { border-top:1px solid rgba(255,255,255,.14); padding-top:14px; }
+.death-panel .dl-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.death-panel .dl-btn { min-width:0; min-height:44px; font:inherit; font-size:12px; border-radius:9px; overflow-wrap:anywhere; transition:background .12s,border-color .12s; }
+.death-panel .dl-card { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:3px; padding:10px 12px; text-align:left; }
+.death-panel .dl-card-name { font-weight:700; line-height:1.3; }
+.death-panel .dl-card-sub { font-size:10px; opacity:.6; line-height:1.3; }
+.death-panel .dl-btn.on { color:var(--paper); border-color:var(--gold); background:rgba(210,176,119,.18); box-shadow:inset 3px 0 var(--gold); }
+.death-panel .dl-btn:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+.mobile-mode .death-panel { max-height:calc(100vh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow:hidden; }
+@media (max-width:380px) { .death-panel .dl-classes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-height:480px) {
+  .death-panel { padding:12px 18px; }
+  .death-panel .death-title { font-size:20px; margin-bottom:4px; }
+  .death-panel .death-count { margin:6px 0 8px; }
+  .death-panel .death-by { margin-bottom:4px; }
+  .death-panel .death-loadout { margin-bottom:8px; }
+}
+
+@supports (height:100dvh) {
+  .death-panel { max-height:calc(100dvh - 32px); }
+  .mobile-mode .death-panel { max-height:calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+}

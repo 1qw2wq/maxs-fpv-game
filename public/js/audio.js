@@ -17,6 +17,15 @@ const SAMPLE_FILES = {
 // (except the straight-pull M95, whose file already carries the bolt working)
 // also get a separate bolt-cycle sample, played once the action is worked.
 const GUN_FILES = {
+  ar15:'sounds/guns/cei.mp3',pmx:'sounds/guns/mp18.mp3',gm6:'sounds/guns/springfield.mp3',
+  lr300:'sounds/guns/federov.mp3',m170:'sounds/guns/smle.mp3',m249:'sounds/guns/lewis.mp3',
+  m4a1:'sounds/guns/auto1918.mp3',m60light:'sounds/guns/bar.mp3',m60:'sounds/guns/chauchat.mp3',
+  mp5:'sounds/guns/hellriegel.mp3',pgm:'sounds/guns/springfield.mp3',
+  apx:'sounds/guns/cei.mp3',g17:'sounds/guns/auto1918.mp3',deagle:'sounds/guns/rsc1917.mp3',flarepistol:'sounds/shot.mp3',
+  // Reuse existing recordings with each new weapon's own sound trim.
+  sentinel: 'sounds/guns/smle.mp3',
+  awp: 'sounds/guns/springfield.mp3',
+  longbow: 'sounds/guns/rsc1917.mp3',
   mp18: 'sounds/guns/mp18.mp3',
   auto1918: 'sounds/guns/auto1918.mp3',
   hellriegel: 'sounds/guns/hellriegel.mp3',
@@ -31,6 +40,9 @@ const GUN_FILES = {
   springfield: 'sounds/guns/springfield.mp3',
 };
 const BOLT_FILES = {
+  m170:'sounds/guns/bolt_smle.mp3',pgm:'sounds/guns/bolt_springfield.mp3',
+  sentinel: 'sounds/guns/bolt_smle.mp3',
+  awp: 'sounds/guns/bolt_springfield.mp3',
   smle: 'sounds/guns/bolt_smle.mp3',
   springfield: 'sounds/guns/bolt_springfield.mp3',
 };
@@ -257,12 +269,22 @@ export class Sfx {
     if (gain < 0.02) return;
     const rate = (snd.rate ?? 1) * (1 - far * 0.12);
     const lpf = 700 + 1800 * (1 - far);
+    if (this._playBuf(this._guns[weapon?.id], { gain, rate, lpf })) return;
     if (this._sample('shot', { gain, rate, lpf })) return;
     const shape = weapon?.shape || 'rifle';
     const tone = snd.tone ?? 1;
     const f = (shape === 'bolt' ? 520 : shape === 'lmg' ? 430 : 700) * tone * (1 - far * 0.35);
     this._noise(0.26, 0.16 * gain * 2, f, 0.6, 'lowpass');
     this._thump(0.12, 0.11 * gain * 2, 110 * tone, 42 * tone);
+  }
+
+  detonate(kind, distance = 0) {
+    const gain = Math.max(0, 1-distance/100);
+    if (!gain || !this.enabled) return;
+    if (kind === 'flash') { this._noise(0.16,0.18*gain,2600,0.5); return; }
+    if (kind === 'smoke' || kind === 'flare') { this._noise(0.22,0.12*gain,900,0.7); return; }
+    this._noise(kind === 'incendiary' ? 0.65 : 0.4,0.55*gain,700,0.6,'lowpass');
+    this._thump(0.4,0.65*gain,90,28);
   }
 
   reload() {

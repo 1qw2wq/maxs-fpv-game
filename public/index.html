@@ -2,7 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>堑壕前线 Trench Front</title>
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
@@ -65,6 +67,17 @@
       </div>
       <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
 
+      <label class="field rules-field"><span>操作模式</span>
+        <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
+      </label>
+      <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
+      </label>
+
+      <label class="field rules-field"><span>游戏规则</span>
+        <select id="game-mode"><option value="tdm">团队死斗</option><option value="control">据点控制</option></select>
+        <small>据点控制：占领全部 A / B / C，并连续守住 15 秒获胜；双方同时在圈内会阻止占领。加入房间时遵循房主规则。</small>
+      </label>
       <div class="map-field">
         <span class="map-label">选择地图</span>
         <div class="map-row" id="map-row"></div>
@@ -73,7 +86,7 @@
 
       <div class="mode-row">
         <button id="btn-mode-multi" class="mode-btn" type="button">
-          <b>多人模式</b><span>联机团队死斗 · 与真人同场竞技</span>
+          <b>多人模式</b><span>联机对战 · 与真人同场竞技</span>
         </button>
         <button id="btn-mode-solo" class="mode-btn" type="button">
           <b>单人模式</b><span>与 AI 队友并肩，对抗 AI 敌军</span>
@@ -82,14 +95,14 @@
           <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
         </button>
         <button id="btn-mode-tutorial" class="mode-btn" type="button">
-          <b>新手指引</b><span>60 秒学会移动 / 射击 / 联机房号</span>
+          <b>新手指引</b><span>学习移动 / 手榴弹 / 据点控制 / 联机</span>
         </button>
       </div>
 
       <p id="skin-note" class="hint dim"></p>
 
       <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
-      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
+      <p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
       <p class="hint dim"><a class="debug-link" href="debug.html">API 调试页</a>：看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步</p>
     </div>
     <p id="menu-error" class="error"></p>
@@ -120,6 +133,9 @@
     <div class="weapon-block">
       <h3 id="weapon-title">主武器</h3>
       <div class="weapon-row" id="weapon-row"></div>
+      <h3>副武器 · 选择一把手枪</h3>
+      <div class="weapon-row secondary-row" id="secondary-row"></div>
+      <p class="slot-help">1 主武器 · 2 手枪 · X 切换武器</p>
     </div>
 
     <footer class="select-foot">
@@ -214,25 +230,45 @@
 <!-- ================================== HUD ================================== -->
 <section id="screen-hud" class="hidden">
 
-  <div id="topbar">
-    <div class="tb-score tb-left">
-      <span class="tb-name" id="tb-name-0">协约国</span>
-      <span class="tb-num" id="tb-score-0">0</span>
+  <div class="hud-header">
+    <div id="topbar">
+      <div class="tb-score tb-left">
+        <span class="tb-name" id="tb-name-0">协约国</span>
+        <span class="tb-num" id="tb-score-0">0</span>
+      </div>
+      <div class="tb-center">
+        <span id="tb-timer">8:00</span>
+        <span class="tb-limit">/ <b id="tb-limit">75</b></span>
+        <span id="tb-map" class="tb-map"></span>
+      </div>
+      <div class="tb-score tb-right">
+        <span class="tb-num" id="tb-score-1">0</span>
+        <span class="tb-name" id="tb-name-1">同盟国</span>
+      </div>
     </div>
-    <div class="tb-center">
-      <span id="tb-timer">8:00</span>
-      <span class="tb-limit">/ <b id="tb-limit">75</b></span>
-      <span id="tb-map" class="tb-map"></span>
-    </div>
-    <div class="tb-score tb-right">
-      <span class="tb-num" id="tb-score-1">0</span>
-      <span class="tb-name" id="tb-name-1">同盟国</span>
-    </div>
-  </div>
 
-  <div id="room-chip" class="hidden" title="点击复制房号">
-    <span class="rc-label">房号</span><b id="room-code">--------</b>
-    <span id="room-copy" class="rc-copy">复制</span>
+    <div class="match-info">
+      <button id="room-chip" class="hidden" type="button" title="点击复制房号">
+        <span class="rc-label">房号</span><b id="room-code">--------</b>
+        <span id="room-copy" class="rc-copy">复制</span>
+      </button>
+      <div id="objective-hud" class="hidden"><b id="objective-mode">据点控制</b><div id="objective-cards"></div><p id="objective-status"></p></div>
+    </div>
+
+    <div class="loadout-info">
+      <div id="ability-chip">
+        <div class="ab-key">Q</div>
+        <div class="ab-body">
+          <b id="ab-name">炸药包</b>
+          <div class="ab-cd"><i id="ab-fill"></i></div>
+        </div>
+      </div>
+      <div id="grenade-chip" aria-live="polite">
+        <span class="ab-key">G</span>
+        <div class="ab-body"><b id="grenade-name">破片手榴弹</b><small id="grenade-info"></small><div class="ab-cd"><i id="grenade-fill"></i></div></div>
+        <span class="grenade-cycle">B ↻</span>
+      </div>
+    </div>
   </div>
 
   <div id="crosshair">
@@ -263,21 +299,15 @@
     <div class="hp-wrap">
       <div class="hp-bar"><i id="hp-fill"></i></div>
       <div class="hp-text"><b id="hp-num">100</b><span id="hp-cls">突击兵</span></div>
+      <span id="spawn-shield-status" class="hidden" role="status"></span>
     </div>
-    <div class="ammo-wrap">
+    <div class="ammo-wrap"><small id="weapon-slot" aria-live="polite"></small>
       <b id="ammo-mag">32</b><span id="ammo-max">/32</span><span id="ammo-reserve">150</span>
       <div class="reload-bar"><i id="reload-fill"></i></div>
       <span id="reload-text" class="hidden">换弹中</span>
     </div>
   </div>
 
-  <div id="ability-chip">
-    <div class="ab-key">Q</div>
-    <div class="ab-body">
-      <b id="ab-name">炸药包</b>
-      <div class="ab-cd"><i id="ab-fill"></i></div>
-    </div>
-  </div>
 
   <div id="event-toast" class="hidden"></div>
 
@@ -286,7 +316,7 @@
     <div class="panel death-panel">
       <p class="death-title">你阵亡了</p>
       <p class="death-by" id="death-by"></p>
-      <p class="death-count"><b id="death-count">3</b> 秒后可重新部署</p>
+      <p class="death-count" id="death-count"><b>3</b> 秒后可重新部署</p>
       <div class="death-loadout" id="death-loadout"></div>
       <button id="btn-respawn" class="big-btn small" type="button" disabled>重新部署</button>
     </div>
@@ -318,6 +348,9 @@
 
 </section>
 
+  <div id="flash-veil" aria-hidden="true"></div>
+  <div id="scope-overlay" class="hidden" aria-hidden="true"><div class="scope-lens"><svg viewBox="0 0 100 100"><path d="M0 50H46 M54 50H100 M50 0V46 M50 54V100 M30 48V52 M40 48V52 M60 48V52 M70 48V52 M48 30H52 M48 40H52 M48 60H52 M48 70H52"/><circle cx="50" cy="50" r=".45"/></svg></div></div>
+
   <!-- Pause menu and invite panel. They used to sit inside the HUD screen,
        which meant "join with an invite code" on the menu opened a panel inside
        a hidden box -- invisible and unclickable. They belong to the page itself. -->
@@ -326,8 +359,16 @@
     <div class="pause-panel">
       <h2 class="pause-title">已暂停</h2>
       <p class="pause-note" id="pause-note"></p>
+      <label class="field rules-field"><span>操作模式</span>
+        <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
+      </label>
+      <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
+      </label>
       <div class="pause-actions">
         <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>
+        <button id="btn-touch-layout" class="ghost-btn mobile-option" type="button">自定义触屏布局</button>
+        <button id="btn-mobile-fullscreen" class="ghost-btn mobile-option" type="button">全屏</button>
         <button id="btn-pause-settings" class="ghost-btn" type="button">设置</button>
         <button id="btn-pause-invite" class="ghost-btn" type="button">邀请朋友</button>
         <button id="btn-pause-leave" class="ghost-btn" type="button">离开对局</button>

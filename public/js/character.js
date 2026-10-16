@@ -16,6 +16,7 @@
 // little — the visible head has to stay where the server says it is.
 
 import * as THREE from 'three';
+import { buildGripGlove, gripRotation, gloveWrist, GLOVE_WRIST, setWorldRotation } from './handpose.js';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { makeFaceTexture } from './face.js';
 import { buildWeapon, soldierArms } from './viewmodel.js';
@@ -310,8 +311,10 @@ function addArms(parent, cls, team) {
     fore.position.y = -0.125;
 
     const hand = joint(el, 0, -0.25, 0);
-    const h = part(hand, new THREE.BoxGeometry(a.hand[0], a.hand[1], a.hand[2]), { material: glove, outline: true, outlineScale: 1.06 });
-    h.position.y = -a.handDrop;
+    hand.name = `wrist-${side}`;
+    const h = buildGripGlove(glove, side);
+    h.position.copy(GLOVE_WRIST).negate();
+    hand.add(h);
 
     arms[side] = { sh, el, hand };
   }
@@ -402,17 +405,38 @@ export function createGirl(cls, team, data) {
   const arms = addArms(torsoG, cls, team);
 
   // hands hold the rifle at chest height
-  const hands = joint(torsoG, 0, 0.135, 0.115);
+  const hands = joint(torsoG, -0.10, 0.135, 0.115);
   const weaponMount = new THREE.Group();
   weaponMount.rotation.x = -0.08;
   hands.add(weaponMount);
 
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
 
+  const down = new THREE.Vector3(0, -1, 0);
+  const target = new THREE.Vector3(), direction = new THREE.Vector3(), pole = new THREE.Vector3(), elbow = new THREE.Vector3();
+  function fitHand(arm, anchor, side) {
+    anchor.getWorldPosition(target);
+    const rotation = gripRotation(anchor.getWorldQuaternion(new THREE.Quaternion()), side === -1 ? 'R' : 'L',new THREE.Quaternion(),st.weapon?.shape);
+    gloveWrist(target, rotation, target);
+    torsoG.worldToLocal(target);
+    direction.copy(target).sub(arm.sh.position);
+    const distance = Math.max(0.025, Math.min(0.519, direction.length()));
+    direction.normalize();
+    const along = (0.27 ** 2 + distance ** 2 - 0.25 ** 2) / (2 * distance);
+    const height = Math.sqrt(Math.max(0, 0.27 ** 2 - along ** 2));
+    pole.set(side * 0.7, -0.6, -0.2).addScaledVector(direction, -pole.dot(direction)).normalize();
+    elbow.copy(direction).multiplyScalar(along).addScaledVector(pole, height);
+    arm.sh.quaternion.setFromUnitVectors(down, elbow.clone().normalize());
+    direction.copy(target).sub(arm.sh.position).sub(elbow).applyQuaternion(arm.sh.quaternion.clone().invert()).normalize();
+    arm.el.quaternion.setFromUnitVectors(down, direction);
+    arm.hand.updateWorldMatrix(true, false);
+    setWorldRotation(arm.hand, rotation);
+  }
+
   const st = {
     phase: Math.random() * 6.28,
     t: Math.random() * 10,
-    crouch: 0,
+    crouch: 0, gait: 0,
     weapon: null,
     dead: false,
   };
@@ -424,6 +448,7 @@ export function createGirl(cls, team, data) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      hands.position.z=weapon.shape==='pistol'?.315:.115;
       weaponMount.clear();
       const built = buildWeapon(weapon);
       // buildWeapon already points the muzzle down local +Z, which is also the
@@ -434,6 +459,8 @@ export function createGirl(cls, team, data) {
       // Kept so this girl's own muzzle flash leaves the right barrel: main.js
       // asks for the world point when her trigger pulls (see gunfx.js).
       st.muzzle = built.muzzle;
+      st.eject = built.anchors.eject;
+      st.anchors = built.anchors;
     },
 
     /** World position of this character's muzzle; false when she has no gun. */
@@ -443,12 +470,20 @@ export function createGirl(cls, team, data) {
       return true;
     },
 
+    ejectWorld(out) {
+      if (!st.eject) return false;
+      st.eject.getWorldPosition(out);
+      return true;
+    },
+
     setAlive(alive) {
       st.dead = !alive;
       root.visible = alive;
     },
 
     destroy() {
+      shadow.geometry.dispose();shadow.material.dispose();
+      marker.geometry.dispose();marker.material.dispose();
       root.removeFromParent();
     },
 
@@ -468,7 +503,8 @@ export function createGirl(cls, team, data) {
       // big visual drop would put the rendered head inside the torso hitbox.
       st.crouch += ((s.crouch ? 1 : 0) - st.crouch) * Math.min(1, dt * 12);
 
-      const swing = run ? (s.sprint ? 0.78 : 0.5) : 0.06;
+      st.gait += ((run ? 1 : 0)-st.gait)*(1-Math.exp(-12*dt));
+      const swing = .06 + ((s.sprint ? .78 : .5)-.06)*st.gait;
       const ph = st.phase;
       const breathe = Math.sin(st.t * 1.9) * 0.012;
 
@@ -483,20 +519,21 @@ export function createGirl(cls, team, data) {
       legs.R.foot.rotation.x = -Math.sin(ph) * swing * 0.55;
 
       bob.position.y = -st.crouch * 0.20
-        + Math.abs(Math.sin(ph)) * (run ? (s.sprint ? 0.045 : 0.028) : 0)
+        + Math.abs(Math.sin(ph)) * st.gait * (s.sprint ? 0.045 : 0.028)
         + breathe * 0.25;
       bob.rotation.z = Math.sin(ph) * swing * 0.035;
       bob.rotation.y = -Math.sin(ph) * swing * 0.10;
 
-      torsoG.rotation.x = st.crouch * 0.28 + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008;
+      torsoG.rotation.x = st.crouch * 0.28 + (.02 + st.gait*.08) + Math.sin(st.t * 1.9) * 0.008;
       torsoG.rotation.z = Math.sin(ph) * swing * 0.05;
 
-      // weapon-ready arms: right hand on the grip, left under the handguard
-      const sway = Math.sin(ph) * swing * 0.12;
-      arms.R.sh.rotation.set(-1.02 + sway * 0.5, 0.34, -0.30 - st.crouch * 0.08);
-      arms.R.el.rotation.set(-1.30 - sway * 0.6, 0, 0.18);
-      arms.L.sh.rotation.set(-1.16 - sway * 0.5, -0.46, 0.42 + st.crouch * 0.10);
-      arms.L.el.rotation.set(-1.20 + sway * 0.6, 0, -0.26);
+      // Read the same gun-local sockets as first person instead of a fixed
+      // elbow pose that only happened to fit one rifle.
+      root.updateMatrixWorld(true);
+      if (st.anchors) {
+        fitHand(arms.R, st.anchors.hand, -1);
+        fitHand(arms.L, st.anchors.fore, 1);
+      }
 
       const pitch = Math.max(-70, Math.min(70, s.pitch || 0));
       headG.rotation.x = -(pitch * Math.PI) / 180 * 0.55;

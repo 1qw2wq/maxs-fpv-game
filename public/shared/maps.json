@@ -8,7 +8,33 @@
       "desc": "1916 · 战壕与无人区",
       "file": "/shared/map.json",
       "scene": null,
-      "descEn": "1916 · trenches and no man's land"
+      "descEn": "1916 · trenches and no man's land",
+      "controlPoints": [
+        {
+          "id": "A",
+          "p": [
+            -21.5,
+            0,
+            -15.5
+          ]
+        },
+        {
+          "id": "B",
+          "p": [
+            3.5,
+            0,
+            -0.5
+          ]
+        },
+        {
+          "id": "C",
+          "p": [
+            21.5,
+            0,
+            16.5
+          ]
+        }
+      ]
     },
     {
       "id": "italy",
@@ -19,14 +45,76 @@
       "scene": {
         "model": "/models/maps/cs_italy.glb",
         "rotX": 0,
-        "scale": 1.0,
+        "scale": 1,
         "offset": [
           5.727,
           -28.75,
           -33.259
         ]
       },
-      "descEn": "Mediterranean town · close-quarters streets"
+      "descEn": "Mediterranean town · close-quarters streets",
+      "controlPoints": [
+        {
+          "id": "A",
+          "p": [
+            -21.5,
+            -0.2,
+            -24.5
+          ]
+        },
+        {
+          "id": "B",
+          "p": [
+            -1.5,
+            0,
+            2.5
+          ]
+        },
+        {
+          "id": "C",
+          "p": [
+            22.5,
+            0,
+            16.5
+          ]
+        }
+      ]
+    },
+    {
+      "id": "proc_city",
+      "name": "程序化旧城",
+      "nameEn": "Procedural City",
+      "desc": "种子 1942 · 240×240 米 · 132 栋连体建筑 · 1–4 层 · 狭窄巷道",
+      "descEn": "Seed 1942 · 240×240 m · 132 attached buildings, 1–4 floors, narrow alleys",
+      "file": "/shared/maps/proc_city.json",
+      "scene": null,
+      "controlPoints": [
+        {
+          "id": "A",
+          "p": [
+            -16,
+            0,
+            0
+          ]
+        },
+        {
+          "id": "B",
+          "p": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": "C",
+          "p": [
+            16,
+            0,
+            0
+          ]
+        }
+      ],
+      "seed": 1942
     }
   ]
 }

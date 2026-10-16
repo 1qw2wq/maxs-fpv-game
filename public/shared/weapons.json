@@ -1,5 +1,5 @@
 {
-  "note": "Shared by the Python server and the JS client. Single source of truth for all gameplay numbers. Distances in meters, times in milliseconds. Damage model: full `dmg` up to `rangeM`, then linear down to `dmg * falloff` at `falloffMaxM`, flat after that. A weapon with `lethalBody` one-shot-kills the torso between `lethalMinM` and `lethalMaxM`. Reload model: magazine guns use `reloadMs` (tactical) and `reloadEmptyMs` (from empty); clip-fed bolt-actions use `clip` instead - `fullMs` when the chamber holds 0-1 rounds, else `(clipMax - mag) * perRoundMs`, fed round by round so firing early keeps whatever is already in. Effects (`fx`) are presentation only - the server never reads them, and the client falls back to documented defaults if one is missing, so a hand-edited file can never break a match. Per weapon: `flash` = muzzle flash size (1 = 0.30m), colour, muzzle light strength and duration; `kick` = viewmodel recoil `vm`, camera `punch` and `roll` in degrees; `tracer` = colour, `width` (x the 1.2cm base), lifetime and `every` (1 = every round); `smoke` = puff size, count and lifetime; `casing` = ejected brass size; `sound` = gunfire trim (`gain`, `rate` = playback pitch, `lpf` Hz low-pass, `tone` = synth fallback pitch), all relative to 1.0. Every display field carries its English twin (nameEn/descEn/roleEn/taglineEn/abilityNameEn/abilityDescEn) so the client can switch language without a second copy of these numbers.",
+  "note": "Shared by the Python server and the JS client. Single source of truth for all gameplay numbers. Distances in meters, times in milliseconds. Damage model: full `dmg` up to `rangeM`, then linear down to `dmg * falloff` at `falloffMaxM`, flat after that. A weapon with `lethalBody` one-shot-kills the torso between `lethalMinM` and `lethalMaxM`. Reload model: magazine guns use `reloadMs` (tactical) and `reloadEmptyMs` (from empty); clip-fed bolt-actions use `clip` instead - `fullMs` when the chamber holds 0-1 rounds, else `(clipMax - mag) * perRoundMs`, fed round by round so firing early keeps whatever is already in. Effects (`fx`) drive client presentation and aim recoil, not damage - the server never reads them, and the client falls back to documented defaults if one is missing, so a hand-edited file can never break a match. Per weapon: `flash` = muzzle flash size (1 = 0.30m), colour, muzzle light strength and duration; `kick` = viewmodel recoil `vm`, aim rise `punch` and sideways/visual `roll` in degrees; `tracer` = colour, `width` (x the 1.2cm base), lifetime and `every` (1 = every round); `smoke` = puff size, count and lifetime; `casing` = ejected brass size; `sound` = gunfire trim (`gain`, `rate` = playback pitch, `lpf` Hz low-pass, `tone` = synth fallback pitch), all relative to 1.0. Every display field carries its English twin (nameEn/descEn/roleEn/taglineEn/abilityNameEn/abilityDescEn) so the client can switch language without a second copy of these numbers.",
   "combat": {
     "headMult": 2.0,
     "torsoMult": 1.0,
@@ -15,9 +15,12 @@
     "historyMs": 1000,
     "lagCompMaxMs": 220,
     "respawnMs": 3000,
+    "spawnShieldMs": 5000,
     "scoreLimit": 75,
     "matchMs": 480000,
     "maxMoveSpeed": 5.7,
+    "sprintMult": 1.35,
+    "adsMoveMult": 0.62,
     "gravity": 22.0,
     "jumpSpeed": 7.0,
     "throw": {
@@ -27,7 +30,23 @@
       "flareMaxDist": 75.0,
       "flightBaseMs": 420,
       "flightPerMMs": 26,
-      "apexPerM": 0.26
+      "apexPerM": 0.26,
+      "gravity": 16.0,
+      "radius": 0.09,
+      "minSpeed": 4.0,
+      "maxSpeed": 18.0,
+      "flareSpeed": 29.0,
+      "upBoost": 3.2,
+      "restitution": 0.42,
+      "friction": 0.72,
+      "stepHz": 120,
+      "grenadeCharges": 2,
+      "grenadeCdMs": 24000
+    },
+    "control": {
+      "radius": 5,
+      "captureMs": 5000,
+      "holdAllMs": 15000
     }
   },
   "teams": [
@@ -689,7 +708,7 @@
       "rangeM": 20,
       "falloffMaxM": 80,
       "falloff": 0.59,
-      "zoomFov": 22,
+      "zoomFov": 48,
       "auto": false,
       "lethalBody": true,
       "lethalMinM": 0,
@@ -729,7 +748,8 @@
           "tone": 0.95
         }
       },
-      "descEn": "The fastest bolt, a 10-round magazine, and one-shot lethal to the torso from 0-40 m."
+      "descEn": "The fastest bolt, a 10-round magazine, and one-shot lethal to the torso from 0-40 m.",
+      "scope": false
     },
     {
       "id": "m95",
@@ -738,7 +758,7 @@
       "nameEn": "Mannlicher M95",
       "shape": "bolt",
       "wood": "#7a5c30",
-      "desc": "直拉枪机，开镜状态下也能拉栓；伤害稳定但躯干无法一枪致死",
+      "desc": "直拉枪机，瞄准状态下也能拉栓；伤害稳定但躯干无法一枪致死",
       "dmg": 90,
       "rpm": 64,
       "mag": 5,
@@ -753,7 +773,7 @@
       "rangeM": 20,
       "falloffMaxM": 125,
       "falloff": 0.8778,
-      "zoomFov": 18,
+      "zoomFov": 46,
       "auto": false,
       "lethalBody": false,
       "moveMult": 0.48,
@@ -792,7 +812,8 @@
           "tone": 1.0
         }
       },
-      "descEn": "A straight-pull bolt that works even while scoped; consistent damage, but never a torso one-shot."
+      "descEn": "A straight-pull bolt that works even while aiming; consistent damage, but never a torso one-shot.",
+      "scope": false
     },
     {
       "id": "springfield",
@@ -816,7 +837,7 @@
       "rangeM": 0,
       "falloffMaxM": 100,
       "falloff": 0.55,
-      "zoomFov": 16,
+      "zoomFov": 44,
       "auto": false,
       "lethalBody": true,
       "lethalMinM": 40,
@@ -856,7 +877,1121 @@
           "tone": 0.86
         }
       },
-      "descEn": "The hardest single shot in the game: torso-lethal from 40-120 m, with a fast, flat bullet."
+      "descEn": "The hardest single shot in the game: torso-lethal from 40-120 m, with a fast, flat bullet.",
+      "scope": false
+    },
+    {
+      "id": "sentinel",
+      "class": "scout",
+      "name": "哨兵 SR-1",
+      "nameEn": "Sentinel SR-1",
+      "shape": "bolt",
+      "wood": "#9a7038",
+      "desc": "带瞄准镜的栓动狙击步枪，5 发弹匣，中远距离精准射击",
+      "dmg": 95,
+      "rpm": 60,
+      "mag": 5,
+      "reserve": 25,
+      "reloadMs": 3200,
+      "spreadDeg": 0.045,
+      "rangeM": 30,
+      "falloffMaxM": 130,
+      "falloff": 0.65,
+      "zoomFov": 16,
+      "auto": false,
+      "lethalBody": true,
+      "lethalMinM": 30,
+      "lethalMaxM": 90,
+      "moveMult": 0.48,
+      "model": "sentinel",
+      "fx": {
+        "flash": {
+          "size": 1.5,
+          "color": "#fff0c8",
+          "light": 9.0,
+          "ms": 78
+        },
+        "kick": {
+          "vm": 1.35,
+          "punch": 2.05,
+          "roll": 0.6
+        },
+        "tracer": {
+          "color": "#fff4cc",
+          "width": 1.7,
+          "ms": 105,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.6,
+          "count": 2,
+          "ms": 520
+        },
+        "casing": {
+          "size": 1.35
+        },
+        "sound": {
+          "gain": 1.1,
+          "rate": 0.95,
+          "lpf": 0,
+          "tone": 0.95
+        }
+      },
+      "descEn": "Scoped bolt-action sniper with a 5-round magazine, tuned for precise medium-to-long range shots.",
+      "scope": true,
+      "reloadEmptyMs": 3800
+    },
+    {
+      "id": "awp",
+      "class": "scout",
+      "name": "AWP 狙击步枪",
+      "nameEn": "AWP",
+      "shape": "bolt",
+      "wood": "#8a6838",
+      "desc": "带瞄准镜的重型栓动步枪，威力大、射速慢，5 发弹匣",
+      "dmg": 110,
+      "rpm": 42,
+      "mag": 5,
+      "reserve": 20,
+      "reloadMs": 3500,
+      "spreadDeg": 0.035,
+      "rangeM": 35,
+      "falloffMaxM": 150,
+      "falloff": 0.65,
+      "zoomFov": 14,
+      "auto": false,
+      "lethalBody": true,
+      "lethalMinM": 20,
+      "lethalMaxM": 110,
+      "moveMult": 0.44,
+      "model": "awp",
+      "fx": {
+        "flash": {
+          "size": 1.6,
+          "color": "#fff6d8",
+          "light": 10.0,
+          "ms": 88
+        },
+        "kick": {
+          "vm": 1.65,
+          "punch": 2.8,
+          "roll": 0.65
+        },
+        "tracer": {
+          "color": "#fffbe0",
+          "width": 1.9,
+          "ms": 120,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.8,
+          "count": 3,
+          "ms": 600
+        },
+        "casing": {
+          "size": 1.45
+        },
+        "sound": {
+          "gain": 1.15,
+          "rate": 0.9,
+          "lpf": 3800,
+          "tone": 0.86
+        }
+      },
+      "descEn": "A hard-hitting scoped bolt-action: heavy recoil, deliberate shots and a 5-round magazine.",
+      "scope": true,
+      "reloadEmptyMs": 4100
+    },
+    {
+      "id": "longbow",
+      "class": "scout",
+      "name": "长弓 DMR",
+      "nameEn": "Longbow DMR",
+      "shape": "rifle",
+      "wood": "#8a5f30",
+      "desc": "带瞄准镜的半自动精确射手步枪，10 发弹匣，无需手动拉栓",
+      "dmg": 62,
+      "rpm": 180,
+      "mag": 10,
+      "reserve": 40,
+      "reloadMs": 2900,
+      "reloadEmptyMs": 3500,
+      "spreadDeg": 0.06,
+      "rangeM": 40,
+      "falloffMaxM": 140,
+      "falloff": 0.65,
+      "zoomFov": 20,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.56,
+      "model": "longbow",
+      "fx": {
+        "flash": {
+          "size": 1.25,
+          "color": "#ffd090",
+          "light": 6.5,
+          "ms": 60
+        },
+        "kick": {
+          "vm": 1.05,
+          "punch": 1.35,
+          "roll": 0.38
+        },
+        "tracer": {
+          "color": "#ffcf8a",
+          "width": 1.35,
+          "ms": 85,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.1,
+          "count": 2,
+          "ms": 340
+        },
+        "casing": {
+          "size": 1.15
+        },
+        "sound": {
+          "gain": 1.2,
+          "rate": 0.9,
+          "lpf": 4600,
+          "tone": 0.85
+        }
+      },
+      "descEn": "A scoped semi-automatic marksman rifle: 10 rounds and quick follow-up shots without manual bolt cycling.",
+      "scope": true
+    },
+    {
+      "id": "ar15",
+      "class": "medic",
+      "name": "AR-15 Tactical",
+      "nameEn": "AR-15 Tactical",
+      "shape": "rifle",
+      "wood": "#8a5f30",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 29,
+      "rpm": 450,
+      "mag": 30,
+      "reserve": 120,
+      "reloadMs": 2400,
+      "reloadEmptyMs": 2900,
+      "spreadDeg": 0.06,
+      "rangeM": 40,
+      "falloffMaxM": 140,
+      "falloff": 0.65,
+      "zoomFov": 20,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.56,
+      "model": "ar15",
+      "fx": {
+        "flash": {
+          "size": 1.25,
+          "color": "#ffd090",
+          "light": 6.5,
+          "ms": 60
+        },
+        "kick": {
+          "vm": 1.05,
+          "punch": 1.35,
+          "roll": 0.38
+        },
+        "tracer": {
+          "color": "#ffcf8a",
+          "width": 1.35,
+          "ms": 85,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.1,
+          "count": 2,
+          "ms": 340
+        },
+        "casing": {
+          "size": 1.15
+        },
+        "sound": {
+          "gain": 1.2,
+          "rate": 0.9,
+          "lpf": 4600,
+          "tone": 0.85
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": true
+    },
+    {
+      "id": "pmx",
+      "class": "assault",
+      "name": "Beretta PMX",
+      "nameEn": "Beretta PMX",
+      "shape": "smg",
+      "wood": "#8a5a2b",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 23,
+      "rpm": 850,
+      "mag": 30,
+      "reserve": 150,
+      "reloadMs": 2100,
+      "reloadEmptyMs": 2960,
+      "spreadDeg": 1.8,
+      "rangeM": 11,
+      "falloffMaxM": 37,
+      "falloff": 0.5357,
+      "zoomFov": 55,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.75,
+      "model": "pmx",
+      "fx": {
+        "flash": {
+          "size": 0.75,
+          "color": "#ffd9a0",
+          "light": 3.0,
+          "ms": 40
+        },
+        "kick": {
+          "vm": 0.72,
+          "punch": 0.45,
+          "roll": 0.25
+        },
+        "tracer": {
+          "color": "#ffdca8",
+          "width": 0.8,
+          "ms": 60,
+          "every": 3
+        },
+        "smoke": {
+          "size": 0.6,
+          "count": 1,
+          "ms": 220
+        },
+        "casing": {
+          "size": 0.85
+        },
+        "sound": {
+          "gain": 0.95,
+          "rate": 1.06,
+          "lpf": 0,
+          "tone": 1.1
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "gm6",
+      "class": "scout",
+      "name": "GM6 Lynx",
+      "nameEn": "GM6 Lynx",
+      "shape": "rifle",
+      "wood": "#8a6838",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 90,
+      "rpm": 75,
+      "mag": 5,
+      "reserve": 20,
+      "reloadMs": 3500,
+      "spreadDeg": 0.035,
+      "rangeM": 35,
+      "falloffMaxM": 150,
+      "falloff": 0.65,
+      "zoomFov": 14,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.44,
+      "model": "gm6",
+      "fx": {
+        "flash": {
+          "size": 1.6,
+          "color": "#fff6d8",
+          "light": 10.0,
+          "ms": 88
+        },
+        "kick": {
+          "vm": 1.65,
+          "punch": 2.8,
+          "roll": 0.65
+        },
+        "tracer": {
+          "color": "#fffbe0",
+          "width": 1.9,
+          "ms": 120,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.8,
+          "count": 3,
+          "ms": 600
+        },
+        "casing": {
+          "size": 1.45
+        },
+        "sound": {
+          "gain": 1.15,
+          "rate": 0.9,
+          "lpf": 3800,
+          "tone": 0.86
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": true,
+      "reloadEmptyMs": 4100
+    },
+    {
+      "id": "lr300",
+      "class": "assault",
+      "name": "LR-300",
+      "nameEn": "LR-300",
+      "shape": "rifle",
+      "wood": "#7a4a22",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 29,
+      "rpm": 650,
+      "mag": 30,
+      "reserve": 120,
+      "reloadMs": 2400,
+      "reloadEmptyMs": 2900,
+      "spreadDeg": 2.4,
+      "rangeM": 6,
+      "falloffMaxM": 42.16,
+      "falloff": 0.6,
+      "zoomFov": 58,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.8,
+      "model": "lr300",
+      "fx": {
+        "flash": {
+          "size": 0.7,
+          "color": "#fff0c0",
+          "light": 3.2,
+          "ms": 34
+        },
+        "kick": {
+          "vm": 0.6,
+          "punch": 0.35,
+          "roll": 0.22
+        },
+        "tracer": {
+          "color": "#fff2c8",
+          "width": 0.7,
+          "ms": 55,
+          "every": 2
+        },
+        "smoke": {
+          "size": 0.55,
+          "count": 1,
+          "ms": 200
+        },
+        "casing": {
+          "size": 0.8
+        },
+        "sound": {
+          "gain": 0.9,
+          "rate": 1.12,
+          "lpf": 0,
+          "tone": 1.22
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "m170",
+      "class": "scout",
+      "name": "M170 Precision",
+      "nameEn": "M170 Precision",
+      "shape": "bolt",
+      "wood": "#8a6838",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 88,
+      "rpm": 55,
+      "mag": 5,
+      "reserve": 25,
+      "reloadMs": 3500,
+      "spreadDeg": 0.035,
+      "rangeM": 35,
+      "falloffMaxM": 150,
+      "falloff": 0.65,
+      "zoomFov": 14,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.44,
+      "model": "m170",
+      "fx": {
+        "flash": {
+          "size": 1.6,
+          "color": "#fff6d8",
+          "light": 10.0,
+          "ms": 88
+        },
+        "kick": {
+          "vm": 1.65,
+          "punch": 2.8,
+          "roll": 0.65
+        },
+        "tracer": {
+          "color": "#fffbe0",
+          "width": 1.9,
+          "ms": 120,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.8,
+          "count": 3,
+          "ms": 600
+        },
+        "casing": {
+          "size": 1.45
+        },
+        "sound": {
+          "gain": 1.15,
+          "rate": 0.9,
+          "lpf": 3800,
+          "tone": 0.86
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": true,
+      "reloadEmptyMs": 4100
+    },
+    {
+      "id": "m249",
+      "class": "support",
+      "name": "M249 SAW",
+      "nameEn": "M249 SAW",
+      "shape": "lmg",
+      "wood": "#7a5a34",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 24,
+      "rpm": 750,
+      "mag": 100,
+      "reserve": 200,
+      "reloadMs": 5400,
+      "reloadEmptyMs": 6200,
+      "spreadDeg": 1.4,
+      "rangeM": 10,
+      "falloffMaxM": 60,
+      "falloff": 0.7547,
+      "zoomFov": 48,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.6,
+      "model": "m249",
+      "fx": {
+        "flash": {
+          "size": 1.3,
+          "color": "#ffdc9c",
+          "light": 7.0,
+          "ms": 66
+        },
+        "kick": {
+          "vm": 0.8,
+          "punch": 0.8,
+          "roll": 0.3
+        },
+        "tracer": {
+          "color": "#ffd896",
+          "width": 1.4,
+          "ms": 80,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.3,
+          "count": 2,
+          "ms": 420
+        },
+        "casing": {
+          "size": 1.2
+        },
+        "sound": {
+          "gain": 1.0,
+          "rate": 0.92,
+          "lpf": 0,
+          "tone": 0.88
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "m4a1",
+      "class": "medic",
+      "name": "M4A1",
+      "nameEn": "M4A1",
+      "shape": "rifle",
+      "wood": "#a07440",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 29,
+      "rpm": 700,
+      "mag": 30,
+      "reserve": 120,
+      "reloadMs": 2400,
+      "reloadEmptyMs": 2900,
+      "spreadDeg": 0.85,
+      "rangeM": 28,
+      "falloffMaxM": 40,
+      "falloff": 0.6786,
+      "zoomFov": 44,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.78,
+      "model": "m4a1",
+      "fx": {
+        "flash": {
+          "size": 0.85,
+          "color": "#ffe8c4",
+          "light": 3.6,
+          "ms": 44
+        },
+        "kick": {
+          "vm": 0.85,
+          "punch": 0.6,
+          "roll": 0.28
+        },
+        "tracer": {
+          "color": "#ffe9c0",
+          "width": 0.85,
+          "ms": 62,
+          "every": 3
+        },
+        "smoke": {
+          "size": 0.65,
+          "count": 1,
+          "ms": 240
+        },
+        "casing": {
+          "size": 0.95
+        },
+        "sound": {
+          "gain": 0.92,
+          "rate": 1.03,
+          "lpf": 6800,
+          "tone": 1.05
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "m60light",
+      "class": "support",
+      "name": "M60 Light",
+      "nameEn": "M60 Light",
+      "shape": "lmg",
+      "wood": "#8a6438",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 31,
+      "rpm": 550,
+      "mag": 100,
+      "reserve": 200,
+      "reloadMs": 5400,
+      "reloadEmptyMs": 6200,
+      "spreadDeg": 1.3,
+      "rangeM": 12,
+      "falloffMaxM": 60,
+      "falloff": 0.8214,
+      "zoomFov": 46,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.66,
+      "model": "m60light",
+      "fx": {
+        "flash": {
+          "size": 1.0,
+          "color": "#ffe4b4",
+          "light": 5.0,
+          "ms": 52
+        },
+        "kick": {
+          "vm": 0.9,
+          "punch": 0.95,
+          "roll": 0.36
+        },
+        "tracer": {
+          "color": "#ffe6b0",
+          "width": 1.1,
+          "ms": 72,
+          "every": 1
+        },
+        "smoke": {
+          "size": 0.95,
+          "count": 1,
+          "ms": 300
+        },
+        "casing": {
+          "size": 1.05
+        },
+        "sound": {
+          "gain": 1.0,
+          "rate": 0.98,
+          "lpf": 0,
+          "tone": 0.98
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "m60",
+      "class": "support",
+      "name": "M60 Vietnam",
+      "nameEn": "M60 Vietnam",
+      "shape": "lmg",
+      "wood": "#6a5430",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 32,
+      "rpm": 550,
+      "mag": 100,
+      "reserve": 200,
+      "reloadMs": 5400,
+      "reloadEmptyMs": 6200,
+      "spreadDeg": 1.6,
+      "rangeM": 12,
+      "falloffMaxM": 35,
+      "falloff": 0.8947,
+      "zoomFov": 50,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.58,
+      "model": "m60",
+      "fx": {
+        "flash": {
+          "size": 1.35,
+          "color": "#ffc888",
+          "light": 6.2,
+          "ms": 72
+        },
+        "kick": {
+          "vm": 1.15,
+          "punch": 1.35,
+          "roll": 0.5
+        },
+        "tracer": {
+          "color": "#ffca86",
+          "width": 1.5,
+          "ms": 95,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.45,
+          "count": 2,
+          "ms": 470
+        },
+        "casing": {
+          "size": 1.3
+        },
+        "sound": {
+          "gain": 1.05,
+          "rate": 0.86,
+          "lpf": 4200,
+          "tone": 0.8
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "mp5",
+      "class": "assault",
+      "name": "MP5",
+      "nameEn": "MP5",
+      "shape": "smg",
+      "wood": "#8a5a2b",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 22,
+      "rpm": 800,
+      "mag": 30,
+      "reserve": 150,
+      "reloadMs": 2100,
+      "reloadEmptyMs": 2960,
+      "spreadDeg": 1.8,
+      "rangeM": 11,
+      "falloffMaxM": 37,
+      "falloff": 0.5357,
+      "zoomFov": 55,
+      "auto": true,
+      "lethalBody": false,
+      "moveMult": 0.75,
+      "model": "mp5",
+      "fx": {
+        "flash": {
+          "size": 0.75,
+          "color": "#ffd9a0",
+          "light": 3.0,
+          "ms": 40
+        },
+        "kick": {
+          "vm": 0.72,
+          "punch": 0.45,
+          "roll": 0.25
+        },
+        "tracer": {
+          "color": "#ffdca8",
+          "width": 0.8,
+          "ms": 60,
+          "every": 3
+        },
+        "smoke": {
+          "size": 0.6,
+          "count": 1,
+          "ms": 220
+        },
+        "casing": {
+          "size": 0.85
+        },
+        "sound": {
+          "gain": 0.95,
+          "rate": 1.06,
+          "lpf": 0,
+          "tone": 1.1
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": false
+    },
+    {
+      "id": "pgm",
+      "class": "scout",
+      "name": "PGM Ultima Ratio",
+      "nameEn": "PGM Ultima Ratio",
+      "shape": "bolt",
+      "wood": "#8a6838",
+      "desc": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "dmg": 90,
+      "rpm": 50,
+      "mag": 5,
+      "reserve": 25,
+      "reloadMs": 3500,
+      "spreadDeg": 0.035,
+      "rangeM": 35,
+      "falloffMaxM": 150,
+      "falloff": 0.65,
+      "zoomFov": 14,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.44,
+      "model": "pgm",
+      "fx": {
+        "flash": {
+          "size": 1.6,
+          "color": "#fff6d8",
+          "light": 10.0,
+          "ms": 88
+        },
+        "kick": {
+          "vm": 1.65,
+          "punch": 2.8,
+          "roll": 0.65
+        },
+        "tracer": {
+          "color": "#fffbe0",
+          "width": 1.9,
+          "ms": 120,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.8,
+          "count": 3,
+          "ms": 600
+        },
+        "casing": {
+          "size": 1.45
+        },
+        "sound": {
+          "gain": 1.15,
+          "rate": 0.9,
+          "lpf": 3800,
+          "tone": 0.86
+        }
+      },
+      "descEn": "Uploaded modern primary; individually fitted model and hand contacts.",
+      "scope": true,
+      "reloadEmptyMs": 4100
+    },
+    {
+      "id": "apx",
+      "class": "secondary",
+      "name": "Beretta APX Carry",
+      "nameEn": "Beretta APX Carry",
+      "shape": "pistol",
+      "wood": "#9a6b38",
+      "desc": "Choose one secondary; independent ammunition and two-handed grip.",
+      "dmg": 25,
+      "rpm": 340,
+      "mag": 8,
+      "reserve": 48,
+      "reloadMs": 1450,
+      "reloadEmptyMs": 1800,
+      "spreadDeg": 0.5,
+      "rangeM": 15,
+      "falloffMaxM": 65,
+      "falloff": 0.45,
+      "zoomFov": 61,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.85,
+      "model": "apx",
+      "fx": {
+        "flash": {
+          "size": 0.55,
+          "color": "#ffe0b0",
+          "light": 4.0,
+          "ms": 50
+        },
+        "kick": {
+          "vm": 0.55,
+          "punch": 0.55,
+          "roll": 0.3
+        },
+        "tracer": {
+          "color": "#ffe2ac",
+          "width": 1.0,
+          "ms": 70,
+          "every": 2
+        },
+        "smoke": {
+          "size": 0.7,
+          "count": 1,
+          "ms": 260
+        },
+        "casing": {
+          "size": 0.65
+        },
+        "sound": {
+          "gain": 0.95,
+          "rate": 1.0,
+          "lpf": 0,
+          "tone": 1.0
+        }
+      },
+      "descEn": "Choose one secondary; independent ammunition and two-handed grip.",
+      "scope": false,
+      "slot": "secondary"
+    },
+    {
+      "id": "g17",
+      "class": "secondary",
+      "name": "G17 Gen 5",
+      "nameEn": "G17 Gen 5",
+      "shape": "pistol",
+      "wood": "#9a6b38",
+      "desc": "Choose one secondary; independent ammunition and two-handed grip.",
+      "dmg": 24,
+      "rpm": 360,
+      "mag": 17,
+      "reserve": 68,
+      "reloadMs": 1450,
+      "reloadEmptyMs": 1800,
+      "spreadDeg": 0.5,
+      "rangeM": 15,
+      "falloffMaxM": 65,
+      "falloff": 0.45,
+      "zoomFov": 61,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.85,
+      "model": "g17",
+      "fx": {
+        "flash": {
+          "size": 0.6,
+          "color": "#ffe0b0",
+          "light": 4.0,
+          "ms": 50
+        },
+        "kick": {
+          "vm": 0.6,
+          "punch": 0.6,
+          "roll": 0.3
+        },
+        "tracer": {
+          "color": "#ffe2ac",
+          "width": 1.0,
+          "ms": 70,
+          "every": 2
+        },
+        "smoke": {
+          "size": 0.7,
+          "count": 1,
+          "ms": 260
+        },
+        "casing": {
+          "size": 0.65
+        },
+        "sound": {
+          "gain": 0.95,
+          "rate": 1.0,
+          "lpf": 0,
+          "tone": 1.0
+        }
+      },
+      "descEn": "Choose one secondary; independent ammunition and two-handed grip.",
+      "scope": false,
+      "slot": "secondary"
+    },
+    {
+      "id": "deagle",
+      "class": "secondary",
+      "name": "Desert Eagle",
+      "nameEn": "Desert Eagle",
+      "shape": "pistol",
+      "wood": "#8a5f30",
+      "desc": "Choose one secondary; independent ammunition and two-handed grip.",
+      "dmg": 52,
+      "rpm": 210,
+      "mag": 7,
+      "reserve": 35,
+      "reloadMs": 1450,
+      "reloadEmptyMs": 1800,
+      "spreadDeg": 0.5,
+      "rangeM": 15,
+      "falloffMaxM": 65,
+      "falloff": 0.45,
+      "zoomFov": 61,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.85,
+      "model": "deagle",
+      "fx": {
+        "flash": {
+          "size": 1.15,
+          "color": "#ffd090",
+          "light": 6.5,
+          "ms": 60
+        },
+        "kick": {
+          "vm": 1.15,
+          "punch": 1.15,
+          "roll": 0.42
+        },
+        "tracer": {
+          "color": "#ffcf8a",
+          "width": 1.35,
+          "ms": 85,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.1,
+          "count": 2,
+          "ms": 340
+        },
+        "casing": {
+          "size": 0.9
+        },
+        "sound": {
+          "gain": 1.2,
+          "rate": 0.9,
+          "lpf": 4600,
+          "tone": 0.85
+        }
+      },
+      "descEn": "Choose one secondary; independent ammunition and two-handed grip.",
+      "scope": false,
+      "slot": "secondary"
+    },
+    {
+      "id": "flarepistol",
+      "class": "secondary",
+      "name": "Flare Pistol",
+      "nameEn": "Flare Pistol",
+      "shape": "pistol",
+      "wood": "#9a6b38",
+      "desc": "Utility sidearm: fires a revealing flare, not a hitscan bullet. One round, four spare flares.",
+      "dmg": 0,
+      "rpm": 60,
+      "mag": 1,
+      "reserve": 4,
+      "reloadMs": 2400,
+      "reloadEmptyMs": 2600,
+      "spreadDeg": 0.5,
+      "rangeM": 15,
+      "falloffMaxM": 65,
+      "falloff": 0.45,
+      "zoomFov": 61,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.85,
+      "model": "flarepistol",
+      "fx": {
+        "flash": {
+          "size": 0.7,
+          "color": "#ff7755",
+          "light": 4.0,
+          "ms": 50
+        },
+        "kick": {
+          "vm": 0.7,
+          "punch": 0.7,
+          "roll": 0.3
+        },
+        "tracer": {
+          "color": "#ffe2ac",
+          "width": 1.0,
+          "ms": 70,
+          "every": 2
+        },
+        "smoke": {
+          "size": 0.7,
+          "count": 2,
+          "ms": 260
+        },
+        "casing": {
+          "size": 0.65
+        },
+        "sound": {
+          "gain": 0.95,
+          "rate": 1.0,
+          "lpf": 0,
+          "tone": 1.0
+        }
+      },
+      "descEn": "Utility sidearm: fires a revealing flare, not a hitscan bullet. One round, four spare flares.",
+      "scope": false,
+      "slot": "secondary",
+      "utility": "flare"
+    }
+  ],
+  "grenades": [
+    {
+      "id": "frag",
+      "name": "破片手榴弹",
+      "nameEn": "Frag grenade",
+      "fuseMs": 2600,
+      "dur": 1000,
+      "radius": 7,
+      "damage": 120,
+      "color": "#ffb33f"
+    },
+    {
+      "id": "incendiary",
+      "name": "燃烧弹",
+      "nameEn": "Incendiary grenade",
+      "fuseMs": 3000,
+      "impact": true,
+      "dur": 7000,
+      "radius": 4,
+      "damagePerSecond": 28,
+      "color": "#ff632c"
+    },
+    {
+      "id": "smoke",
+      "name": "烟雾弹",
+      "nameEn": "Smoke grenade",
+      "fuseMs": 1800,
+      "dur": 14000,
+      "radius": 13,
+      "color": "#b7c0c7"
+    },
+    {
+      "id": "flash",
+      "name": "闪光弹",
+      "nameEn": "Flash grenade",
+      "fuseMs": 1600,
+      "dur": 650,
+      "radius": 14,
+      "flashMs": 2300,
+      "color": "#fff1ce"
     }
   ]
 }

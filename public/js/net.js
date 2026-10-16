@@ -283,10 +283,10 @@ export class Net {
   /**
    * @param {string} room  8-digit code to join, or '' to host a new room
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
     this.send({
-      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
-      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+      solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     });
   }
 
@@ -302,15 +302,18 @@ export class Net {
     this.send({ t: 'fire', o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
   }
 
+  switchWeapon(slot) { this.send({t:'switch', ...(slot ? {slot} : {})}); }
   reload() { this.send({ t: 'reload' }); }
   /** Ability cast. `land` is the aim preview's landing point for a thrown one. */
-  ability(dir, land) {
+  ability(dir, land, power) {
     const msg = { t: 'ability' };
     if (dir) msg.d = [r3(dir.x), r3(dir.y), r3(dir.z)];
+    if (Number.isFinite(power)) msg.power = Math.max(0, Math.min(1, power));
     if (land) msg.p = [r2(land.x), r2(land.y), r2(land.z)];
     this.send(msg);
   }
-  respawn(cls, weapon) { this.send({ t: 'respawn', c: cls, w: weapon }); }
+  grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
+  respawn(cls, weapon, secondary) { this.send({ t: 'respawn', c: cls, w: weapon, secondary }); }
   chat(text) { this.send({ t: 'chat', m: text }); }
 
   // -------------------------------------------------- interpolation sampling
@@ -356,6 +359,8 @@ export class Net {
         pitch: pa.pi + (pb.pi - pa.pi) * k,
         speed: Math.hypot(dx, dz) / dt,
         flags: pb.f,
+        shotSeq: pb.sq,
+        shieldMs: Math.max(0,(pb.sh || 0)-(performance.now()-b.t)),
         alive: pb.al,
         name: pb.n, cls: pb.c, weapon: pb.w, team: pb.tm, skin: pb.sk || '',
         hp: pb.hp, kills: pb.k, deaths: pb.d,

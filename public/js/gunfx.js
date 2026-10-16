@@ -102,6 +102,21 @@ export function tracerRound(style, count) {
   return count % style.tracer.every === 0;
 }
 
+/** Consume accepted shots once, even when an interpolated snapshot repeats.
+ * Older hosts without shot sequences retain the cadence-limited flag fallback.
+ */
+export function remoteShotDue(state, pose, weapon, now) {
+  if (Number.isSafeInteger(pose.shotSeq)) {
+    const previous = state.shotSeq;
+    state.shotSeq = previous === undefined ? pose.shotSeq : Math.max(previous, pose.shotSeq);
+    return !!pose.alive && (previous === undefined ? !!(pose.flags & 8) : pose.shotSeq > previous);
+  }
+  if (!pose.alive || !(pose.flags & 8)) { state.nextShot = 0; return false; }
+  if (now < (state.nextShot || 0)) return false;
+  state.nextShot = now + 60000 / (weapon?.rpm || 500);
+  return true;
+}
+
 // ---------------------------------------------------------------- geometry
 
 const flashCone = (() => {
@@ -135,7 +150,7 @@ export class GunFx {
     this.flashes = [];         // { meshes:[cone,core], light, t, ms, size }
     this.smokes = [];          // { mesh, t, ms, size, vy, vx, vz }
     this.casings = [];         // { mesh, vel, spin, t, ms }
-    this.punchPitch = 0;       // degrees, applied to the camera only
+    this.punchPitch = 0;       // effect envelope; Controls owns the actual aim kick
     this.punchYaw = 0;
     this.punchRoll = 0;
     // Lifetime counters: the pooled pieces are invisible between shots, so this
@@ -168,20 +183,21 @@ export class GunFx {
    * One shot, seen from the shooter's own viewpoint: flame, smoke, brass and the
    * camera punch. `from` is the world muzzle, `dir` the aim direction.
    */
-  fire(weapon, from, dir, { brass = true } = {}) {
+  fire(weapon, from, dir, { brass = true, eject = from, attachment = null } = {}) {
     const style = gunStyle(weapon);
-    this._flash(style, from, dir, true);
+    this._flash(style, from, dir, true, attachment);
     this._smoke(style, from, dir);
-    if (brass) this._casings(style, from, dir);
+    if (brass) this._casings(style, eject, dir);
     this.punch(style);
   }
 
-  /** Someone else's shot: same flame, no brass, no punch, smaller light. */
-  remote(weapon, from, dir) {
+  /** Someone else's shot: attached flash, smoke and brass, but no local punch. */
+  remote(weapon, from, dir, { eject = from, attachment = null } = {}) {
     const style = gunStyle(weapon);
     this.stats.remote++;
-    this._flash(style, from, dir, false);
+    this._flash(style, from, dir, false, attachment);
     this._smoke(style, from, dir);
+    this._casings(style, eject, dir);
     return style;
   }
 
@@ -192,7 +208,7 @@ export class GunFx {
     this.punchRoll += (Math.random() * 2 - 1) * style.kick.roll * 0.6;
   }
 
-  _flash(style, from, dir, withLight) {
+  _flash(style, from, dir, withLight, attachment = null) {
     let rec = this.flashes.find((f) => !f.live);
     if (!rec) {
       // The pool is bounded: the oldest live flash is recycled rather than
@@ -215,13 +231,20 @@ export class GunFx {
         this.flashes.push(rec);
       }
     }
+    // The update follows firing in the same animation frame. Preserve at
+    // least one rendered frame even when dt exceeds this gun's flash duration.
+    if (rec.light?.userData.fxOwner === rec) rec.light.intensity = 0;
+    rec.light = null;
     rec.live = true;
+    rec.justSpawned = true;
     rec.t = 0;
     this.stats.flashes++;
     rec.ms = style.flash.ms;
     rec.size = style.flash.size;
     rec.dirVec.copy(dir).normalize();
     rec.mat.color.set(style.flash.color);
+    rec.mat.opacity = 1;
+    rec.attachment = attachment;
     for (const m of rec.meshes) {
       m.visible = true;
       m.position.copy(from);
@@ -231,6 +254,7 @@ export class GunFx {
       // Take the least recently used pooled light: two shots inside one flash
       // get two lights, a burst keeps re-aiming the two it has.
       rec.light = rec.light || this._lights[(this._lightTurn = ((this._lightTurn || 0) + 1) % this._lights.length)];
+      rec.light.userData.fxOwner = rec;
       rec.light.position.copy(from).addScaledVector(rec.dirVec, 0.12);
       rec.light.color.set(style.flash.color);
       rec.light.intensity = style.flash.light;
@@ -252,7 +276,7 @@ export class GunFx {
           rec = this.smokes.shift();
           this.smokes.push(rec);
         } else {
-          const mesh = new THREE.Mesh(smokeGeo, this._smokeMat);
+          const mesh = new THREE.Mesh(smokeGeo, this._smokeMat.clone());
           mesh.frustumCulled = false;
           mesh.renderOrder = 7;
           this.group.add(mesh);
@@ -266,6 +290,7 @@ export class GunFx {
       rec.ms = style.smoke.ms;
       rec.size = style.smoke.size;
       rec.mesh.visible = true;
+      rec.mesh.material.opacity = 0.3;
       rec.mesh.position.copy(from).addScaledVector(dir, 0.06 + i * 0.05);
       rec.vel.set(dir.x, dir.y + 0.5, dir.z).normalize()
         .multiplyScalar(0.5 + Math.random() * 0.4)
@@ -297,6 +322,7 @@ export class GunFx {
     rec.t = 0;
     this.stats.brass++;
     rec.ms = 900;
+    rec.size = style.casing.size;
     rec.mesh.visible = true;
     rec.mesh.scale.setScalar(style.casing.size);
     rec.mesh.position.copy(from).addScaledVector(_right, 0.05).addScaledVector(dir, -0.02);
@@ -315,20 +341,29 @@ export class GunFx {
     const ms = dt * 1000;
     for (const f of this.flashes) {
       if (!f.live) continue;
-      f.t += ms;
+      if (f.justSpawned) f.justSpawned = false;
+      else f.t += ms;
       const k = f.t / f.ms;
       if (k >= 1) {
         f.live = false;
         for (const m of f.meshes) m.visible = false;
-        if (f.light) f.light.intensity = 0;
+        if (f.light?.userData.fxOwner === f) f.light.intensity = 0;
         continue;
       }
       // A flash is over almost before it is seen: full brightness for the first
       // third, then a fast collapse.
-      const kk = k < 0.34 ? k / 0.34 : 1 - (k - 0.34) / 0.66;
+      const kk = k < 0.2 ? 1 : Math.pow((1 - k) / 0.8, 2);
       f.mat.opacity = Math.max(0, kk);
+      if (f.attachment?.parent?.parent) {
+        f.attachment.updateWorldMatrix(true, false);
+        f.attachment.getWorldDirection(f.dirVec);
+        f.attachment.getWorldPosition(_v);
+        for (const mesh of f.meshes) mesh.position.copy(_v);
+        for (const mesh of f.meshes) this._orient(mesh, f.dirVec, f.size * (1 + k * 0.5));
+        if (f.light?.userData.fxOwner === f) f.light.position.copy(f.meshes[0].position).addScaledVector(f.dirVec, 0.12);
+      }
       for (const m of f.meshes) m.scale.setScalar(f.size * (1 + k * 0.5));
-      if (f.light && f.lightBase) {
+      if (f.light?.userData.fxOwner === f && f.lightBase) {
         const lk = 1 - Math.min(1, f.t / f.lightMs);
         f.light.intensity = f.lightBase * lk * lk;
       }
@@ -341,6 +376,7 @@ export class GunFx {
       s.mesh.position.addScaledVector(s.vel, dt);
       s.vel.multiplyScalar(1 - Math.min(0.9, dt * 1.6));
       s.vel.y -= 0.35 * dt;
+      s.mesh.material.opacity = 0.3 * (1 - k);
       const grow = s.size * (0.45 + k * 1.5);
       s.mesh.scale.setScalar(grow);
     }
@@ -354,7 +390,7 @@ export class GunFx {
       c.mesh.rotation.y += c.spin.y * dt;
       c.mesh.rotation.z += c.spin.z * dt;
       const k = c.t / c.ms;
-      c.mesh.scale.setScalar(1 - k * 0.35);
+      c.mesh.scale.setScalar(c.size * (1 - k * 0.35));
     }
     const damp = Math.min(1, dt * 9.5);
     this.punchPitch -= this.punchPitch * damp;
@@ -375,10 +411,12 @@ export class GunFx {
 
   dispose() {
     for (const f of this.flashes) for (const m of f.meshes) m.removeFromParent();
-    for (const s of this.smokes) s.mesh.removeFromParent();
+    for (const s of this.smokes) { s.mesh.removeFromParent(); s.mesh.material.dispose(); }
     for (const c of this.casings) c.mesh.removeFromParent();
     for (const l of this._lights) l.removeFromParent();
     for (const f of this.flashes) f.mat.dispose();
+    this._smokeMat.dispose();
+    this._casingMat.dispose();
     this.flashes.length = 0;
     this.smokes.length = 0;
     this.casings.length = 0;

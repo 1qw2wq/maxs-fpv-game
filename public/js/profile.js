@@ -10,6 +10,7 @@
 // with an in-memory profile instead of throwing on start-up.
 
 import { store, session } from './storage.js';
+import { sanitizeTouchLayout } from './mobile-layout.js';
 
 const KEY = 'tf.profile';
 const VERSION = 2;
@@ -19,6 +20,7 @@ export const DEFAULT_PROFILE = {
   name: '',
   cls: 'assault',
   weapon: null,
+  secondary: 'apx',
   skin: '',
   roomMode: 'create',     // 'create' | 'join'
   room: '',               // last room code this player created or joined
@@ -27,6 +29,8 @@ export const DEFAULT_PROFILE = {
   soloBots: 6,
   mapId: '',
   sensitivity: 0.0022,
+  controlMode: 'auto',
+  touchLayout: sanitizeTouchLayout(null),
   stats: { matches: 0, wins: 0, kills: 0, deaths: 0, playMs: 0 },
   lastSeen: 0,
 };
@@ -47,11 +51,12 @@ function num(v, lo, hi, dflt) {
 
 /** Coerce anything that came out of storage into a valid profile. */
 export function sanitize(raw) {
-  const p = { ...DEFAULT_PROFILE, stats: { ...DEFAULT_PROFILE.stats }, recentRooms: [] };
+  const p = { ...DEFAULT_PROFILE, stats: { ...DEFAULT_PROFILE.stats }, recentRooms: [], touchLayout: sanitizeTouchLayout(null) };
   if (!raw || typeof raw !== 'object') return p;
   p.name = clampStr(raw.name, 16);
   p.cls = clampStr(raw.cls, 24) || p.cls;
   p.weapon = raw.weapon ? clampStr(raw.weapon, 32) : null;
+  p.secondary = clampStr(raw.secondary,32)||'apx';
   p.skin = clampStr(raw.skin, 40);
   p.roomMode = raw.roomMode === 'join' ? 'join' : 'create';
   p.room = /^\d{8}$/.test(String(raw.room || '')) ? String(raw.room) : '';
@@ -62,6 +67,8 @@ export function sanitize(raw) {
       p.recentRooms.push(c);
     }
   }
+  p.controlMode = ['auto', 'desktop', 'mobile'].includes(raw.controlMode) ? raw.controlMode : 'auto';
+  p.touchLayout = sanitizeTouchLayout(raw.touchLayout);
   p.tutorialDone = !!raw.tutorialDone;
   p.soloBots = [0, 4, 6, 8, 12, 16].includes(Number(raw.soloBots)) ? Number(raw.soloBots) : 6;
   p.mapId = clampStr(raw.mapId, 32);
@@ -91,7 +98,7 @@ export function load() {
     }
     cache = sanitize(raw);
   }
-  return { ...cache, stats: { ...cache.stats }, recentRooms: [...cache.recentRooms] };
+  return { ...cache, touchLayout: sanitizeTouchLayout(cache.touchLayout), stats: { ...cache.stats }, recentRooms: [...cache.recentRooms] };
 }
 
 export function save(patch) {
