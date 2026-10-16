@@ -919,3 +919,13 @@ restart and real-map/bot cases, alongside the existing AI and grenade tests. The
 adds 21 movement/tutorial/material/shadow checks, real WebRTC mode and owned-flag late joins,
 and a real menu → deploy → G/B lesson → WASD captures → interrupted hold → all-point victory →
 round restart flow. Run `node tools/test-vercel.mjs` for the full suite.
+
+### Procedural City (`proc_city`)
+
+Select **Procedural City** in the map picker. Seed **1942** produces four enterable two-story buildings,
+two intersecting streets, furnished rooms, open stairwells, upstairs sniper windows and opposing spawn zones.
+The seeded generator supports 2–4 buildings. The shared generated JSON drives Python, Pyodide and browser
+collision; bots use a 3D waypoint graph to reach the upper floor. Uploaded furniture/treads are instanced,
+with a panorama/PMREM sky, soft sun shadows and fog. No npm, frontend build or new physics library.
+
+See [the asset inspection, seed authoring and verification notes](docs/proc-city.md).

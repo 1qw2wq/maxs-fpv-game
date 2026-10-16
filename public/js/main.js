@@ -1378,9 +1378,19 @@ async function deploy(opts) {
  * server's between-round vote funnel through here; only the server's choice is
  * authoritative at match time.
  */
+const pendingMapLoads = new Map();
 async function setMap(mapId) {
   const meta = app.data.mapById[mapId] || app.data.mapById[app.data.defaultMapId];
   if (app.mapId === meta.id && app.world) return;
+  // Welcome and the first authoritative map event can arrive together. Share
+  // their in-flight load instead of decoding two full kits/environments.
+  if(pendingMapLoads.has(meta.id))return pendingMapLoads.get(meta.id);
+  const pending=installMap(meta);
+  pendingMapLoads.set(meta.id,pending);
+  try {return await pending;} finally {pendingMapLoads.delete(meta.id);}
+}
+
+async function installMap(meta) {
   app.mapLoading = true;
   app.hud.showMapLoad(t('正在装载地图 · {name}', { name: nameOf(meta) }));
   try {
@@ -2075,6 +2085,7 @@ function updateSmokeVision() {
     app.smokeBase = {
       fogColor: f ? f.color.getHex() : null, fogNear: f ? f.near : 0, fogFar: f ? f.far : 0,
       bg: bg?.isColor ? bg.getHex() : null,
+      bgTexture: bg?.isTexture ? bg : null,
       skyTransparent: world.sky ? world.sky.material.transparent : false,
     };
     app.smokeFog = new THREE.Fog(SMOKE_TINT.getHex(), SMOKE_NEAR, SMOKE_FAR);
@@ -2086,6 +2097,7 @@ function updateSmokeVision() {
     if (base.fogColor == null) world.scene.fog = null;
     else if (f) { f.color.setHex(base.fogColor); f.near = base.fogNear; f.far = base.fogFar; }
     else world.scene.fog = new THREE.Fog(base.fogColor, base.fogNear, base.fogFar);
+    if(base.bgTexture)world.scene.background=base.bgTexture;
     if (base.bg != null && world.scene.background?.isColor) world.scene.background.setHex(base.bg);
     if (world.sky) { world.sky.material.transparent = base.skyTransparent; world.sky.material.opacity = 1; }
     app.smokeOn = false;
@@ -2097,6 +2109,7 @@ function updateSmokeVision() {
   fog.near = base.fogNear + (SMOKE_NEAR - base.fogNear) * k;
   fog.far = base.fogFar + (SMOKE_FAR - base.fogFar) * k;
   world.scene.fog = fog;
+  if(base.bgTexture)world.scene.background=SMOKE_TINT.clone();
   if (base.bg != null && world.scene.background?.isColor) {
     world.scene.background.setHex(base.bg).lerp(SMOKE_TINT, k);
   }

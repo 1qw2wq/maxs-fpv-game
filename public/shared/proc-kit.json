@@ -1,0 +1,4734 @@
+{
+  "version": 1,
+  "note": "Actual scene-space Box3 bounds including node transforms. Categories are candidates; openings/colliders are authored separately, never whole-mesh AABBs across a doorway.",
+  "meshes": [
+    {
+      "file": "/models/maps/GLB format/balcony-ladder-bottom.glb",
+      "node": 0,
+      "meshName": "balcony-ladder-bottom",
+      "min": [
+        -0.5,
+        0,
+        -0.14187267422676086
+      ],
+      "max": [
+        0.5,
+        0.7192091941833496,
+        0.14187267422676086
+      ],
+      "size": [
+        1,
+        0.719209,
+        0.283745
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/balcony-ladder-top.glb",
+      "node": 0,
+      "meshName": "balcony-ladder-top",
+      "min": [
+        -0.5,
+        0,
+        -0.14187267422676086
+      ],
+      "max": [
+        0.5,
+        0.280790776014328,
+        0.14187267422676086
+      ],
+      "size": [
+        1,
+        0.280791,
+        0.283745
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/balcony-type-a.glb",
+      "node": 0,
+      "meshName": "balcony-type-a",
+      "min": [
+        -0.5,
+        0,
+        -0.14187267422676086
+      ],
+      "max": [
+        0.5,
+        0.280790776014328,
+        0.14187267422676086
+      ],
+      "size": [
+        1,
+        0.280791,
+        0.283745
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/cliff-corner.glb",
+      "node": 0,
+      "meshName": "cliff-corner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/cliff-side.glb",
+      "node": 0,
+      "meshName": "cliff-side",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-awning-small.glb",
+      "node": 0,
+      "meshName": "detail-awning-small",
+      "min": [
+        -0.2988969385623932,
+        0,
+        -0.15000000596046448
+      ],
+      "max": [
+        0.2988969385623932,
+        0.280790776014328,
+        0.15000000596046448
+      ],
+      "size": [
+        0.597794,
+        0.280791,
+        0.3
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-awning-wide.glb",
+      "node": 0,
+      "meshName": "detail-awning-wide",
+      "min": [
+        -0.5,
+        0,
+        -0.15000000596046448
+      ],
+      "max": [
+        0.5,
+        0.280790776014328,
+        0.15000000596046448
+      ],
+      "size": [
+        1,
+        0.280791,
+        0.3
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-barrier-strong-damaged.glb",
+      "node": 0,
+      "meshName": "detail-barrier-strong-damaged",
+      "min": [
+        -0.3320000171661377,
+        0,
+        -0.12449999153614044
+      ],
+      "max": [
+        0.3320000171661377,
+        0.3320000171661377,
+        0.12449999153614044
+      ],
+      "size": [
+        0.664,
+        0.332,
+        0.249
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-barrier-strong-type-a.glb",
+      "node": 0,
+      "meshName": "detail-barrier-strong-type-a",
+      "min": [
+        -0.3320000171661377,
+        0,
+        -0.12449999153614044
+      ],
+      "max": [
+        0.3320000171661377,
+        0.3320000171661377,
+        0.12449999153614044
+      ],
+      "size": [
+        0.664,
+        0.332,
+        0.249
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-barrier-strong-type-b.glb",
+      "node": 0,
+      "meshName": "detail-barrier-strong-type-b",
+      "min": [
+        -0.3320000171661377,
+        0,
+        -0.12449999153614044
+      ],
+      "max": [
+        0.3320000171661377,
+        0.3320000171661377,
+        0.12449999153614044
+      ],
+      "size": [
+        0.664,
+        0.332,
+        0.249
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-barrier-type-a.glb",
+      "node": 0,
+      "meshName": "detail-barrier-type-a",
+      "min": [
+        -0.21650001406669617,
+        0,
+        -0.06699999421834946
+      ],
+      "max": [
+        0.21650001406669617,
+        0.4000000059604645,
+        0.06699999421834946
+      ],
+      "size": [
+        0.433,
+        0.4,
+        0.134
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-barrier-type-b.glb",
+      "node": 0,
+      "meshName": "detail-barrier-type-b",
+      "min": [
+        -0.28349998593330383,
+        0,
+        -0.06699999421834946
+      ],
+      "max": [
+        0.28349998593330383,
+        0.30000001192092896,
+        0.06699999421834946
+      ],
+      "size": [
+        0.567,
+        0.3,
+        0.134
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-beam.glb",
+      "node": 0,
+      "meshName": "detail-beam",
+      "min": [
+        -0.125,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.125,
+        0.25,
+        0.5
+      ],
+      "size": [
+        0.25,
+        0.25,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-bench.glb",
+      "node": 0,
+      "meshName": "detail-bench",
+      "min": [
+        -0.30195000767707825,
+        0,
+        -0.16106249392032623
+      ],
+      "max": [
+        0.30195000767707825,
+        0.4090921878814697,
+        0.16106250882148743
+      ],
+      "size": [
+        0.6039,
+        0.409092,
+        0.322125
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-block.glb",
+      "node": 0,
+      "meshName": "detail-block",
+      "min": [
+        -0.25,
+        0,
+        -0.25
+      ],
+      "max": [
+        0.25,
+        0.5,
+        0.25
+      ],
+      "size": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-bricks-type-a.glb",
+      "node": 0,
+      "meshName": "detail-bricks-type-a",
+      "min": [
+        -0.2852697968482971,
+        0,
+        -0.26712918281555176
+      ],
+      "max": [
+        0.2852697968482971,
+        0.20000000298023224,
+        0.26712918281555176
+      ],
+      "size": [
+        0.57054,
+        0.2,
+        0.534258
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-bricks-type-b.glb",
+      "node": 0,
+      "meshName": "detail-bricks-type-b",
+      "min": [
+        -0.32230910658836365,
+        0,
+        -0.2128293812274933
+      ],
+      "max": [
+        0.32230910658836365,
+        0.20000000298023224,
+        0.2128293812274933
+      ],
+      "size": [
+        0.644618,
+        0.2,
+        0.425659
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-cables-type-a.glb",
+      "node": 0,
+      "meshName": "detail-cables-type-a",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        0.1428571492433548,
+        0
+      ],
+      "size": [
+        1,
+        0.142857,
+        0
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-cables-type-b.glb",
+      "node": 0,
+      "meshName": "detail-cables-type-b",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        0.1428571492433548,
+        0
+      ],
+      "size": [
+        1,
+        0.142857,
+        0
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-dumpster-closed.glb",
+      "node": 0,
+      "meshName": "detail-dumpster-closed",
+      "min": [
+        -0.30000001192092896,
+        0,
+        -0.25366562604904175
+      ],
+      "max": [
+        0.30000001192092896,
+        0.5447213649749756,
+        0.20000000298023224
+      ],
+      "size": [
+        0.6,
+        0.544721,
+        0.453666
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-dumpster-open.glb",
+      "node": 0,
+      "meshName": "detail-dumpster-open",
+      "min": [
+        -0.3232050836086273,
+        0,
+        -0.2613939046859741
+      ],
+      "max": [
+        0.2767949402332306,
+        0.549564778804779,
+        0.2232050746679306
+      ],
+      "size": [
+        0.6,
+        0.549565,
+        0.484599
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-light-double.glb",
+      "node": 0,
+      "meshName": "detail-light-double",
+      "min": [
+        -0.04309999942779541,
+        0,
+        -0.22109998762607574
+      ],
+      "max": [
+        0.04309999942779541,
+        0.9600000381469727,
+        0.22109998762607574
+      ],
+      "size": [
+        0.0862,
+        0.96,
+        0.4422
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-light-single.glb",
+      "node": 0,
+      "meshName": "detail-light-single",
+      "min": [
+        -0.04309999942779541,
+        0,
+        -0.22109998762607574
+      ],
+      "max": [
+        0.04309999942779541,
+        0.9600000381469727,
+        0.04309999942779541
+      ],
+      "size": [
+        0.0862,
+        0.96,
+        0.2642
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/detail-light-traffic.glb",
+      "node": 0,
+      "meshName": "detail-light-traffic",
+      "min": [
+        -0.11309999972581863,
+        0,
+        -0.5410146713256836
+      ],
+      "max": [
+        0.04309999942779541,
+        1.0399999618530273,
+        0.04309999942779541
+      ],
+      "size": [
+        0.1562,
+        1.04,
+        0.584115
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/door-type-a.glb",
+      "node": 0,
+      "meshName": "door-type-a",
+      "min": [
+        -0.19889692962169647,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.19889692962169647,
+        0.6277938485145569,
+        0.02500000037252903
+      ],
+      "size": [
+        0.397794,
+        0.627794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/door-type-b.glb",
+      "node": 0,
+      "meshName": "door-type-b",
+      "min": [
+        -0.19889692962169647,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.19889692962169647,
+        0.6277938485145569,
+        0.02500000037252903
+      ],
+      "size": [
+        0.397794,
+        0.627794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/grass-corner-inner.glb",
+      "node": 0,
+      "meshName": "grass-corner-inner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/grass-corner.glb",
+      "node": 0,
+      "meshName": "grass-corner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/grass-hill.glb",
+      "node": 0,
+      "meshName": "grass-hill",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/grass.glb",
+      "node": 0,
+      "meshName": "grass",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0,
+        0.5
+      ],
+      "size": [
+        1,
+        0,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/pallet-small.glb",
+      "node": 0,
+      "meshName": "pallet-small",
+      "min": [
+        -0.25,
+        0,
+        -0.2875000238418579
+      ],
+      "max": [
+        0.25,
+        0.15000000596046448,
+        0.2874999940395355
+      ],
+      "size": [
+        0.5,
+        0.15,
+        0.575
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/pallet.glb",
+      "node": 0,
+      "meshName": "pallet",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.15000000596046448,
+        0.5
+      ],
+      "size": [
+        1,
+        0.15,
+        1
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/GLB format/planks.glb",
+      "node": 0,
+      "meshName": "planks",
+      "min": [
+        -0.5648559331893921,
+        0,
+        -0.28513944149017334
+      ],
+      "max": [
+        0.5648559927940369,
+        0.10000000149011612,
+        0.28513944149017334
+      ],
+      "size": [
+        1.129712,
+        0.1,
+        0.570279
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-center.glb",
+      "node": 0,
+      "meshName": "road-asphalt-center",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0,
+        0.5
+      ],
+      "size": [
+        1,
+        0,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-corner-inner.glb",
+      "node": 0,
+      "meshName": "road-asphalt-corner-inner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-corner-outer.glb",
+      "node": 0,
+      "meshName": "road-asphalt-corner-outer",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-corner.glb",
+      "node": 0,
+      "meshName": "road-asphalt-corner",
+      "min": [
+        -1,
+        0,
+        -1
+      ],
+      "max": [
+        1,
+        0.05000000074505806,
+        1
+      ],
+      "size": [
+        2,
+        0.05,
+        2
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-damaged.glb",
+      "node": 0,
+      "meshName": "road-asphalt-damaged",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-pavement.glb",
+      "node": 0,
+      "meshName": "road-asphalt-pavement",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0,
+        0.5
+      ],
+      "size": [
+        1,
+        0,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-side.glb",
+      "node": 0,
+      "meshName": "road-asphalt-side",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-asphalt-straight.glb",
+      "node": 0,
+      "meshName": "road-asphalt-straight",
+      "min": [
+        -0.5,
+        0,
+        -1
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        1
+      ],
+      "size": [
+        1,
+        0.05,
+        2
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-center.glb",
+      "node": 0,
+      "meshName": "road-dirt-center",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0,
+        0.5
+      ],
+      "size": [
+        1,
+        0,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-corner-inner.glb",
+      "node": 0,
+      "meshName": "road-dirt-corner-inner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-corner-outer.glb",
+      "node": 0,
+      "meshName": "road-dirt-corner-outer",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-corner.glb",
+      "node": 0,
+      "meshName": "road-dirt-corner",
+      "min": [
+        -1,
+        0,
+        -1
+      ],
+      "max": [
+        1,
+        0.05000000074505806,
+        1
+      ],
+      "size": [
+        2,
+        0.05,
+        2
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-damaged.glb",
+      "node": 0,
+      "meshName": "road-dirt-damaged",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-pavement.glb",
+      "node": 0,
+      "meshName": "road-dirt-pavement",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0,
+        0.5
+      ],
+      "size": [
+        1,
+        0,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-side.glb",
+      "node": 0,
+      "meshName": "road-dirt-side",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        0.5
+      ],
+      "size": [
+        1,
+        0.05,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-straight.glb",
+      "node": 0,
+      "meshName": "road-dirt-straight",
+      "min": [
+        -0.5,
+        0,
+        -1
+      ],
+      "max": [
+        0.5,
+        0.05000000074505806,
+        1
+      ],
+      "size": [
+        1,
+        0.05,
+        2
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/road-dirt-tile.glb",
+      "node": 0,
+      "meshName": "road-dirt-tile",
+      "min": [
+        -0.25,
+        0,
+        -0.25
+      ],
+      "max": [
+        0.25,
+        0.05000000074505806,
+        0.25
+      ],
+      "size": [
+        0.5,
+        0.05,
+        0.5
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/roof-metal-poles.glb",
+      "node": 0,
+      "meshName": "roof-metal-poles",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.699999988079071,
+        0.5
+      ],
+      "size": [
+        1,
+        0.7,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/roof-metal-type-a.glb",
+      "node": 0,
+      "meshName": "roof-metal-type-a",
+      "min": [
+        -0.5685821771621704,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5685821771621704,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1.137164,
+        0.5,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/roof-metal-type-b.glb",
+      "node": 0,
+      "meshName": "roof-metal-type-b",
+      "min": [
+        -0.5685821771621704,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5685821771621704,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1.137164,
+        0.5,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/scaffolding-floor.glb",
+      "node": 0,
+      "meshName": "scaffolding-floor",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.07000000029802322,
+        0.5
+      ],
+      "size": [
+        1,
+        0.07,
+        1
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/GLB format/scaffolding-poles.glb",
+      "node": 0,
+      "meshName": "scaffolding-poles",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/scaffolding-structure.glb",
+      "node": 0,
+      "meshName": "scaffolding-structure",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-large.glb",
+      "node": 0,
+      "meshName": "tree-large",
+      "min": [
+        -0.6499999761581421,
+        0,
+        -0.6499999761581421
+      ],
+      "max": [
+        0.6499999761581421,
+        1.6999999284744263,
+        0.6499999761581421
+      ],
+      "size": [
+        1.3,
+        1.7,
+        1.3
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-park-large.glb",
+      "node": 0,
+      "meshName": "tree-park-large",
+      "min": [
+        -0.5199999809265137,
+        0,
+        -0.5199999809265137
+      ],
+      "max": [
+        0.5199999809265137,
+        1.4600000381469727,
+        0.5199999809265137
+      ],
+      "size": [
+        1.04,
+        1.46,
+        1.04
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-park-pine-large.glb",
+      "node": 0,
+      "meshName": "tree-park-pine-large",
+      "min": [
+        -0.5199999809265137,
+        0,
+        -0.5199999809265137
+      ],
+      "max": [
+        0.5199999809265137,
+        1.4600000381469727,
+        0.5199999809265137
+      ],
+      "size": [
+        1.04,
+        1.46,
+        1.04
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-pine-large.glb",
+      "node": 0,
+      "meshName": "tree-pine-large",
+      "min": [
+        -0.6499999761581421,
+        0,
+        -0.6499999761581421
+      ],
+      "max": [
+        0.6499999761581421,
+        1.6999999284744263,
+        0.6499999761581421
+      ],
+      "size": [
+        1.3,
+        1.7,
+        1.3
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-pine-small.glb",
+      "node": 0,
+      "meshName": "tree-pine-small",
+      "min": [
+        -0.3499999940395355,
+        0,
+        -0.3499999940395355
+      ],
+      "max": [
+        0.3499999940395355,
+        0.4000000059604645,
+        0.3499999940395355
+      ],
+      "size": [
+        0.7,
+        0.4,
+        0.7
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-shrub.glb",
+      "node": 0,
+      "meshName": "tree-shrub",
+      "min": [
+        -0.39000001549720764,
+        0,
+        -0.39000001549720764
+      ],
+      "max": [
+        0.39000001549720764,
+        0.30000001192092896,
+        0.39000001549720764
+      ],
+      "size": [
+        0.78,
+        0.3,
+        0.78
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/tree-small.glb",
+      "node": 0,
+      "meshName": "tree-small",
+      "min": [
+        -0.39000001549720764,
+        0,
+        -0.39000001549720764
+      ],
+      "max": [
+        0.39000001549720764,
+        0.30000001192092896,
+        0.39000001549720764
+      ],
+      "size": [
+        0.78,
+        0.3,
+        0.78
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/truck-flat.glb",
+      "node": 0,
+      "meshName": "truck-flat",
+      "min": [
+        -0.41499999165534973,
+        0,
+        -0.8217000365257263
+      ],
+      "max": [
+        0.41499999165534973,
+        1.0059599876403809,
+        0.8217000365257263
+      ],
+      "size": [
+        0.83,
+        1.00596,
+        1.6434
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/truck-green-cargo.glb",
+      "node": 0,
+      "meshName": "truck-green-cargo",
+      "min": [
+        -0.41499999165534973,
+        0,
+        -0.5841051936149597
+      ],
+      "max": [
+        0.41499999165534973,
+        0.7383584380149841,
+        0.5841051936149597
+      ],
+      "size": [
+        0.83,
+        0.738358,
+        1.16821
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/truck-green.glb",
+      "node": 0,
+      "meshName": "truck-green",
+      "min": [
+        -0.41499999165534973,
+        0,
+        -0.8217000365257263
+      ],
+      "max": [
+        0.41499999165534973,
+        1.0059599876403809,
+        0.8217000365257263
+      ],
+      "size": [
+        0.83,
+        1.00596,
+        1.6434
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/truck-grey-cargo.glb",
+      "node": 0,
+      "meshName": "truck-grey-cargo",
+      "min": [
+        -0.41499999165534973,
+        0,
+        -0.5841051936149597
+      ],
+      "max": [
+        0.41499999165534973,
+        0.7383584380149841,
+        0.5841051936149597
+      ],
+      "size": [
+        0.83,
+        0.738358,
+        1.16821
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/truck-grey.glb",
+      "node": 0,
+      "meshName": "truck-grey",
+      "min": [
+        -0.41499999165534973,
+        0,
+        -0.8217000365257263
+      ],
+      "max": [
+        0.41499999165534973,
+        1.0059599876403809,
+        0.8217000365257263
+      ],
+      "size": [
+        0.83,
+        1.00596,
+        1.6434
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-column-painted.glb",
+      "node": 0,
+      "meshName": "wall-a-column-painted",
+      "min": [
+        -0.125,
+        0,
+        -0.125
+      ],
+      "max": [
+        0.125,
+        1,
+        0.125
+      ],
+      "size": [
+        0.25,
+        1,
+        0.25
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-column.glb",
+      "node": 0,
+      "meshName": "wall-a-column",
+      "min": [
+        -0.125,
+        0,
+        -0.125
+      ],
+      "max": [
+        0.125,
+        1,
+        0.125
+      ],
+      "size": [
+        0.25,
+        1,
+        0.25
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-corner-painted.glb",
+      "node": 0,
+      "meshName": "wall-a-corner-painted",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-corner.glb",
+      "node": 0,
+      "meshName": "wall-a-corner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-detail-painted.glb",
+      "node": 0,
+      "meshName": "wall-a-detail-painted",
+      "min": [
+        -0.30000001192092896,
+        0,
+        -0.10000000149011612
+      ],
+      "max": [
+        0.30000001192092896,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        0.6,
+        1,
+        0.2
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-detail.glb",
+      "node": 0,
+      "meshName": "wall-a-detail",
+      "min": [
+        -0.30000001192092896,
+        0,
+        -0.10000000149011612
+      ],
+      "max": [
+        0.30000001192092896,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        0.6,
+        1,
+        0.2
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-diagonal.glb",
+      "node": 0,
+      "meshName": "wall-a-diagonal",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-door.glb",
+      "node": 0,
+      "meshName": "wall-a-door",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_doorway"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-flat-garage.glb",
+      "node": 0,
+      "meshName": "wall-a-flat-garage",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        1,
+        1,
+        0.1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-flat-painted.glb",
+      "node": 0,
+      "meshName": "wall-a-flat-painted",
+      "min": [
+        -0.5,
+        0,
+        7.219114108078224e-16
+      ],
+      "max": [
+        0.5,
+        1,
+        7.219114108078224e-16
+      ],
+      "size": [
+        1,
+        1,
+        0
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-flat-window.glb",
+      "node": 0,
+      "meshName": "wall-a-flat-window",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        1,
+        1,
+        0.1
+      ],
+      "category": "wall_window"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-flat.glb",
+      "node": 0,
+      "meshName": "wall-a-flat",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        1,
+        0
+      ],
+      "size": [
+        1,
+        1,
+        0
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-garage.glb",
+      "node": 0,
+      "meshName": "wall-a-garage",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-low-painted.glb",
+      "node": 0,
+      "meshName": "wall-a-low-painted",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-low.glb",
+      "node": 0,
+      "meshName": "wall-a-low",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-open.glb",
+      "node": 0,
+      "meshName": "wall-a-open",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-painted-diagonal.glb",
+      "node": 0,
+      "meshName": "wall-a-painted-diagonal",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-painted.glb",
+      "node": 0,
+      "meshName": "wall-a-painted",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-roof-detailed.glb",
+      "node": 0,
+      "meshName": "wall-a-roof-detailed",
+      "min": [
+        -0.5685821771621704,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5685821771621704,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1.137164,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-roof-slant-detailed.glb",
+      "node": 0,
+      "meshName": "wall-a-roof-slant-detailed",
+      "min": [
+        -0.5,
+        0,
+        -0.5685821771621704
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5685821771621704
+      ],
+      "size": [
+        1,
+        0.5,
+        1.137164
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-roof-slant.glb",
+      "node": 0,
+      "meshName": "wall-a-roof-slant",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-roof.glb",
+      "node": 0,
+      "meshName": "wall-a-roof",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a-window.glb",
+      "node": 0,
+      "meshName": "wall-a-window",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_window"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-a.glb",
+      "node": 0,
+      "meshName": "wall-a",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-column.glb",
+      "node": 0,
+      "meshName": "wall-b-column",
+      "min": [
+        -0.125,
+        0,
+        -0.125
+      ],
+      "max": [
+        0.125,
+        1,
+        0.125
+      ],
+      "size": [
+        0.25,
+        1,
+        0.25
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-corner.glb",
+      "node": 0,
+      "meshName": "wall-b-corner",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-detail-painted.glb",
+      "node": 0,
+      "meshName": "wall-b-detail-painted",
+      "min": [
+        -0.30000001192092896,
+        0,
+        -0.10000000149011612
+      ],
+      "max": [
+        0.30000001192092896,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        0.6,
+        1,
+        0.2
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-diagonal.glb",
+      "node": 0,
+      "meshName": "wall-b-diagonal",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-door.glb",
+      "node": 0,
+      "meshName": "wall-b-door",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_doorway"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-flat-garage.glb",
+      "node": 0,
+      "meshName": "wall-b-flat-garage",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        1,
+        1,
+        0.1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-flat-window.glb",
+      "node": 0,
+      "meshName": "wall-b-flat-window",
+      "min": [
+        -0.5,
+        0,
+        7.219114108078224e-16
+      ],
+      "max": [
+        0.5,
+        1,
+        0.10000000149011612
+      ],
+      "size": [
+        1,
+        1,
+        0.1
+      ],
+      "category": "wall_window"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-flat.glb",
+      "node": 0,
+      "meshName": "wall-b-flat",
+      "min": [
+        -0.5,
+        0,
+        7.219114108078224e-16
+      ],
+      "max": [
+        0.5,
+        1,
+        7.219114108078224e-16
+      ],
+      "size": [
+        1,
+        1,
+        0
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-garage.glb",
+      "node": 0,
+      "meshName": "wall-b-garage",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-low.glb",
+      "node": 0,
+      "meshName": "wall-b-low",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-open.glb",
+      "node": 0,
+      "meshName": "wall-b-open",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-roof-detailed.glb",
+      "node": 0,
+      "meshName": "wall-b-roof-detailed",
+      "min": [
+        -0.5685821771621704,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5685821771621704,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1.137164,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-roof-slant-detailed.glb",
+      "node": 0,
+      "meshName": "wall-b-roof-slant-detailed",
+      "min": [
+        -0.5,
+        0,
+        -0.5685821771621704
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5685821771621704
+      ],
+      "size": [
+        1,
+        0.5,
+        1.137164
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-roof-slant.glb",
+      "node": 0,
+      "meshName": "wall-b-roof-slant",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-roof.glb",
+      "node": 0,
+      "meshName": "wall-b-roof",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "size": [
+        1,
+        0.5,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b-window.glb",
+      "node": 0,
+      "meshName": "wall-b-window",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_window"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-b.glb",
+      "node": 0,
+      "meshName": "wall-b",
+      "min": [
+        -0.5,
+        0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-broken-type-a.glb",
+      "node": 0,
+      "meshName": "wall-broken-type-a",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.4000000059604645,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.4,
+        0.07
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-broken-type-b.glb",
+      "node": 0,
+      "meshName": "wall-broken-type-b",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.5,
+        0.07
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-c-flat-low.glb",
+      "node": 0,
+      "meshName": "wall-c-flat-low",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0
+      ],
+      "size": [
+        1,
+        0.5,
+        0
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-c-flat.glb",
+      "node": 0,
+      "meshName": "wall-c-flat",
+      "min": [
+        -0.5,
+        0,
+        0
+      ],
+      "max": [
+        0.5,
+        1,
+        0
+      ],
+      "size": [
+        1,
+        1,
+        0
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-fence.glb",
+      "node": 0,
+      "meshName": "wall-fence",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.5,
+        0.07
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-steps-type-a.glb",
+      "node": 0,
+      "meshName": "wall-steps-type-a",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.4000000059604645,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.4,
+        0.07
+      ],
+      "category": "stairs"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-steps-type-b.glb",
+      "node": 0,
+      "meshName": "wall-steps-type-b",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.5,
+        0.07
+      ],
+      "category": "stairs"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-type-a.glb",
+      "node": 0,
+      "meshName": "wall-type-a",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.4000000059604645,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.4,
+        0.07
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/wall-type-b.glb",
+      "node": 0,
+      "meshName": "wall-type-b",
+      "min": [
+        -0.5,
+        0,
+        -0.03500000014901161
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.03500000014901161
+      ],
+      "size": [
+        1,
+        0.5,
+        0.07
+      ],
+      "category": "wall_solid"
+    },
+    {
+      "file": "/models/maps/GLB format/window-small-type-a.glb",
+      "node": 0,
+      "meshName": "window-small-type-a",
+      "min": [
+        -0.173896923661232,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.173896923661232,
+        0.5977938771247864,
+        0.02500000037252903
+      ],
+      "size": [
+        0.347794,
+        0.597794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/window-small-type-b.glb",
+      "node": 0,
+      "meshName": "window-small-type-b",
+      "min": [
+        -0.173896923661232,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.173896923661232,
+        0.5977938771247864,
+        0.02500000037252903
+      ],
+      "size": [
+        0.347794,
+        0.597794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/window-wide-type-a.glb",
+      "node": 0,
+      "meshName": "window-wide-type-a",
+      "min": [
+        -0.2988969385623932,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.2988969385623932,
+        0.5977938771247864,
+        0.02500000037252903
+      ],
+      "size": [
+        0.597794,
+        0.597794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/window-wide-type-b.glb",
+      "node": 0,
+      "meshName": "window-wide-type-b",
+      "min": [
+        -0.2988969385623932,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.2988969385623932,
+        0.5977938771247864,
+        0.02500000037252903
+      ],
+      "size": [
+        0.597794,
+        0.597794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/window-wide-type-c.glb",
+      "node": 0,
+      "meshName": "window-wide-type-c",
+      "min": [
+        -0.2988969385623932,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.2988969385623932,
+        0.5977938771247864,
+        0.02500000037252903
+      ],
+      "size": [
+        0.597794,
+        0.597794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/GLB format/window-wide-type-d.glb",
+      "node": 0,
+      "meshName": "window-wide-type-d",
+      "min": [
+        -0.2988969385623932,
+        0,
+        -0.02500000037252903
+      ],
+      "max": [
+        0.2988969385623932,
+        0.5977938771247864,
+        0.02500000037252903
+      ],
+      "size": [
+        0.597794,
+        0.597794,
+        0.05
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 0,
+      "meshName": "Anglecurve006",
+      "min": [
+        48.06890106201172,
+        -1.0843112556597816,
+        37.86290472180324
+      ],
+      "max": [
+        48.222801208496094,
+        5.587189629384939,
+        38.01990713463422
+      ],
+      "size": [
+        0.1539,
+        6.671501,
+        0.157002
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 1,
+      "meshName": "carpet001",
+      "min": [
+        75.81690216064453,
+        -0.05201076944406882,
+        28.783304260084133
+      ],
+      "max": [
+        82.4884033203125,
+        -0.052008874691124106,
+        35.454804408778614
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.6715
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 2,
+      "meshName": "carpet01",
+      "min": [
+        67.24800109863281,
+        -0.0516076150698584,
+        20.190502965238487
+      ],
+      "max": [
+        73.91950225830078,
+        -0.051605720316913684,
+        26.862003113932968
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.6715
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 3,
+      "meshName": "carpet02",
+      "min": [
+        75.81690216064453,
+        -0.05200761713134753,
+        20.210503425635654
+      ],
+      "max": [
+        82.4884033203125,
+        -0.05200572237840282,
+        26.88200357433013
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.6715
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 4,
+      "meshName": "carpet03",
+      "min": [
+        50.8828010559082,
+        -0.0516076150698584,
+        20.190502965238487
+      ],
+      "max": [
+        57.55419921875,
+        -0.051605720316913684,
+        26.862003113932968
+      ],
+      "size": [
+        6.671398,
+        0.000002,
+        6.6715
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 5,
+      "meshName": "carpet04",
+      "min": [
+        67.24800109863281,
+        -0.051610767382579685,
+        28.763303799686966
+      ],
+      "max": [
+        73.91950225830078,
+        -0.05160887262963497,
+        35.43480394838145
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.6715
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 6,
+      "meshName": "Curve_railing",
+      "min": [
+        49.49580001831055,
+        0.4053851158202573,
+        44.86660611931417
+      ],
+      "max": [
+        56.169700622558594,
+        0.5175870674793256,
+        51.576705302552064
+      ],
+      "size": [
+        6.673901,
+        0.112202,
+        6.710099
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 7,
+      "meshName": "curveroof001",
+      "min": [
+        -0.39879998564720154,
+        5.839189602689161,
+        30.26650532414226
+      ],
+      "max": [
+        6.580100059509277,
+        8.340192709829513,
+        37.23470537265834
+      ],
+      "size": [
+        6.9789,
+        2.501003,
+        6.9682
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 8,
+      "meshName": "curveroofbottom001",
+      "min": [
+        -0.39879998564720154,
+        4.6253894861436935,
+        30.266404071566367
+      ],
+      "max": [
+        6.580100059509277,
+        4.932891779782577,
+        37.234704914857346
+      ],
+      "size": [
+        6.9789,
+        0.307502,
+        6.968301
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 9,
+      "meshName": "door001",
+      "min": [
+        68.97979736328125,
+        -0.0520145487024282,
+        48.538405257251796
+      ],
+      "max": [
+        72.18769836425781,
+        6.180286438329834,
+        48.69380925270333
+      ],
+      "size": [
+        3.207901,
+        6.232301,
+        0.155404
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 10,
+      "meshName": "Door01",
+      "min": [
+        69.10910034179688,
+        -0.05201290951315566,
+        43.7690068808454
+      ],
+      "max": [
+        72.31719970703125,
+        6.180288032815104,
+        43.924407061599155
+      ],
+      "size": [
+        3.208099,
+        6.232301,
+        0.1554
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 11,
+      "meshName": "door01_003",
+      "min": [
+        76.1946029663086,
+        -0.05201289325543881,
+        43.64800466732206
+      ],
+      "max": [
+        82.11070251464844,
+        6.180288049072821,
+        43.803404848075814
+      ],
+      "size": [
+        5.9161,
+        6.232301,
+        0.1554
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 12,
+      "meshName": "door02_1",
+      "min": [
+        76.3240966796875,
+        -0.052014532444711346,
+        48.41740685842623
+      ],
+      "max": [
+        82.24019622802734,
+        6.180286454587038,
+        48.57280703917999
+      ],
+      "size": [
+        5.9161,
+        6.232301,
+        0.1554
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 13,
+      "meshName": "door03",
+      "min": [
+        69.10910034179688,
+        -0.05201627400548316,
+        53.79890782561895
+      ],
+      "max": [
+        72.31719970703125,
+        6.180285731534819,
+        54.07640885285629
+      ],
+      "size": [
+        3.208099,
+        6.232302,
+        0.277501
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 14,
+      "meshName": "door03_1",
+      "min": [
+        76.3240966796875,
+        -0.052016241329112395,
+        53.67780642995337
+      ],
+      "max": [
+        82.24019622802734,
+        6.180285747805862,
+        53.833206610707265
+      ],
+      "size": [
+        5.9161,
+        6.232302,
+        0.1554
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 15,
+      "meshName": "Door_hole001",
+      "min": [
+        67.2479019165039,
+        -0.05161123797480255,
+        38.937306860379785
+      ],
+      "max": [
+        73.91940307617188,
+        6.61988968558003,
+        38.9373077567549
+      ],
+      "size": [
+        6.671501,
+        6.671501,
+        0.000001
+      ],
+      "category": "wall_doorway"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 16,
+      "meshName": "Door_hole01",
+      "min": [
+        75.81690216064453,
+        -0.05201122670773157,
+        38.85810610505582
+      ],
+      "max": [
+        82.4884033203125,
+        6.619489629791866,
+        38.85810700143092
+      ],
+      "size": [
+        6.671501,
+        6.671501,
+        0.000001
+      ],
+      "category": "wall_doorway"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 17,
+      "meshName": "lockandchain",
+      "min": [
+        79.10009765625,
+        1.8529873671387174,
+        43.80340426666473
+      ],
+      "max": [
+        79.22959899902344,
+        2.0343874600925393,
+        43.862406221572286
+      ],
+      "size": [
+        0.129501,
+        0.1814,
+        0.059002
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 18,
+      "meshName": "pillar002",
+      "min": [
+        44.95859909057617,
+        -1.063912638837379,
+        40.27490379739671
+      ],
+      "max": [
+        45.45159912109375,
+        5.533388238359996,
+        40.70180751215665
+      ],
+      "size": [
+        0.493,
+        6.597301,
+        0.426904
+      ],
+      "category": "cover_high"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 19,
+      "meshName": "pillar02",
+      "min": [
+        42.210899353027344,
+        -1.0639126726418466,
+        40.02330540543795
+      ],
+      "max": [
+        43.28499984741211,
+        5.533388272164464,
+        40.953405904115414
+      ],
+      "size": [
+        1.0741,
+        6.597301,
+        0.9301
+      ],
+      "category": "cover_high"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 20,
+      "meshName": "railing",
+      "min": [
+        52.287200927734375,
+        0.4053838174465795,
+        53.56730614086906
+      ],
+      "max": [
+        57.90169906616211,
+        0.5175838719051826,
+        53.92040602638425
+      ],
+      "size": [
+        5.614498,
+        0.1122,
+        0.3531
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 21,
+      "meshName": "railing01",
+      "min": [
+        51.56480026245117,
+        -2.0307186256817396,
+        55.94470557756206
+      ],
+      "max": [
+        51.91790008544922,
+        0.5174835358731406,
+        62.30270848317364
+      ],
+      "size": [
+        0.3531,
+        2.548202,
+        6.358003
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 22,
+      "meshName": "railing01_1",
+      "min": [
+        50.345699310302734,
+        -2.565918838724688,
+        55.94470550565318
+      ],
+      "max": [
+        50.69879913330078,
+        0.5174835358731406,
+        62.467308877603614
+      ],
+      "size": [
+        0.3531,
+        3.083402,
+        6.522603
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 23,
+      "meshName": "railing_leg015",
+      "min": [
+        46.78310012817383,
+        -1.0843125675882908,
+        40.57410580018827
+      ],
+      "max": [
+        47.058998107910156,
+        0.45968762489581705,
+        40.68630389868968
+      ],
+      "size": [
+        0.275898,
+        1.544,
+        0.112198
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 24,
+      "meshName": "roof001",
+      "min": [
+        -11.741600036621094,
+        2.943692794881124,
+        19.983603696940435
+      ],
+      "max": [
+        -4.762599945068359,
+        5.44479508561496,
+        26.962605062228715
+      ],
+      "size": [
+        6.979,
+        2.501102,
+        6.979001
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 25,
+      "meshName": "roof003",
+      "min": [
+        -2.2713000774383545,
+        5.839095627410962,
+        9.247202992859094
+      ],
+      "max": [
+        4.707600116729736,
+        8.340199348656334,
+        16.22620340447312
+      ],
+      "size": [
+        6.9789,
+        2.501104,
+        6.979
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 26,
+      "meshName": "roof01",
+      "min": [
+        8.615699768066406,
+        5.8391896012514914,
+        30.266507231491147
+      ],
+      "max": [
+        15.621600151062012,
+        10.841192496544275,
+        37.245405935957514
+      ],
+      "size": [
+        7.0059,
+        5.002003,
+        6.978899
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 27,
+      "meshName": "roof010",
+      "min": [
+        18.223899841308594,
+        9.96539605583039,
+        9.436204656032016
+      ],
+      "max": [
+        24.857900619506836,
+        12.320198446572437,
+        16.107706074789203
+      ],
+      "size": [
+        6.634001,
+        2.354802,
+        6.671501
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 28,
+      "meshName": "roof03",
+      "min": [
+        -2.2713000774383545,
+        5.839094203179868,
+        19.84740411649166
+      ],
+      "max": [
+        4.707600116729736,
+        8.340194109727847,
+        26.826407389128505
+      ],
+      "size": [
+        6.9789,
+        2.5011,
+        6.979003
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 29,
+      "meshName": "roof04",
+      "min": [
+        -20.35070037841797,
+        1.7634951528849607,
+        8.802202690652265
+      ],
+      "max": [
+        -13.371700286865234,
+        4.264498577789019,
+        15.473703175378407
+      ],
+      "size": [
+        6.979,
+        2.501003,
+        6.6715
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 30,
+      "meshName": "roof05",
+      "min": [
+        -11.741600036621094,
+        4.756095303013786,
+        9.215803116261922
+      ],
+      "max": [
+        -4.762599945068359,
+        7.257197593747366,
+        16.194802574201308
+      ],
+      "size": [
+        6.979,
+        2.501102,
+        6.978999
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 31,
+      "meshName": "roof07",
+      "min": [
+        8.987799644470215,
+        6.410595544131698,
+        9.432502967893887
+      ],
+      "max": [
+        15.966899871826172,
+        8.9116982713952,
+        16.111505055814128
+      ],
+      "size": [
+        6.9791,
+        2.501103,
+        6.679002
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 32,
+      "meshName": "roof08",
+      "min": [
+        8.961099624633789,
+        6.410394375475973,
+        19.354005460576563
+      ],
+      "max": [
+        15.966400146484375,
+        8.911695984679206,
+        26.33680626487867
+      ],
+      "size": [
+        7.005301,
+        2.501302,
+        6.982801
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 33,
+      "meshName": "roof09",
+      "min": [
+        18.223899841308594,
+        9.965393728296352,
+        19.357805377209193
+      ],
+      "max": [
+        24.868600845336914,
+        12.320196159843244,
+        26.333007283853746
+      ],
+      "size": [
+        6.644701,
+        2.354802,
+        6.975202
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 34,
+      "meshName": "roofbottom002",
+      "min": [
+        -2.271399974822998,
+        4.9236931346424955,
+        19.576903774049867
+      ],
+      "max": [
+        4.707600116729736,
+        5.231194952868244,
+        26.55580375511741
+      ],
+      "size": [
+        6.979,
+        0.307502,
+        6.9789
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 35,
+      "meshName": "roofbottom02",
+      "min": [
+        -20.35070037841797,
+        0.7027950110247678,
+        8.802201594463384
+      ],
+      "max": [
+        -20.04330062866211,
+        1.010297920450495,
+        15.473801920290018
+      ],
+      "size": [
+        0.3074,
+        0.307503,
+        6.6716
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 36,
+      "meshName": "roofbottom03",
+      "min": [
+        -11.741600036621094,
+        3.6795952194116417,
+        9.21580297162462
+      ],
+      "max": [
+        -4.762599945068359,
+        3.9869983323457068,
+        16.194802134821135
+      ],
+      "size": [
+        6.979,
+        0.307403,
+        6.978999
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 37,
+      "meshName": "roofbottom04",
+      "min": [
+        -2.2713000774383545,
+        4.923695494960025,
+        9.107502915183984
+      ],
+      "max": [
+        4.707600116729736,
+        5.2311982668736725,
+        16.086503032068332
+      ],
+      "size": [
+        6.9789,
+        0.307503,
+        6.979
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 38,
+      "meshName": "roofbottom05",
+      "min": [
+        8.961099624633789,
+        4.9098953465590265,
+        9.43620302310637
+      ],
+      "max": [
+        9.29539966583252,
+        5.217597394619088,
+        16.104002956298267
+      ],
+      "size": [
+        0.3343,
+        0.307702,
+        6.6678
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 39,
+      "meshName": "roofbottom06",
+      "min": [
+        8.961099624633789,
+        4.909893972202015,
+        19.354003351622183
+      ],
+      "max": [
+        15.966899871826172,
+        7.718594418278309,
+        26.33300666558788
+      ],
+      "size": [
+        7.0058,
+        2.8087,
+        6.979003
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 40,
+      "meshName": "roofbottom07",
+      "min": [
+        18.223899841308594,
+        8.464893801349128,
+        26.025505885311066
+      ],
+      "max": [
+        24.868600845336914,
+        11.127094174414792,
+        26.333007123550072
+      ],
+      "size": [
+        6.644701,
+        2.6622,
+        0.307501
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 41,
+      "meshName": "rooftop",
+      "min": [
+        31.635299682617188,
+        10.986695373616117,
+        17.581806206594997
+      ],
+      "max": [
+        31.905899047851562,
+        11.122896280321205,
+        24.55740645106864
+      ],
+      "size": [
+        0.270599,
+        0.136201,
+        6.9756
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 42,
+      "meshName": "small_carpet01",
+      "min": [
+        60.46620178222656,
+        -0.05161129736108499,
+        37.17920420717097
+      ],
+      "max": [
+        64.26349639892578,
+        -0.051611001758172216,
+        39.37930444784224
+      ],
+      "size": [
+        3.797295,
+        0,
+        2.2001
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 43,
+      "meshName": "small_carpet02",
+      "min": [
+        60.46620178222656,
+        -0.05161272536831296,
+        40.34910361989124
+      ],
+      "max": [
+        64.26349639892578,
+        -0.05161242976540019,
+        42.549203860562514
+      ],
+      "size": [
+        3.797295,
+        0,
+        2.2001
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 44,
+      "meshName": "small_carpet03",
+      "min": [
+        60.46620178222656,
+        -0.05161313877714326,
+        43.42600451547781
+      ],
+      "max": [
+        64.26349639892578,
+        -0.05161284317423049,
+        45.626104756149076
+      ],
+      "size": [
+        3.797295,
+        0,
+        2.2001
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 45,
+      "meshName": "square_railing",
+      "min": [
+        51.169498443603516,
+        0.405383769910184,
+        52.593905894117334
+      ],
+      "max": [
+        52.849700927734375,
+        0.5175840026901091,
+        54.27420780121557
+      ],
+      "size": [
+        1.680202,
+        0.1122,
+        1.680302
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 46,
+      "meshName": "stair_Bottom",
+      "min": [
+        51.01350021362305,
+        -3.923118939813078,
+        56.19440781046437
+      ],
+      "max": [
+        52.56420135498047,
+        -1.0843166777973923,
+        62.55240694042287
+      ],
+      "size": [
+        1.550701,
+        2.838802,
+        6.357999
+      ],
+      "category": "stairs"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 47,
+      "meshName": "step069",
+      "min": [
+        52.43479919433594,
+        0.4053836441102056,
+        54.68530632159984
+      ],
+      "max": [
+        57.555599212646484,
+        0.517583721691977,
+        55.210506297376874
+      ],
+      "size": [
+        5.1208,
+        0.1122,
+        0.5252
+      ],
+      "category": "stairs"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 48,
+      "meshName": "Tile009",
+      "min": [
+        59.02899932861328,
+        -0.05161076321769295,
+        28.73230365819272
+      ],
+      "max": [
+        65.70050048828125,
+        -0.05160886846449197,
+        35.40380571423609
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.671502
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 49,
+      "meshName": "triangle01",
+      "min": [
+        14.524999618530273,
+        -2.6538097230414603,
+        32.36850374829178
+      ],
+      "max": [
+        21.19700050354004,
+        -0.15260936665649677,
+        32.368603266492386
+      ],
+      "size": [
+        6.672001,
+        2.5012,
+        0.0001
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 50,
+      "meshName": "Triangle02",
+      "min": [
+        22.813499450683594,
+        -2.6538097230414603,
+        32.36850374829178
+      ],
+      "max": [
+        29.485000610351562,
+        2.202190876012704,
+        32.36860358288061
+      ],
+      "size": [
+        6.671501,
+        4.856001,
+        0.0001
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 51,
+      "meshName": "triangle03",
+      "min": [
+        18.20989990234375,
+        1.3474907159580984,
+        32.9215057640111
+      ],
+      "max": [
+        22.090299606323242,
+        3.848491100345418,
+        32.93360632139494
+      ],
+      "size": [
+        3.8804,
+        2.501,
+        0.012101
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 52,
+      "meshName": "Window009",
+      "min": [
+        52.14759826660156,
+        1.610487625032572,
+        41.0482044315242
+      ],
+      "max": [
+        56.28919982910156,
+        4.8719891579611945,
+        41.203608027822575
+      ],
+      "size": [
+        4.141602,
+        3.261502,
+        0.155404
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 53,
+      "meshName": "window02",
+      "min": [
+        52.14759826660156,
+        1.610487237743209,
+        43.93070451363778
+      ],
+      "max": [
+        56.28919982910156,
+        4.871987816997387,
+        44.08610810993603
+      ],
+      "size": [
+        4.141602,
+        3.261501,
+        0.155404
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 54,
+      "meshName": "Window_hole016",
+      "min": [
+        51.0994987487793,
+        -0.05161123797480255,
+        38.937306860379785
+      ],
+      "max": [
+        57.770999908447266,
+        6.61988968558003,
+        38.9373077567549
+      ],
+      "size": [
+        6.671501,
+        6.671501,
+        0.000001
+      ],
+      "category": "wall_window"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 55,
+      "meshName": "wood",
+      "min": [
+        21.785900115966797,
+        4.2193878321764675,
+        40.90650783308312
+      ],
+      "max": [
+        28.457399368286133,
+        4.744588284790444,
+        41.018705794699784
+      ],
+      "size": [
+        6.671499,
+        0.5252,
+        0.112198
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 56,
+      "meshName": "Wood003",
+      "min": [
+        38.8306999206543,
+        -0.051614878990802276,
+        44.47590471147268
+      ],
+      "max": [
+        45.50230026245117,
+        -0.05161298423760129,
+        51.14740676751605
+      ],
+      "size": [
+        6.6716,
+        0.000002,
+        6.671502
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 57,
+      "meshName": "Wood_Tile",
+      "min": [
+        59.02899932861328,
+        -0.0516076109047154,
+        20.15950282374424
+      ],
+      "max": [
+        65.70050048828125,
+        -0.05160571615177068,
+        26.83100297243872
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.6715
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 58,
+      "meshName": "wood_Tile01",
+      "min": [
+        50.8828010559082,
+        -0.051610767382579685,
+        28.763303799686966
+      ],
+      "max": [
+        57.55419921875,
+        -0.05160887262963497,
+        35.43480394838145
+      ],
+      "size": [
+        6.671398,
+        0.000002,
+        6.6715
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 59,
+      "meshName": "woodbottom015",
+      "min": [
+        38.8306999206543,
+        -3.8373153176751447,
+        51.14740625887361
+      ],
+      "max": [
+        45.50230026245117,
+        -1.0843150460136801,
+        51.14740662876353
+      ],
+      "size": [
+        6.6716,
+        2.753,
+        0
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 60,
+      "meshName": "woodbottomcurve001",
+      "min": [
+        30.271900177001953,
+        -3.8373153176751447,
+        44.47590420283037
+      ],
+      "max": [
+        36.94340133666992,
+        -1.0843130767546632,
+        51.14740662876367
+      ],
+      "size": [
+        6.671501,
+        2.753002,
+        6.671502
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/house.glb",
+      "node": 61,
+      "meshName": "woodcurve002",
+      "min": [
+        30.271900177001953,
+        -0.1200148874716527,
+        44.475904702282534
+      ],
+      "max": [
+        36.94340133666992,
+        -0.12001299271845171,
+        51.14740675832591
+      ],
+      "size": [
+        6.671501,
+        0.000002,
+        6.671502
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 0,
+      "meshName": "SM_Vitrin_P1",
+      "min": [
+        22.966989517211914,
+        0.00015616416931152344,
+        3.4897844791412354
+      ],
+      "max": [
+        25.672876358032227,
+        4.164219379425049,
+        4.261821746826172
+      ],
+      "size": [
+        2.705887,
+        4.164063,
+        0.772037
+      ],
+      "category": "cover_high"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 1,
+      "meshName": "SM_Vitrin_Uzun_P1",
+      "min": [
+        17.079267501831055,
+        0.00015592575073242188,
+        3.5236783027648926
+      ],
+      "max": [
+        22.36429214477539,
+        4.164219379425049,
+        4.295715808868408
+      ],
+      "size": [
+        5.285025,
+        4.164063,
+        0.772038
+      ],
+      "category": "cover_high"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 2,
+      "meshName": "SM_Tablo_1_P1",
+      "min": [
+        11.86101245880127,
+        0.6337238550186157,
+        3.817715883255005
+      ],
+      "max": [
+        13.471327781677246,
+        1.6502939462661743,
+        3.8630967140197754
+      ],
+      "size": [
+        1.610315,
+        1.01657,
+        0.045381
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 3,
+      "meshName": "SM_Tablo_3_P1",
+      "min": [
+        15.529221534729004,
+        0.6337249279022217,
+        3.8221426010131836
+      ],
+      "max": [
+        16.36777114868164,
+        1.8703382015228271,
+        3.8631815910339355
+      ],
+      "size": [
+        0.83855,
+        1.236613,
+        0.041039
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 4,
+      "meshName": "SM_Tablo_2_P1",
+      "min": [
+        13.679801940917969,
+        0.6337239742279053,
+        3.82205867767334
+      ],
+      "max": [
+        15.297016143798828,
+        1.592822790145874,
+        3.863097667694092
+      ],
+      "size": [
+        1.617214,
+        0.959099,
+        0.041039
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 5,
+      "meshName": "SM_Koltuk_P1",
+      "min": [
+        19.902828216552734,
+        0.1261671781539917,
+        0.6424515843391418
+      ],
+      "max": [
+        22.417531967163086,
+        1.5343990325927734,
+        1.646101713180542
+      ],
+      "size": [
+        2.514704,
+        1.408232,
+        1.00365
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 6,
+      "meshName": "SM_Orta_Sehpa_P1",
+      "min": [
+        9.784764289855957,
+        -0.0006836056709289551,
+        3.4260778427124023
+      ],
+      "max": [
+        11.392111778259277,
+        0.8405271172523499,
+        4.217467308044434
+      ],
+      "size": [
+        1.607347,
+        0.841211,
+        0.791389
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 7,
+      "meshName": "SM_Hali_P1",
+      "min": [
+        9.563325881958008,
+        0.00015647988766431808,
+        -2.6453716456890106
+      ],
+      "max": [
+        16.111162185668945,
+        0.023827271535992622,
+        1.9244206249713898
+      ],
+      "size": [
+        6.547836,
+        0.023671,
+        4.569792
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 8,
+      "meshName": "SM_Lambader.001",
+      "min": [
+        17.53693962097168,
+        0.027259856462478638,
+        0.9395785331726074
+      ],
+      "max": [
+        17.887983322143555,
+        0.7383849620819092,
+        1.2914429903030396
+      ],
+      "size": [
+        0.351044,
+        0.711125,
+        0.351864
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 9,
+      "meshName": "SM_Aplik.004",
+      "min": [
+        17.065488815307617,
+        0.02382710576057434,
+        0.7925286293029785
+      ],
+      "max": [
+        17.38315773010254,
+        0.5771044492721558,
+        1.296600103378296
+      ],
+      "size": [
+        0.317669,
+        0.553277,
+        0.504071
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 10,
+      "meshName": "SM_Ciceklik.001",
+      "min": [
+        18.168176651000977,
+        0.02725997567176819,
+        0.9677474498748779
+      ],
+      "max": [
+        18.44158935546875,
+        0.47458159923553467,
+        1.2540429830551147
+      ],
+      "size": [
+        0.273413,
+        0.447322,
+        0.286296
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 11,
+      "meshName": "SM_Tavan_Deseni_P1",
+      "min": [
+        15.802204132080078,
+        1.0847938060760498,
+        -6.811965465545654
+      ],
+      "max": [
+        18.979450225830078,
+        1.254058599472046,
+        -3.630995273590088
+      ],
+      "size": [
+        3.177246,
+        0.169265,
+        3.18097
+      ],
+      "category": "ceiling"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 12,
+      "meshName": "SM_Somine",
+      "min": [
+        20.818239212036133,
+        0.000156402587890625,
+        -2.0863096714019775
+      ],
+      "max": [
+        22.91800880432129,
+        4.744256377220154,
+        -1.0563271045684814
+      ],
+      "size": [
+        2.09977,
+        4.7441,
+        1.029983
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 13,
+      "meshName": "SM_Sandalye_P1.006",
+      "min": [
+        27.296600341796875,
+        0.18395507335662842,
+        0.2345951795578003
+      ],
+      "max": [
+        27.98856544494629,
+        1.2022826671600342,
+        0.9748100638389587
+      ],
+      "size": [
+        0.691965,
+        1.018328,
+        0.740215
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 14,
+      "meshName": "M_Masa_P1",
+      "min": [
+        25.762222290039062,
+        0.17491936683654785,
+        0.7759044170379639
+      ],
+      "max": [
+        28.499195098876953,
+        1.0995633602142334,
+        2.1532583236694336
+      ],
+      "size": [
+        2.736973,
+        0.924644,
+        1.377354
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 15,
+      "meshName": "SM_Sandalye_P1.007",
+      "min": [
+        26.305007934570312,
+        0.18395507335662842,
+        0.21903854608535767
+      ],
+      "max": [
+        27.141807556152344,
+        1.2022826671600342,
+        1.0932838916778564
+      ],
+      "size": [
+        0.8368,
+        1.018328,
+        0.874245
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 16,
+      "meshName": "SM_Sandalye_P1.008",
+      "min": [
+        26.215789794921875,
+        0.18395507335662842,
+        1.757386565208435
+      ],
+      "max": [
+        26.922348022460938,
+        1.2022826671600342,
+        2.5143470764160156
+      ],
+      "size": [
+        0.706558,
+        1.018328,
+        0.756961
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 17,
+      "meshName": "SM_Sandalye_P1.009",
+      "min": [
+        27.222686767578125,
+        0.18395507335662842,
+        1.7564319372177124
+      ],
+      "max": [
+        27.923431396484375,
+        1.2022826671600342,
+        2.506939172744751
+      ],
+      "size": [
+        0.700745,
+        1.018328,
+        0.750507
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 18,
+      "meshName": "SM_Sandalye_P1.010",
+      "min": [
+        28.146244049072266,
+        0.18395507335662842,
+        1.0303714275360107
+      ],
+      "max": [
+        28.970430374145508,
+        1.2022826671600342,
+        1.8203189373016357
+      ],
+      "size": [
+        0.824186,
+        1.018328,
+        0.789948
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 19,
+      "meshName": "SM_Sandalye_P1.011",
+      "min": [
+        25.367572784423828,
+        0.18395507335662842,
+        1.0389353036880493
+      ],
+      "max": [
+        26.109224319458008,
+        1.2022826671600342,
+        1.7316055297851562
+      ],
+      "size": [
+        0.741652,
+        1.018328,
+        0.69267
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 20,
+      "meshName": "SM_Sandalye",
+      "min": [
+        25.566486358642578,
+        0.000156402587890625,
+        -1.951369285583496
+      ],
+      "max": [
+        26.316543579101562,
+        1.05033540725708,
+        -1.1798095703125
+      ],
+      "size": [
+        0.750057,
+        1.050179,
+        0.77156
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 21,
+      "meshName": "SM_Orta_Sehpa_1",
+      "min": [
+        23.937313079833984,
+        0.00015644729137420654,
+        -1.92311429977417
+      ],
+      "max": [
+        25.13614273071289,
+        0.6244059205055237,
+        -1.038886547088623
+      ],
+      "size": [
+        1.19883,
+        0.624249,
+        0.884228
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 22,
+      "meshName": "SM_Avize",
+      "min": [
+        27.07461166381836,
+        0.3229125142097473,
+        -2.2681264877319336
+      ],
+      "max": [
+        28.412580490112305,
+        1.6039772033691406,
+        -0.8851795196533203
+      ],
+      "size": [
+        1.337969,
+        1.281065,
+        1.382947
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 23,
+      "meshName": "SM_Kalorifer.001",
+      "min": [
+        22.861454010009766,
+        0.00015652179718017578,
+        1.1646091938018799
+      ],
+      "max": [
+        24.6521053314209,
+        1.110629677772522,
+        1.444225788116455
+      ],
+      "size": [
+        1.790651,
+        1.110473,
+        0.279617
+      ],
+      "category": "cover_low"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 24,
+      "meshName": "SM_Pecete.001",
+      "min": [
+        18.69915008544922,
+        0.027260005474090576,
+        1.0461901426315308
+      ],
+      "max": [
+        18.839317321777344,
+        0.32342177629470825,
+        1.1863592863082886
+      ],
+      "size": [
+        0.140167,
+        0.296162,
+        0.140169
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 25,
+      "meshName": "SM_Zemin_P1",
+      "min": [
+        16.847881317138672,
+        0.0001564621925354004,
+        -2.9485180377960205
+      ],
+      "max": [
+        19.83641815185547,
+        0.0001564621925354004,
+        0.07989215850830078
+      ],
+      "size": [
+        2.988537,
+        0,
+        3.02841
+      ],
+      "category": "floor"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 26,
+      "meshName": "SM_Giris_Kartonpiyer.002",
+      "min": [
+        20.10649299621582,
+        1.6873598098754883,
+        -4.878061771392822
+      ],
+      "max": [
+        25.18597412109375,
+        2.2439465522766113,
+        -4.68425989151001
+      ],
+      "size": [
+        5.079481,
+        0.556587,
+        0.193802
+      ],
+      "category": "decorative"
+    },
+    {
+      "file": "/models/maps/inter.glb",
+      "node": 27,
+      "meshName": "SM_Duvar.001",
+      "min": [
+        10.359243392944336,
+        0.000156402587890625,
+        -4.9424638748168945
+      ],
+      "max": [
+        14.279497146606445,
+        4.78134822845459,
+        -4.516829490661621
+      ],
+      "size": [
+        3.920254,
+        4.781192,
+        0.425634
+      ],
+      "category": "wall_solid"
+    }
+  ],
+  "groups": {
+    "floor": [
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      53,
+      172,
+      181,
+      182,
+      211
+    ],
+    "ceiling": [
+      197
+    ],
+    "wall_solid": [
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      76,
+      77,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      91,
+      92,
+      93,
+      94,
+      95,
+      97,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      116,
+      117,
+      213
+    ],
+    "wall_doorway": [
+      75,
+      96,
+      139,
+      140
+    ],
+    "wall_window": [
+      78,
+      90,
+      98,
+      107,
+      178
+    ],
+    "stairs": [
+      114,
+      115,
+      170,
+      171
+    ],
+    "cover_low": [
+      7,
+      8,
+      9,
+      10,
+      11,
+      19,
+      20,
+      30,
+      31,
+      192,
+      200,
+      207,
+      209
+    ],
+    "cover_high": [
+      142,
+      143,
+      186,
+      187
+    ],
+    "decorative": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      32,
+      50,
+      51,
+      52,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      137,
+      138,
+      141,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168,
+      169,
+      173,
+      174,
+      175,
+      176,
+      177,
+      179,
+      180,
+      183,
+      184,
+      185,
+      188,
+      189,
+      190,
+      191,
+      193,
+      194,
+      195,
+      196,
+      198,
+      199,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      208,
+      210,
+      212
+    ]
+  }
+}

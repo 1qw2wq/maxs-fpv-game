@@ -220,3 +220,17 @@ export function updateContactShadow(girl,world,alive) {
   mesh.material.opacity=.36*Math.exp(-height*1.1);
   mesh.scale.setScalar(1+Math.min(1,height*.25));
 }
+
+/** Uploaded 2:1 panorama; owns its PMREM, so map swaps release both textures. */
+export async function loadSkyboxEnvironment(renderer,scene,url) {
+  const texture=await new THREE.TextureLoader().loadAsync(url);
+  texture.colorSpace=THREE.SRGBColorSpace;texture.mapping=THREE.EquirectangularReflectionMapping;
+  let target=null;
+  if(renderer){const pmrem=new THREE.PMREMGenerator(renderer);try{target=pmrem.fromEquirectangular(texture);}finally{pmrem.dispose();}}
+  scene.background=texture;scene.environment=target?.texture||texture;scene.environmentIntensity=.65;
+  return {texture,target,dispose(){
+    if(scene.background===texture)scene.background=null;
+    if(scene.environment===texture||scene.environment===target?.texture)scene.environment=null;
+    texture.dispose();target?.dispose();
+  }};
+}

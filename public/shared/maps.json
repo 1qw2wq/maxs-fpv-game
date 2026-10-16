@@ -45,7 +45,7 @@
       "scene": {
         "model": "/models/maps/cs_italy.glb",
         "rotX": 0,
-        "scale": 1.0,
+        "scale": 1,
         "offset": [
           5.727,
           -28.75,
@@ -79,6 +79,42 @@
           ]
         }
       ]
+    },
+    {
+      "id": "proc_city",
+      "name": "程序化旧城",
+      "nameEn": "Procedural City",
+      "desc": "种子 1942 · 双层楼房与交叉街道",
+      "descEn": "Seed 1942 · enterable two-story urban blocks",
+      "file": "/shared/maps/proc_city.json",
+      "scene": null,
+      "controlPoints": [
+        {
+          "id": "A",
+          "p": [
+            -16,
+            0,
+            0
+          ]
+        },
+        {
+          "id": "B",
+          "p": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": "C",
+          "p": [
+            16,
+            0,
+            0
+          ]
+        }
+      ],
+      "seed": 1942
     }
   ]
 }

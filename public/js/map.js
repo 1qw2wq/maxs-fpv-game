@@ -8,7 +8,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { part, toonMat, flatMat, concreteTexture, sandbagTexture, mudTexture, plankTexture, wireTexture, shift } from './toon.js';
-import { sceneStyle, applyEnvironment, fixImportedMaterials, createContactShadow } from './lighting.js';
+import { sceneStyle, applyEnvironment, fixImportedMaterials, createContactShadow, loadSkyboxEnvironment } from './lighting.js';
+
+import {buildProcCity, extractCityKit} from './proc-city.js';
+export {buildProcCity} from './proc-city.js';
 
 const PLAYER_RADIUS = 0.35;
 const STEP_UP_MAX = 0.65;
@@ -63,7 +66,12 @@ export class World {
 
   async init() {
     this._lights();
-    if (this.map.scene) await this._model();
+    if(this.map.procedural==='proc_city') {
+      buildProcCity(this.group,this.map,await extractCityKit());
+      this.skyResources=await loadSkyboxEnvironment(this.renderer,this.scene,this.map.skybox);
+      this.sky.visible=false;
+    }
+    else if (this.map.scene) await this._model();
     else this._boxes();
     // Scenery never animates. Avoid recomposing thousands of static model-node
     // matrices each rendered frame, while keeping their world-space bounds.
@@ -200,10 +208,11 @@ export class World {
 
   _lights() {
     const s = this.style;
+    if(this.renderer)this.renderer.shadowMap.enabled=this.map.procedural==='proc_city';
 
     // Imported glTF is PBR: without an environment map every metallic surface
     // reflects nothing and renders black, no matter how many lights there are.
-    applyEnvironment(this.renderer, this.scene, s);
+    if(!this.map.skybox)applyEnvironment(this.renderer, this.scene, s);
 
     this.scene.fog = new THREE.Fog(new THREE.Color(s.fog), s.fogNear, s.fogFar);
     // three.js only draws a Color / Texture / CubeTexture set as scene.background;
@@ -221,6 +230,12 @@ export class World {
 
     const sun = new THREE.DirectionalLight(new THREE.Color(s.sunColor), 1.9);
     sun.position.set(-38, 46, 26);
+    if(this.map.procedural==='proc_city') {
+      sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
+      Object.assign(sun.shadow.camera,{left:-36,right:36,top:36,bottom:-36,near:.5,far:120});
+      sun.shadow.bias=-.0003;sun.shadow.normalBias=.04;
+      if(this.renderer)this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    }
     this.group.add(sun);
 
     const rim = new THREE.DirectionalLight(new THREE.Color('#b3d0ff'), 0.55);
@@ -293,8 +308,10 @@ export class World {
 
   /** Tear the map down so a swap does not leak geometry or textures. */
   dispose() {
+    this.skyResources?.dispose();
     const geometries=new Set(),materials=new Set(),textures=new Set();
     this.group.traverse((o) => {
+      o.shadow?.dispose?.();
       if(o.isInstancedMesh)o.dispose();
       if (o.geometry && !geometries.has(o.geometry)) { geometries.add(o.geometry);o.geometry.dispose(); }
       const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);

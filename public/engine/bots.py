@@ -188,6 +188,15 @@ def _friendly_lane(match, p, eye, direction, distance):
 def _route_direction(p, goal, now):
     """Bounded A* to a remembered/cover goal, never a hidden player's live pos."""
     st = p["bot_state"]
+    if combat.MAP_DATA.get('bot_nav'):
+        key=tuple(round(v,1) for v in goal)
+        path=st.get('city_route',[])
+        if st.get('city_goal_key')!=key or not path:
+            path=combat.waypoint_route(p['pos'],goal)
+            st['city_route'],st['city_goal_key']=path,key
+        while path and dist3(p['pos'],path[0])<.45:path.pop(0)
+        target=path[0] if path else p['pos']
+        return target[0]-p['pos'][0],target[2]-p['pos'][2]
     c = combat.NAV_CELL
     field = combat.NAV_FLOW.get(p["team"], {})
     start = (math.floor(p["pos"][0] / c), math.floor(p["pos"][2] / c))
@@ -376,6 +385,20 @@ def think(match, p, dt_ms):
     elif memory and dist3(p["pos"], memory) > 1.2:
         dx, dz = _route_direction(p, memory, now)
         speed_mult = 0.8
+    elif combat.MAP_DATA.get('bot_nav'):
+        # Patrol an upper lookout, then the opposing end of the city. No jump
+        # impulses or privileged teleports: _steer walks the authored ramp.
+        lookouts=[n['p'] for n in combat.MAP_DATA['bot_nav']['nodes'] if n.get('kind')=='lookout']
+        stage=st.get('city_patrol',0)
+        if stage%2==0:
+            goal=lookouts[(p['id']+stage//2)%len(lookouts)]
+        else:
+            spawn=combat.SPAWNS[str(1-p['team'])][p['id']%len(combat.SPAWNS[str(1-p['team'])])]
+            goal=[spawn['x'],spawn['y'],spawn['z']]
+        if dist3(p['pos'],goal)<.7:st['city_patrol']=stage+1
+        dx,dz=_route_direction(p,goal,now)
+        speed_mult=.8
+        st['search_heading']=None
     else:
         nd = combat.nav_dir(p["pos"][0], p["pos"][2], p["team"])
         if nd:

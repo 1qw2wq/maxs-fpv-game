@@ -6,6 +6,7 @@ and reused by both the hit registration and the bot AI.
 """
 
 import json
+import heapq
 import math
 from collections import deque
 from pathlib import Path
@@ -526,6 +527,58 @@ def nav_dir(x, z, team):
         n = math.hypot(e[1], e[2]) or 1.0
         return (e[1] / n, e[2] / n)
     return (vx / n, vz / n)
+
+
+def waypoint_route(start, goal):
+    """3D authored graph for multi-storey maps; old 2D flow fields stay intact.
+
+    Edges are bidirectional walkable corridors, including sampled smooth ramps.
+    A nearest-node choice alone can jump floors/walls: validate each attachment
+    with the SAME swept capsule/floor queries used by live bot movement.
+    """
+    graph = MAP_DATA.get("bot_nav")
+    if not graph:
+        return []
+    nodes = {n['id']: n['p'] for n in graph['nodes']}
+    def attaches(a, b):
+        length = math.hypot(a[0]-b[0], a[2]-b[2])
+        feet = a[1]
+        for k in range(1, max(1, math.ceil(length/.18))+1):
+            t = k/max(1, math.ceil(length/.18))
+            x,z = a[0]+(b[0]-a[0])*t, a[2]+(b[2]-a[2])*t
+            if blocked(x,z,feet):
+                return False
+            floor = floor_at(x,z,feet)
+            if feet-floor > STEP_UP_MAX:
+                return False
+            feet=floor
+        return abs(feet-b[1]) < .4
+    def nearest(p):
+        for key in sorted(nodes,key=lambda k:dist3(p,nodes[k])):
+            if attaches(p,nodes[key]):
+                return key
+        return None
+    begin,end=nearest(start),nearest(goal)
+    if begin is None or end is None:
+        return []
+    adjacent={k:[] for k in nodes}
+    for a,b in graph['edges']:
+        cost=dist3(nodes[a],nodes[b]);adjacent[a].append((b,cost));adjacent[b].append((a,cost))
+    queue=[(0,begin)];costs={begin:0};parents={}
+    while queue:
+        cost,key=heapq.heappop(queue)
+        if cost>costs[key]:continue
+        if key==end:
+            path=[end]
+            while path[-1]!=begin:path.append(parents[path[-1]])
+            result=[nodes[k][:] for k in reversed(path)]
+            if attaches(nodes[end],goal):result.append(list(goal))
+            return result
+        for nxt,weight in adjacent[key]:
+            value=cost+weight
+            if value<costs.get(nxt,float('inf')):
+                costs[nxt]=value;parents[nxt]=key;heapq.heappush(queue,(value,nxt))
+    return []
 
 
 def random_spawn(team, rng):
