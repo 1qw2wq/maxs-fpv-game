@@ -57,7 +57,7 @@ export async function testLayouts(context, origin) {
       await page.locator('#btn-mode-solo').scrollIntoViewIfNeeded();
       assert.ok(await page.locator('#btn-mode-solo').isVisible(),label+' scroll to mode');
       assert.ok(await page.evaluate(()=>{const el=document.querySelector('#btn-mode-solo'),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),label+' mode covered');checks++;
-      await page.evaluate(()=>{hud.screen('select');hud.setRoomCode('12345678');hud.selectClass('assault',0);});
+      await page.evaluate(()=>{hud.screen('select');hud.setRoomCode('12345678');hud.selectClass('scout',0);hud.pickWeapon('scout','awp');});
       assert.deepEqual(await page.evaluate(()=>inspectLayout('#screen-select')),[],label+' select');
       assert.ok(await page.evaluate(()=>document.querySelector('.weapon-row').getBoundingClientRect().bottom<=document.querySelector('#screen-select .select-foot').getBoundingClientRect().top),label+' weapon/deploy separation');checks++;
       await page.locator('#btn-deploy').scrollIntoViewIfNeeded();

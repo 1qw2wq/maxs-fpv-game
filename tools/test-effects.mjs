@@ -162,8 +162,8 @@ export async function testEffects(context, origin) {
     window.effectPreview = { renderer, scene, camera, vm, cloud: a };
     return { weapons: data.weapons.length, poses: checked, maxPalmError, maxThirdPersonError };
   });
-  assert.equal(result.weapons, 12);
-  assert.equal(result.poses, 84);
+  assert.equal(result.weapons, 15);
+  assert.equal(result.poses, result.weapons*7);
   assert.deepEqual(errors, []);
   console.log(`PASS: ${result.weapons} imported guns, ${result.poses} grip/ADS/recoil/reload poses; max palm error ${result.maxPalmError.toExponential(2)} m`);
   console.log(`PASS: third-person built-in wrists track shared grips (max error ${result.maxThirdPersonError.toExponential(2)} m)`);

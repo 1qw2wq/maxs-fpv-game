@@ -140,10 +140,10 @@ export async function testMobile(browser, origin) {
       throw error;
     }
     const original=await page.evaluate(()=>{const me=window.__trench.app.net.lastMe;return {c:me.c,w:me.w,mag:me.mag,reserve:me.reserve};});
-    await page.evaluate(()=>{const {app}=window.__trench;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['cls']='scout';p['weapon']='smle';p['mag']=10;p['reserve']=40;p['last_shot']=0`);});
-    await page.waitForFunction(()=>window.__trench.app.net.lastMe.w==='smle' && window.__trench.app.vm.weapon.id==='smle');
+    await page.evaluate(()=>{const {app}=window.__trench;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['cls']='scout';p['weapon']='sentinel';p['mag']=5;p['reserve']=40;p['last_shot']=0`);});
+    await page.waitForFunction(()=>window.__trench.app.net.lastMe.w==='sentinel' && window.__trench.app.vm.weapon.id==='sentinel');
     await page.evaluate(()=>{const {app}=window.__trench;app.nextShot=0;app.boltWait=false;app.mobile.press('fire');app.mobile.release('fire',false);});
-    await page.waitForFunction(()=>window.__trench.app.net.lastMe.mag===9);
+    await page.waitForFunction(()=>window.__trench.app.net.lastMe.mag===4);
     await liveTouch.tap(action('aim'));
     await page.waitForFunction(()=>document.body.classList.contains('scope-active'));
     assert.ok(await page.evaluate(()=>{
@@ -152,6 +152,19 @@ export async function testMobile(browser, origin) {
     }),'Mobile scope must stay circular and leave touch controls visible/clickable');
     await liveTouch.tap(action('aim'));
     await page.waitForFunction(()=>document.getElementById('scope-overlay').classList.contains('hidden'));
+    // Scope ownership is per weapon, not the Scout class, on touch too.
+    for(const id of ['awp','longbow','smle','m95','springfield']) {
+      await page.evaluate(id=>{const {app}=window.__trench;app.net._engine.py.runPython(`p['weapon']='${id}'`);},id);
+      await page.waitForFunction(id=>{const {app}=window.__trench;return app.net.lastMe.w===id && app.vm.weapon.id===id;},id);
+      await liveTouch.tap(action('aim'));
+      await page.waitForFunction(()=>window.__trench.app.controls.ads);
+      assert.ok(await page.evaluate(()=>{
+        const {app}=window.__trench,expected=app.vm.weapon.scope===true;
+        return document.body.classList.contains('scope-active')===expected && app.vm.root.visible!==expected;
+      }),`${id}: incorrect touch scope/iron-sight presentation`);
+      await liveTouch.tap(action('aim'));
+      await page.waitForFunction(()=>!window.__trench.app.controls.ads);
+    }
     await page.evaluate(saved=>{const {app}=window.__trench;app.boltWait=false;app.nextShot=0;app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}];p['cls']='${saved.c}';p['weapon']='${saved.w}';p['mag']=${saved.mag};p['reserve']=${saved.reserve};p['last_shot']=0`);},original);
     await page.waitForFunction(id=>window.__trench.app.net.lastMe.w===id && window.__trench.app.vm.weapon.id===id,original.w);
     await liveTouch.tap(action('reload'));await page.waitForFunction(()=>window.__trench.app.net.lastMe.reloading);

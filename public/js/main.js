@@ -2321,7 +2321,7 @@ function tick(dt, now) {
   if (tp && app.self && app.camera.position.distanceToSquared(eye) < 0.64) app.self.root.visible = false;
   app.camera.lookAt(app.camera.position.clone().add(dir));
   // in third person the character body replaces the viewmodel
-  const scoped = alive && app.controls.ads && w.class === 'scout';
+  const scoped = alive && app.controls.ads && w.scope === true;
   document.getElementById('scope-overlay').classList.toggle('hidden', !scoped);
   document.body.classList.toggle('scope-active', scoped);
   app.vm.root.visible = !tp && !scoped;
@@ -2351,7 +2351,7 @@ function tick(dt, now) {
 
   // bolt rifles (every one except the straight-pull M95) only chamber the next
   // round after the player has come out of the sights and released the aim
-  // button; the M95 works the bolt while still scoped
+  // button; the M95 works the bolt while still aiming
   if (app.boltWait && !app.controls.mouse.right) app.boltWait = false;
   // Scoped bolt shot: the cycle sound plays the moment the sights come off.
   if (app.pendingBolt && !app.controls.mouse.right) {

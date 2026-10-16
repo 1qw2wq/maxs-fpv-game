@@ -61,7 +61,7 @@ export async function testArsenal(context, origin) {
       const legacy={};
       if(!remoteShotDue(legacy,{alive:true,flags:8},weapon,0) || remoteShotDue(legacy,{alive:true,flags:8},weapon,1)) throw new Error('Legacy cadence fallback broken');
     }
-    for(let i=0;i<80;i++) { fx.fire(data.weapons[i%12],from,dir); fx.update(0.001); }
+    for(let i=0;i<80;i++) { fx.fire(data.weapons[i%data.weapons.length],from,dir); fx.update(0.001); }
     if(fx.flashes.length>8 || fx.smokes.length>18 || fx.casings.length>16) throw new Error('Unbounded firing pools');
     fx.clear();
     if(fx.flashes.some(f=>f.meshes.some(m=>m.visible)) || fx._lights.some(l=>l.intensity)) throw new Error('Map change leaves flash/light');
@@ -93,9 +93,9 @@ export async function testArsenal(context, origin) {
     }
     await audio.ctx.close();
   });
-  assert.equal(result.shots,36);
+  assert.equal(result.shots,result.weapons*3);
   assert.deepEqual(errors,[]);
-  console.log('PASS: all 12 guns / 36 FP, TP and remote shots: flash at 20fps, smoke, brass sizing, light, recoil, tracer cadence, accepted-shot deduplication, bounded pools and decoded per-gun sound');
+  console.log('PASS: all 15 guns / 45 FP, TP and remote shots: flash at 20fps, smoke, brass sizing, light, recoil, tracer cadence, accepted-shot deduplication, bounded pools and decoded per-gun sound');
   await page.close();
 }
 
@@ -124,5 +124,5 @@ export async function testLiveArsenal(page) {
       return true;
     },before);
   }
-  console.log('PASS: actual main.js fires every gun in both first- and third-person (24 weapon/mode cases)');
+  console.log('PASS: actual main.js fires every gun in both first- and third-person (30 weapon/mode cases)');
 }

@@ -17,6 +17,10 @@ const SAMPLE_FILES = {
 // (except the straight-pull M95, whose file already carries the bolt working)
 // also get a separate bolt-cycle sample, played once the action is worked.
 const GUN_FILES = {
+  // Reuse existing recordings with each new weapon's own sound trim.
+  sentinel: 'sounds/guns/smle.mp3',
+  awp: 'sounds/guns/springfield.mp3',
+  longbow: 'sounds/guns/rsc1917.mp3',
   mp18: 'sounds/guns/mp18.mp3',
   auto1918: 'sounds/guns/auto1918.mp3',
   hellriegel: 'sounds/guns/hellriegel.mp3',
@@ -31,6 +35,8 @@ const GUN_FILES = {
   springfield: 'sounds/guns/springfield.mp3',
 };
 const BOLT_FILES = {
+  sentinel: 'sounds/guns/bolt_smle.mp3',
+  awp: 'sounds/guns/bolt_springfield.mp3',
   smle: 'sounds/guns/bolt_smle.mp3',
   springfield: 'sounds/guns/bolt_springfield.mp3',
 };

@@ -26,6 +26,7 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  '瞄准镜': 'Scoped',
   '出生保护 · {seconds}秒': 'Spawn shield · {seconds}s',
   '自定义触屏布局': 'Customize touch layout',
   '全屏': 'Full screen',

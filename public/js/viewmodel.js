@@ -101,7 +101,7 @@ export function buildWeapon(weapon) {
       add(box(0, -0.035, -0.40, 0.05, 0.15, 0.30), wood);
       add(box(0, -0.055, 0.28, 0.048, 0.06, 0.30), wood);
       add(box(0, -0.095, -0.04, 0.04, 0.13, 0.055), wood);
-      add(cyl(0, 0.10, 0.05, 0.032, 0.032, 0.24, 10), dark);  // scope
+      if (weapon.scope) add(cyl(0, 0.10, 0.05, 0.032, 0.032, 0.24, 10), dark); // optic only when equipped
       add(box(0.055, 0.02, -0.10, 0.07, 0.022, 0.022), metal); // bolt handle
       break;
   }

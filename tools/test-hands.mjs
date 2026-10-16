@@ -114,7 +114,7 @@ export async function testHands(context, origin) {
   });
   assert.deepEqual(errors, []);
   assert.equal(result.skins, 4);
-  assert.equal(result.poses, 384);
+  assert.equal(result.poses, 4*15*8);
   console.log(`PASS: ${result.skins} imported skeletons / ${result.poses} poses: wrist orientation, 30 finger joints, repeat-frame stability and reach fallback (${result.usable} reachable)`);
   if (process.env.HAND_SCREENSHOT) {
     await page.screenshot({ path: process.env.HAND_SCREENSHOT });

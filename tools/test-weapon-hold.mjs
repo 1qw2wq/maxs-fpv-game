@@ -77,9 +77,9 @@ export async function testWeaponHold(context, origin) {
     window.weaponHoldPreview={scene,examples,data};
     return {frames,maxBodyDrift,maxRightError,maxLeftError};
   });
-  assert.equal(result.frames,4*12*192);
+  assert.equal(result.frames,4*15*192);
   assert.deepEqual(errors,[]);
-  console.log(`PASS: ${result.frames} actual third-person frames, 4 skins × 12 guns: animated-chest attachment, 8 run directions, turns, pitch, crouch, reload/throw and hand contact (max drift ${(result.maxBodyDrift*1000).toFixed(3)}mm; wrists ${result.maxRightError.toFixed(4)}/${result.maxLeftError.toFixed(4)}m)`);
+  console.log(`PASS: ${result.frames} actual third-person frames, 4 skins × 15 guns: animated-chest attachment, 8 run directions, turns, pitch, crouch, reload/throw and hand contact (max drift ${(result.maxBodyDrift*1000).toFixed(3)}mm; wrists ${result.maxRightError.toFixed(4)}/${result.maxLeftError.toFixed(4)}m)`);
   if(process.env.WEAPON_HOLD_SCREENSHOT) {
     await page.evaluate(async()=>{
       const T=await import('/vendor/three.module.js'),{scene,examples,data}=window.weaponHoldPreview;

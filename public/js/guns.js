@@ -4,7 +4,7 @@
 // public/models/guns/ and drops a correctly oriented, length-matched clone into
 // the group the procedural builder handed back. The procedural gun stays in
 // place until the download finishes, so a weapon is never missing, and every
-// clone shares the prototype's geometry, so twelve guns cost one parse each.
+// clone shares the prototype's geometry, so each model is parsed only once.
 //
 // The transforms below were solved offline: for each file the longest axis was
 // carried onto +Z, the muzzle end picked as the thinner of the two, and the
@@ -31,6 +31,10 @@ const D2R = Math.PI / 180;
  * be, so it finally ships as a model instead of the procedural placeholder.
  */
 const MODELS = {
+  // Uploaded scoped rifles, normalized to the same 1.28 m carry envelope.
+  sentinel: { file: 'sniper.glb', rot: [0, 0, 0], off: [0, -.06, -.331187], scale: 0.007624 },
+  awp: { file: 'sniper_rifle_-_awp.glb', rot: [0, 180, 0], off: [-.0141, .03, -.30324], scale: 0.00561385 },
+  longbow: { file: 'titanfall_2_weapon_longbow-dmr_sniper.glb', rot: [90, 0, 0], off: [0, -.14, -.054665], scale: 0.028769 },
   mp18:        { rot: [0, 90, 0],     off: [-0.099, -0.003, 0],        scale: 0.011274 },
   hellriegel:  { rot: [97.216, 77.144, -84.05], off: [-0.0097, -0.0335, 0.0906], scale: 0.001328326 },
   auto1918:    { rot: [180, 0, 180],  off: [0.006, -0.033, -0.169],    scale: 0.795572 },
@@ -46,6 +50,23 @@ const MODELS = {
 };
 
 const loader = new GLTFLoader();
+// The uploaded Longbow uses the retired specular/glossiness extension. Restore
+// its embedded albedo through the current loader rather than drawing it white.
+loader.register((parser) => ({
+  name: 'KHR_materials_pbrSpecularGlossiness',
+  extendMaterialParams(index, params) {
+    const legacy = parser.json.materials[index].extensions?.KHR_materials_pbrSpecularGlossiness;
+    if (!legacy) return Promise.resolve();
+    const color = legacy.diffuseFactor || [1, 1, 1, 1];
+    params.color = new THREE.Color().fromArray(color);
+    params.opacity = color[3];
+    params.metalness = .15;
+    params.roughness = Math.max(.35, 1 - (legacy.glossinessFactor ?? .5));
+    return legacy.diffuseTexture
+      ? parser.assignTexture(params, 'map', legacy.diffuseTexture, THREE.SRGBColorSpace)
+      : Promise.resolve();
+  },
+}));
 const cache = new Map();   // id -> Promise<THREE.Object3D>
 
 /**
@@ -74,7 +95,7 @@ function deSkin(root) {
 function load(id) {
   let p = cache.get(id);
   if (!p) {
-    p = loader.loadAsync(BASE + id + '.glb').then((g) => {
+    p = loader.loadAsync(BASE + (MODELS[id].file || id + '.glb')).then((g) => {
       deSkin(g.scene);
       // These files are PBR with a metallicRoughness map: without an
       // environment they render black, so the scene's baked environment and a
@@ -162,6 +183,7 @@ export function attachGunModel(weapon, group, muzzle) {
   const procedural = group.children.filter((c) => c.isMesh);
   group.userData.modelReady = load(id).then((scene) => {
     const holder = place(scene.clone(true), cfg);
+    holder.name = `gun-model-${id}`;
     calibrateMuzzle(holder, muzzle, group.userData.anchors?.sight);
     for (const c of procedural) group.remove(c);
     group.add(holder);

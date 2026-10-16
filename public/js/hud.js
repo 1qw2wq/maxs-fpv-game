@@ -475,6 +475,7 @@ export class Hud {
         ${w.lethalBody ? `<span class="wc-tag">${t('{a}-{b}m 躯干致命', {
           a: Math.round(w.lethalMinM || 0), b: Math.round(w.lethalMaxM || 0),
         })}</span>` : ''}
+        ${w.scope ? `<span class="wc-tag">${t('瞄准镜')}</span>` : ''}
         ${w.auto ? `<span class="wc-tag">${t('全自动')}</span>` : `<span class="wc-tag">${t('半自动/栓动')}</span>`}
       `;
   }

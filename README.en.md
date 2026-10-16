@@ -1,7 +1,8 @@
 # Trench Front 堑壕前线
 
 A WW1-themed browser FPS with team deathmatch and point control, four classes (Assault / Medic /
-Support / Scout), three weapons each, and every playable character is an **anime-style girl**
+Support / Scout), 15 weapons (three each for Assault/Medic/Support and six for Scout), and every
+playable character is an **anime-style girl**
 (semi-realistic proportions, roughly 5.7 heads tall).
 
 No build step: the client is plain ES modules with an import map, and the server is one Python
@@ -201,12 +202,35 @@ The game needs no plugins, but two browser environments restrict pages and both 
   position, including holes leading to a model map's invisible backstop. Real basement floors and
   ramps remain playable. Host recovery is replicated without refilling health/ammo or renewing immunity.
 
+### Three uploaded scoped rifles
+
+Scout now offers six rifles. **Only `scope: true` weapons use the circular scope effect**,
+not the whole Scout class. The original SMLE, M95 and Springfield have no optic on their models;
+they retain visible iron-sight ADS with modest zoom instead of the scope mask.
+
+| Game name | Uploaded model | Action | Magazine | ADS FOV |
+| --- | --- | --- | --- | --- |
+| **Sentinel SR-1** | `sniper.glb` | Bolt action | 5 | 16° |
+| **AWP** | `sniper_rifle_-_awp.glb` | Bolt action | 5 | 14° |
+| **Longbow DMR** | `titanfall_2_weapon_longbow-dmr_sniper.glb` | Semi-automatic | 10 | 20° |
+
+All three are normalized to a 1.28 m carry envelope with calibrated muzzle/hand contacts,
+existing gunshot recordings with individual sound trims, and new authoritative loadout/ammo/reload entries.
+The Longbow's legacy specular/glossiness diffuse textures are restored at load time so it does not render white.
+Model authors, sources and embedded license restrictions are in
+[`public/models/guns/CREDITS.md`](public/models/guns/CREDITS.md). The AWP's embedded license is non-commercial;
+verify the supplied licenses/permissions before commercial redistribution.
+
+`python tools/test-snipers.py` verifies all six Scout loadouts, exactly three scoped weapons,
+firing/ammo/reload and the actual uploaded files. Browser checks exercise all six scopes/iron sights
+on desktop and touch, all 15 imported models and the six-card Scout selection layout.
+
 ### Weapon presentation and smoke
 
 - Guns share gun-local trigger/support grips, reload/feed points and receiver-ejection sockets across
   first-person arms and third-person IK. Imported models calibrate their muzzle to the actual front
   geometry instead of retaining a procedural gun's placeholder barrel length.
-- Each of the 12 imported guns has mesh-measured hand contacts. Imported character hands use a
+- Each of the 15 imported guns has mesh-measured hand contacts. Imported character hands use a
   calibrated palm/wrist frame, opposed thumbs and curled finger joints (with a lighter trigger-index
   curl), rather than putting an open wrist directly on the grip. The same orientation follows ADS,
   recoil and reloads. Fallback gloves have rounded palms and separate bent fingers, with sleeves
@@ -269,7 +293,7 @@ Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the po
   joystick off-center for **more than 1.5 seconds** to sprint; releasing/centering it, aiming, crouching or
   interrupted input resets the timer. The joystick outline highlights sprinting.
 - **Aim** slows movement to **62%** of walking speed and overrides sprint. Client and authoritative engine
-  share these multipliers. Scout rifles get a circular scope, black outer mask, lens shading and centered
+  share these multipliers. Only the three optic-equipped rifles get a circular scope, black outer mask, lens shading and centered
   graduated reticle; the gun/arms hide while scoped, but HUD/touch controls stay above the optic.
 - Third-person rifles follow the **animated chest**, not the unanimated avatar root or previous-frame
   wrists. A bind-calibrated torso attachment removes bone-axis/scale differences, and pitch pivots at
@@ -284,7 +308,7 @@ collision checks, rotation and sanitized persistence), and fullscreen success/de
 It is part of `node tools/test-vercel.mjs`; live mobile tests also exercise actual touch editing, sprint and
 scoping. `python tools/test-movement.py` checks engine sprint/ADS/crouch authority. Third-person stability
 checks run through hold, run, fire, reload, throw and sprint on all four shipped skeletons.
-`tools/test-weapon-hold.mjs` measures **9,216 animated frames** (4 skins × 12 guns), all eight translated
+`tools/test-weapon-hold.mjs` measures **11,520 animated frames** (4 skins × 15 guns), all eight translated
 run directions, turning, crouch and ±89° pitch against the anatomical chest and both hand contacts.
 The previous root-local test missed visible torso-relative drift; this regression fails the previous
 implementation. `tools/test-live-weapon-hold.mjs` also observes actual local and interpolated remote
@@ -352,7 +376,7 @@ regressions (distribution, respawn/state recovery, reaction gates, turn rates, a
   floors and ceilings. TP retracts at walls; FP resolves near-plane overlap, including wide screens.
   Jumping also stops at ceilings. A fully contracted TP camera hides the local body, not other players.
   Camera correction never moves the player's body or authoritative shooting ray.
-- All 12 guns retain flashes for at least one rendered frame, even at low frame rates. Local and remote
+- All 15 guns retain flashes for at least one rendered frame, even at low frame rates. Local and remote
   flashes follow the posed muzzle; brass keeps its per-gun size and smoke fades independently. Remote
   sounds now use the actual gun's decoded sample. Accepted-shot sequence numbers prevent duplicate or
   missed remote effects from short firing flags and repeated/out-of-order snapshots (older hosts retain
@@ -374,20 +398,20 @@ duplicate delivery over two transports, joining during host startup, invalid cod
 departure cleanup, native lock/retry/Esc/relock, permitted iframe locking, and denied sandbox requests
 without alternative steering. This is a local
 static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
-The same command also runs `tools/test-effects.mjs`: 12 imported models / 84 weapon poses,
+The same command also runs `tools/test-effects.mjs`: 15 imported models / 105 weapon poses,
 third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
 and an actual solo deploy/fire/reload/grenade render. `python tools/test-grenades.py` covers
 21 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
 visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q controls and effects. `tools/test-hands.mjs` additionally exercises
-all four shipped skeletons across 384 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
+all four shipped skeletons across 480 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
 hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
-`tools/test-survival.mjs` adds 24 real-aim recoil cases, 5,376 map movement frames at 20/60/144fps,
+`tools/test-survival.mjs` adds 30 real-aim recoil cases, 5,376 map movement frames at 20/60/144fps,
 shield replication/expiry and disposal, plus live respawn protection/HUD and client/host recovery.
 Run `python tools/test-survival.py` for nine authoritative shield/safety regressions.
 `tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
-`tools/test-arsenal.mjs` verifies all 12 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
-shot deduplication and pool cleanup; the actual solo game also fires all 12 guns in FP and TP (24 cases).
+`tools/test-arsenal.mjs` verifies all 15 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
+shot deduplication and pool cleanup; the actual solo game also fires all 15 guns in FP and TP (30 cases).
 Run `python tools/test-ai.py` for 23 deterministic AI/engine tests, including 60-second simulated matches
 on both shipped maps. Browser regressions can take a few minutes on software-rendered Chromium.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
@@ -500,7 +524,7 @@ look scheme; there is no drag or cursor steering fallback.
   and undersides are solid, but rays above the actual slope still pass. No wall penetration is added;
   shooting remains continuous hitscan, preserving range/damage/lag compensation and normal open shots.
 
-Validation: `python tools/test-shooting.py` adds 10 cover/security cases, including all 12 guns and
+Validation: `python tools/test-shooting.py` adds 10 cover/security cases, including all 15 guns and
 bots. The full `node tools/test-vercel.mjs` runner adds **612 Python/JS ray parity cases**, grid-vs-linear
 checks (15,281 vs 1,135,260 candidate tests), batching/quality-budget regressions, and actual-game
 wall-blocked damage/tracers, rejected origin hops, open hits and off-screen pose skipping.
@@ -520,7 +544,7 @@ shot effects use the same view choice. Reload/death/chat/lost native lock cancel
 resumes it after reload. The first held RMB can both acquire native pointer lock and aim. Shot
 origin/direction and hit decisions remain authoritative and unchanged.
 
-`tools/test-aim.mjs` adds all-12-model sight/clear-ray checks, zoom sensitivity and input-state
+`tools/test-aim.mjs` adds all-15-model sight/clear-ray checks, zoom sensitivity and input-state
 regressions, plus real-game FP/TP hits with SMG, LMG and bolt rifles, reload resume and release/Esc.
 It runs as part of `node tools/test-vercel.mjs`.
 
@@ -531,13 +555,13 @@ It runs as part of `node tools/test-vercel.mjs`.
 | Assault | Close-quarters burst · 100 hp · ×1.08 movement | **Smoke grenade** — a wide cloud that blocks sight lines; enemies inside cannot be spotted by flares | MP18 Bergmann, Automatico M1918, Hellriegel M1915 |
 | Medic | Mid-range sustain · 100 hp | **Medic box** — heals you and nearby teammates continuously until you place the next one | Cei-Rigotti, RSC M1917 (6 rounds, 50 per shot), Fedorov Avtomat (26 rounds) |
 | Support | Suppressive fire · 110 hp · ×0.94 movement | **Ammo crate** — refills reserve ammo for you and nearby teammates; hits suppress the enemy | Lewis Gun (97-round drum), BAR M1918, Chauchat M1915 (20 rounds, automatic but very slow) |
-| Scout | Long-range sniping · 90 hp | **Flare** — spots enemies in the area for the whole team | SMLE MkIII, Mannlicher M95 (5 rounds, straight-pull), Springfield M1903 |
+| Scout | Long-range sniping · 90 hp | **Flare** — spots enemies in the area for the whole team | SMLE MkIII, Mannlicher M95 (5 rounds, straight-pull), Springfield M1903; Sentinel SR-1, AWP and Longbow DMR |
 
-The scout's bolt-action rifles kill with **one shot to the head or torso** inside their range.
+Scout rifles have different damage/range profiles; the M95 and semi-automatic Longbow DMR are not torso one-shot rifles.
 
 Bolt mechanism: the **Mannlicher M95** is a straight-pull, so it cycles while you are still aiming
-down sights; the other two (SMLE, Springfield) only cycle **after you release the right button** —
-you cannot fire the next round with the sights up.
+down sights; SMLE, Springfield, Sentinel SR-1 and AWP only cycle **after you release the right button** —
+you cannot fire the next round with the sights up. The semi-automatic Longbow DMR needs no manual bolt cycle.
 
 ### Three ways in
 
@@ -620,7 +644,7 @@ shown for both sides. The models keep their original colours; nobody gets dyed t
 
 ### Weapon models
 
-All 12 primary weapons use imported glTF models (`public/models/guns/<weapon-id>.glb`), hot-swapped
+All 15 primary weapons use imported glTF models (`public/models/guns/`, mapped by `guns.js`), hot-swapped
 in by `guns.js` once downloaded, over a procedural placeholder (first person, your own third-person
 body and remote players all share the same `buildWeapon` path).
 
@@ -629,7 +653,7 @@ body and remote players all share the same `buildWeapon` path).
 | Assault | `mp18` / `auto1918` / `hellriegel` |
 | Medic | `cei` / `rsc1917` / `federov` |
 | Support | `lewis` / `bar` / `chauchat` |
-| Scout | `smle` / `m95` / `springfield` |
+| Scout | `smle` / `m95` / `springfield` / `sentinel` / `awp` / `longbow` |
 
 - Each model's **longest axis is aligned to +Z (muzzle) with +Y up**, and its length is normalised
   to the same envelope as the procedural gun (SMG 0.92 m / rifle 1.12 m / LMG 1.22 m / bolt 1.28 m)
@@ -645,7 +669,7 @@ body and remote players all share the same `buildWeapon` path).
 
 ### How each weapon fires
 
-The twelve guns differ in more than numbers: muzzle flash, sound, recoil, ejected casings and
+The fifteen guns differ in more than numbers: muzzle flash, sound, recoil, ejected casings and
 tracers all have their own character, all of it in the `fx` block of
 `public/shared/weapons.json` (**presentation only — the server never reads it**, and a bad edit is
 clamped back into range by `gunfx.js` instead of breaking a match).
@@ -791,7 +815,7 @@ FPS web game demo/
     │   └── host.py             # in-page host: collects room output as JSON for js/local.js,
     │                           #   plus RelayHost: a multi-player room that tags every frame
     ├── shared/                 # the single data source shared by Python and JS
-    │   ├── weapons.json        # 12 weapons + 4 classes + the global combat constants
+    │   ├── weapons.json        # 15 weapons + 4 classes + the global combat constants
     │   ├── map.json            # map A collision boxes / cover / spawns / navigation points
     │   ├── maps.json           # map list (default map, per-map scene settings)
     │   ├── maps/cs_italy.json  # the second map

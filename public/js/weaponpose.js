@@ -11,6 +11,9 @@ const SHAPES = {
 // In particular MP18's bore is at x=-.099, and most rifle stocks sit well
 // ABOVE the placeholder pistol-grip height. +Z remains down the barrel.
 const MODELS = {
+  sentinel: { hand: [0, -.085, -.285], fore: [0, -.04, .08], reload: [0, -.08, -.18], eject: [-.035, .02, -.19] },
+  awp: { hand: [0, -.065, -.33], fore: [0, -.035, .03], reload: [0, -.09, -.20], eject: [-.035, .035, -.26] },
+  longbow: { hand: [0, -.09, -.34], fore: [0, -.027, .10], reload: [0, -.10, -.18], eject: [-.04, .025, -.14] },
   mp18: { hand: [-0.099, -0.030, -0.21], fore: [-0.099, -0.002, 0.12], reload: [-0.12, -0.04, -0.08] },
   auto1918: { hand: [0.006, -0.031, -0.22], fore: [0.006, -0.013, 0.13] },
   hellriegel: { hand: [0.012, 0.020, -0.14], fore: [0.012, -0.003, 0.20] },

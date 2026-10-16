@@ -708,7 +708,7 @@
       "rangeM": 20,
       "falloffMaxM": 80,
       "falloff": 0.59,
-      "zoomFov": 22,
+      "zoomFov": 48,
       "auto": false,
       "lethalBody": true,
       "lethalMinM": 0,
@@ -748,7 +748,8 @@
           "tone": 0.95
         }
       },
-      "descEn": "The fastest bolt, a 10-round magazine, and one-shot lethal to the torso from 0-40 m."
+      "descEn": "The fastest bolt, a 10-round magazine, and one-shot lethal to the torso from 0-40 m.",
+      "scope": false
     },
     {
       "id": "m95",
@@ -757,7 +758,7 @@
       "nameEn": "Mannlicher M95",
       "shape": "bolt",
       "wood": "#7a5c30",
-      "desc": "直拉枪机，开镜状态下也能拉栓；伤害稳定但躯干无法一枪致死",
+      "desc": "直拉枪机，瞄准状态下也能拉栓；伤害稳定但躯干无法一枪致死",
       "dmg": 90,
       "rpm": 64,
       "mag": 5,
@@ -772,7 +773,7 @@
       "rangeM": 20,
       "falloffMaxM": 125,
       "falloff": 0.8778,
-      "zoomFov": 18,
+      "zoomFov": 46,
       "auto": false,
       "lethalBody": false,
       "moveMult": 0.48,
@@ -811,7 +812,8 @@
           "tone": 1.0
         }
       },
-      "descEn": "A straight-pull bolt that works even while scoped; consistent damage, but never a torso one-shot."
+      "descEn": "A straight-pull bolt that works even while aiming; consistent damage, but never a torso one-shot.",
+      "scope": false
     },
     {
       "id": "springfield",
@@ -835,7 +837,7 @@
       "rangeM": 0,
       "falloffMaxM": 100,
       "falloff": 0.55,
-      "zoomFov": 16,
+      "zoomFov": 44,
       "auto": false,
       "lethalBody": true,
       "lethalMinM": 40,
@@ -875,7 +877,189 @@
           "tone": 0.86
         }
       },
-      "descEn": "The hardest single shot in the game: torso-lethal from 40-120 m, with a fast, flat bullet."
+      "descEn": "The hardest single shot in the game: torso-lethal from 40-120 m, with a fast, flat bullet.",
+      "scope": false
+    },
+    {
+      "id": "sentinel",
+      "class": "scout",
+      "name": "哨兵 SR-1",
+      "nameEn": "Sentinel SR-1",
+      "shape": "bolt",
+      "wood": "#9a7038",
+      "desc": "带瞄准镜的栓动狙击步枪，5 发弹匣，中远距离精准射击",
+      "dmg": 95,
+      "rpm": 60,
+      "mag": 5,
+      "reserve": 25,
+      "reloadMs": 3200,
+      "spreadDeg": 0.045,
+      "rangeM": 30,
+      "falloffMaxM": 130,
+      "falloff": 0.65,
+      "zoomFov": 16,
+      "auto": false,
+      "lethalBody": true,
+      "lethalMinM": 30,
+      "lethalMaxM": 90,
+      "moveMult": 0.48,
+      "model": "sentinel",
+      "fx": {
+        "flash": {
+          "size": 1.5,
+          "color": "#fff0c8",
+          "light": 9.0,
+          "ms": 78
+        },
+        "kick": {
+          "vm": 1.35,
+          "punch": 2.05,
+          "roll": 0.6
+        },
+        "tracer": {
+          "color": "#fff4cc",
+          "width": 1.7,
+          "ms": 105,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.6,
+          "count": 2,
+          "ms": 520
+        },
+        "casing": {
+          "size": 1.35
+        },
+        "sound": {
+          "gain": 1.1,
+          "rate": 0.95,
+          "lpf": 0,
+          "tone": 0.95
+        }
+      },
+      "descEn": "Scoped bolt-action sniper with a 5-round magazine, tuned for precise medium-to-long range shots.",
+      "scope": true,
+      "reloadEmptyMs": 3800
+    },
+    {
+      "id": "awp",
+      "class": "scout",
+      "name": "AWP 狙击步枪",
+      "nameEn": "AWP",
+      "shape": "bolt",
+      "wood": "#8a6838",
+      "desc": "带瞄准镜的重型栓动步枪，威力大、射速慢，5 发弹匣",
+      "dmg": 110,
+      "rpm": 42,
+      "mag": 5,
+      "reserve": 20,
+      "reloadMs": 3500,
+      "spreadDeg": 0.035,
+      "rangeM": 35,
+      "falloffMaxM": 150,
+      "falloff": 0.65,
+      "zoomFov": 14,
+      "auto": false,
+      "lethalBody": true,
+      "lethalMinM": 20,
+      "lethalMaxM": 110,
+      "moveMult": 0.44,
+      "model": "awp",
+      "fx": {
+        "flash": {
+          "size": 1.6,
+          "color": "#fff6d8",
+          "light": 10.0,
+          "ms": 88
+        },
+        "kick": {
+          "vm": 1.65,
+          "punch": 2.8,
+          "roll": 0.65
+        },
+        "tracer": {
+          "color": "#fffbe0",
+          "width": 1.9,
+          "ms": 120,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.8,
+          "count": 3,
+          "ms": 600
+        },
+        "casing": {
+          "size": 1.45
+        },
+        "sound": {
+          "gain": 1.15,
+          "rate": 0.9,
+          "lpf": 3800,
+          "tone": 0.86
+        }
+      },
+      "descEn": "A hard-hitting scoped bolt-action: heavy recoil, deliberate shots and a 5-round magazine.",
+      "scope": true,
+      "reloadEmptyMs": 4100
+    },
+    {
+      "id": "longbow",
+      "class": "scout",
+      "name": "长弓 DMR",
+      "nameEn": "Longbow DMR",
+      "shape": "rifle",
+      "wood": "#8a5f30",
+      "desc": "带瞄准镜的半自动精确射手步枪，10 发弹匣，无需手动拉栓",
+      "dmg": 62,
+      "rpm": 180,
+      "mag": 10,
+      "reserve": 40,
+      "reloadMs": 2900,
+      "reloadEmptyMs": 3500,
+      "spreadDeg": 0.06,
+      "rangeM": 40,
+      "falloffMaxM": 140,
+      "falloff": 0.65,
+      "zoomFov": 20,
+      "auto": false,
+      "lethalBody": false,
+      "moveMult": 0.56,
+      "model": "longbow",
+      "fx": {
+        "flash": {
+          "size": 1.25,
+          "color": "#ffd090",
+          "light": 6.5,
+          "ms": 60
+        },
+        "kick": {
+          "vm": 1.05,
+          "punch": 1.35,
+          "roll": 0.38
+        },
+        "tracer": {
+          "color": "#ffcf8a",
+          "width": 1.35,
+          "ms": 85,
+          "every": 1
+        },
+        "smoke": {
+          "size": 1.1,
+          "count": 2,
+          "ms": 340
+        },
+        "casing": {
+          "size": 1.15
+        },
+        "sound": {
+          "gain": 1.2,
+          "rate": 0.9,
+          "lpf": 4600,
+          "tone": 0.85
+        }
+      },
+      "descEn": "A scoped semi-automatic marksman rifle: 10 rounds and quick follow-up shots without manual bolt cycling.",
+      "scope": true
     }
   ],
   "grenades": [

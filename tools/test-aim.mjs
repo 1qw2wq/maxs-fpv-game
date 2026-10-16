@@ -10,10 +10,19 @@ export async function testAim(context, origin) {
     const { Controls } = await import('/js/controls.js');
     const { World } = await import('/js/map.js');
     const data = await (await fetch('/shared/weapons.json')).json();
+    const scopes=data.weapons.filter(w=>w.scope===true).map(w=>w.id);
+    if(JSON.stringify(scopes)!==JSON.stringify(['sentinel','awp','longbow']))throw new Error('Only the three uploaded scoped rifles may use the scope overlay');
+    for(const id of ['smle','m95','springfield']) {
+      const w=data.weapons.find(w=>w.id===id);
+      if(w.scope!==false || w.zoomFov<40)throw new Error(`${id}: iron-sight rifle still behaves like an optic`);
+    }
     const camera = new T.PerspectiveCamera(55, 4/3, .2, 250);
     const vm = new ViewModel(data); vm.setClass(data.classes[0]); camera.add(vm.root);
     for (const weapon of data.weapons) {
       vm.setWeapon(weapon); await vm.gunMeshes.userData.modelReady;
+      const model=vm.gunMeshes.getObjectByName(`gun-model-${weapon.id}`);
+      if(!model)throw new Error(`${weapon.id}: actual GLB never replaced the placeholder`);
+      if(weapon.id==='longbow')model.traverse(o=>{if(o.isMesh && !o.material.map)throw new Error('Longbow lost its legacy diffuse texture');});
       vm.ads = 1; vm.boltT = vm.reloadT = -1;
       for (let frame = 0; frame < 20; frame++) {
         vm.update(1/60, { ads:true, moveSpeed:frame%2 ? 0 : 3 });
@@ -53,9 +62,9 @@ export async function testAim(context, origin) {
     if (controls.ads || controls.mouse.right || controls._aimHeld) throw new Error('Aim sticks after release');
     return {weapons:data.weapons.length};
   });
-  assert.equal(result.weapons, 12); assert.deepEqual(errors, []);
+  assert.equal(result.weapons, 15); assert.deepEqual(errors, []);
   await page.close();
-  console.log('PASS: all 12 imported ADS sight centers, clear reticle rays, stationary/moving stability and FOV-scaled mouse precision');
+  console.log('PASS: all 15 imported ADS sight centers, clear reticle rays, stationary/moving stability and FOV-scaled mouse precision');
 }
 
 export async function testLiveAim(context, origin) {
@@ -78,7 +87,7 @@ export async function testLiveAim(context, origin) {
   await page.mouse.move(500,300); await page.mouse.down({button:'right'});
   await page.waitForFunction(()=>window.__trench.app.controls.locked && window.__trench.app.controls.ads);
   await page.mouse.up({button:'right'});
-  for (const mode of ['fp','tp']) for (const id of ['mp18','lewis','smle']) {
+  for (const mode of ['fp','tp']) for (const id of ['mp18','lewis','smle','m95','springfield','sentinel','awp','longbow']) {
     await page.evaluate(({mode,id})=>{
       const {app}=window.__trench,w=app.data.weaponById[id];app.cameraMode=mode;
       app.controls.reset([0,0,0],0);app.boltWait=false;app.nextShot=0;app.gunfx.clear();
@@ -92,7 +101,7 @@ export async function testLiveAim(context, origin) {
     const centered = await page.evaluate(async()=>{
       const {app}=window.__trench,T=await import('/vendor/three.module.js');
       const point=app.controls.eye().addScaledVector(app.controls.aim(),24).project(app.camera);
-      const scoped=app.vm.weapon.class==='scout';
+      const scoped=app.vm.weapon.scope===true;
       if (app.vm.root.visible===scoped || app.self.root.visible || document.getElementById('scope-overlay').classList.contains('hidden')===scoped) throw new Error('Wrong ADS scope/body rendering');
       if (!document.getElementById('crosshair').classList.contains('aiming')) throw new Error('Aim reticle missing');
       return Math.hypot(point.x,point.y);
