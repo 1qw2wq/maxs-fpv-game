@@ -18,13 +18,14 @@ export async function testHands(context, origin) {
     scene.background = new THREE.Color(0x647481);
     scene.add(new THREE.HemisphereLight(0xdcecff, 0x665849, 3));
     const light = new THREE.DirectionalLight(0xffffff, 3); light.position.set(2, 5, 3); scene.add(light);
-    const camera = new THREE.PerspectiveCamera(78, 4 / 3, 0.2, 50);
+    const camera = new THREE.PerspectiveCamera(78, 4 / 3, 0.06, 50);
     camera.position.set(2, 1.6, -3); camera.rotation.set(0.05, 0.3, 0.01); scene.add(camera);
     const vm = new ViewModel(data); vm.setClass(data.classes[0]); camera.add(vm.root);
     const holder = new THREE.Group(); holder.position.set(0.03, -1.58, -0.18); holder.rotation.y = Math.PI; vm.root.add(holder);
     const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('canvas'), antialias: true });
     renderer.setSize(1000, 750);
     let poses = 0, usable = 0, maxReachError = 0;
+    const armGeometry = [];
     const hand = new THREE.Vector3(), fore = new THREE.Vector3(), gun = new THREE.Quaternion();
     const previews = [];
     if (prepareHandGrip(new THREE.Bone(), 'R') !== null) throw new Error('Fingerless uploads must retain positional fallback');
@@ -35,6 +36,41 @@ export async function testHands(context, origin) {
       girl.marker.visible = girl.shadow.visible = false;
       girl.setHeadHidden(true);
       holder.add(girl.root);
+      const originalMeshes = new Map();
+      girl.root.traverse(mesh => {
+        if (mesh.isMesh) originalMeshes.set(mesh, { geometry:mesh.geometry, count:mesh.geometry.index?.count, visible:mesh.visible });
+      });
+      if (!girl.setArmsOnly(true) || !girl.hasArmGeometry) throw Error('Imported skin has no usable arm geometry');
+      const cropped = new Set();
+      girl.root.traverse(mesh => { if (mesh.isSkinnedMesh) cropped.add(mesh.geometry); });
+      let fullTriangles = 0, armTriangles = 0;
+      const armBones = new Set();
+      for (const side of ['R', 'L']) {
+        const elbow = girl.root.getObjectByName(meta.bones['elbow' + side].replace(/[\s.]+/g, '_'));
+        elbow.parent.traverse(b => { if (b.isBone) armBones.add(b); });
+      }
+      for (const [mesh, original] of originalMeshes) {
+        if (mesh.geometry === original.geometry && mesh.isSkinnedMesh) throw Error('First-person mask modified no geometry');
+        if (original.geometry.index?.count !== original.count) throw Error('Shared full-body template was mutated');
+        if (!mesh.isSkinnedMesh || !mesh.visible) continue;
+        fullTriangles += (original.count || original.geometry.getAttribute('position').count) / 3;
+        armTriangles += mesh.geometry.index.count / 3;
+        const skin = mesh.geometry.getAttribute('skinIndex'), weights = mesh.geometry.getAttribute('skinWeight');
+        for (const v of new Set(mesh.geometry.index.array)) {
+          let armWeight = 0;
+          for (let j = 0; j < skin.itemSize; j++) if (armBones.has(mesh.skeleton.bones[skin.getComponent(v, j)])) armWeight += weights.getComponent(v, j);
+          if (armWeight < 0.35) throw Error(`${meta.id}: a torso/leg vertex is still drawn in first person`);
+        }
+        if (mesh.geometry.groups.reduce((sum,g) => sum + g.count, 0) !== mesh.geometry.index.count) throw Error('Arm mask lost material groups');
+      }
+      if (!(armTriangles > 0 && armTriangles < fullTriangles)) throw Error(`${meta.id}: invalid arms-only triangle filter`);
+      armGeometry.push({ skin:meta.id, fullTriangles, armTriangles });
+      const sibling = createExternalGirl({ template, meta, data:rigData, team:data.teams[0] });
+      sibling.setArmsOnly(true);
+      sibling.root.traverse(mesh => {
+        if (mesh.isSkinnedMesh && !cropped.has(mesh.geometry)) throw Error('Respawn duplicates cropped arm geometry instead of reusing it');
+      });
+      sibling.destroy();
       const wrists = {};
       for (const side of ['R', 'L']) {
         const wrist = girl.root.getObjectByName(meta.bones['hand' + side].replace(/[\s.]+/g, '_'));
@@ -80,6 +116,10 @@ export async function testHands(context, origin) {
       }
       // Normal third-person hold/run/fire also finish the wrists and fingers,
       // including when the asynchronously baked upper-body clips are ready.
+      girl.setArmsOnly(false);
+      for (const [mesh, original] of originalMeshes) {
+        if (mesh.geometry !== original.geometry || mesh.visible !== original.visible) throw Error('Third-person geometry/visibility was not restored');
+      }
       await ensureMotions(template);
       girl.setWeapon(data.weapons[0]);
       for (const state of [{ speed: 0 }, { speed: 3 }, { speed: 0, firing: true }]) {
@@ -104,13 +144,14 @@ export async function testHands(context, origin) {
     vm.syncReload(2500, 0, false); vm.recoil = vm.recoilRot = vm.sprint = vm.ads = 0;
     vm.update(0, { ads: false, moveSpeed: 0 });
     previews[0].root.getObjectByName('weapon-hand').parent.parent.visible = false;
+    previews[0].setArmsOnly(true);
     holder.add(previews[0].root);
     vm.gripWorld(hand, fore, gun);
     if (!previews[0].poseArms(hand, fore, gun)) throw new Error('Default first-person skin cannot reach normal hold');
     vm.armMeshes.visible = false;
     renderer.render(scene, camera);
     window.handPreview = { vm, holder, girl: previews[0], camera, renderer, scene, hand, fore, gun };
-    return { skins: previews.length, poses, usable, maxReachError };
+    return { skins: previews.length, armGeometry, poses, usable, maxReachError };
   });
   assert.deepEqual(errors, []);
   assert.equal(result.skins, 4);
@@ -143,7 +184,7 @@ export async function testHands(context, origin) {
     await page.evaluate(()=>{
       const {vm,girl,renderer,scene,camera}=window.handPreview;
       vm.root.visible=false;scene.add(girl.root);girl.root.position.set(0,0,0);girl.root.rotation.set(0,0,0);
-      girl.setHeadHidden(false);girl.root.getObjectByName('weapon-hand').parent.parent.visible=true;
+      girl.setArmsOnly(false);girl.setHeadHidden(false);girl.root.getObjectByName('weapon-hand').parent.parent.visible=true;
       camera.position.set(2,1.5,3);camera.lookAt(0,.95,0);
       for(let i=0;i<60;i++)girl.update(1/60,{speed:0});
       renderer.render(scene,camera);

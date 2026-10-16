@@ -696,7 +696,9 @@ own rate of fire** — a Lewis does not sound like a rifle.
 ## Match rules
 
 - First side to **75 kills** wins, or whoever leads when the **8-minute** clock runs out.
-- Death costs 3 seconds; respawning lets you change class and weapon for free.
+- After a 3-second death cooldown, choose a class, primary weapon and pistol secondary for free,
+  then press **Redeploy**. Human players stay in the picker until they confirm; bots still
+  respawn automatically. Class/primary changes and language switches preserve the selected pistol.
 - **Breathing health regen**: 8 seconds without taking a bullet or blast starts the regen, which
   refills to full in another 8 seconds (capped at your own maximum). Any damage resets the 8-second
   timer; medic-box healing stacks with it. The same rule applies to humans and bots.

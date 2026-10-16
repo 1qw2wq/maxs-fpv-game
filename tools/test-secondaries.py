@@ -64,6 +64,20 @@ class SecondaryTests(unittest.TestCase):
         self.match._on_respawn(self.p,{'c':'support','w':'m249','secondary':'deagle'})
         self.assertEqual((self.p['weapon'],self.p['primary'],self.p['secondary']),('m249','m249','deagle'))
         self.switch();self.assertEqual(self.p['mag'],7)
+    def test_human_death_picker_waits_for_confirmed_redeploy(self):
+        self.match._kill(self.p,self.p,False)
+        self.now+=60000
+        self.match.tick(33)
+        self.assertFalse(self.p['alive'], 'Automatic respawn discarded the open loadout picker')
+        self.match._on_respawn(self.p,{'c':'scout','w':'m170','secondary':'deagle'})
+        self.assertTrue(self.p['alive'])
+        self.assertEqual((self.p['primary'],self.p['secondary']),('m170','deagle'))
+    def test_bots_still_respawn_automatically(self):
+        bot=self.match.add_player('Bot',None,bot=True)
+        self.match._kill(bot,bot,False)
+        self.now+=12000
+        self.match.tick(33)
+        self.assertTrue(bot['alive'])
     def test_payload_names_active_gun_but_remembers_primary(self):
         self.switch();me=self.match.me_payload(self.p)
         self.assertEqual((me['w'],me['primary'],me['secondary'],me['slot']),('g17','mp18','g17','secondary'))

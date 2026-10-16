@@ -13,6 +13,7 @@ import { updateContactShadow } from './lighting.js';
 import { rayWorld, safeMuzzle, clipTracer } from './ballistics.js';
 import { AdaptiveResolution, poseInterval } from './performance.js';
 import { resolveCamera } from './camera-collision.js';
+import { ArmPresentation, bodyVisibleAtDistance } from './avatar-visibility.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
 import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
@@ -1738,6 +1739,15 @@ function onMe(me) {
   app.wasAlive = alive;
 
   if (!alive) {
+    // Snapshots can arrive while the local render loop is paused. Hide the
+    // live avatar immediately, rather than leave hands/body behind the panel.
+    if (app.vm) {
+      app.vm.root.visible = false;
+      if (app.vm.armMeshes) app.vm.armMeshes.visible = false;
+    }
+    if (app.fpArms) app.fpArms.holder.visible = false;
+    if (app.self) app.self.root.visible = false;
+    fpArmPresentation.reset();
     clearFlash();
     cancelCharge();
     if (!app.deathShown) {
@@ -2352,20 +2362,24 @@ function tick(dt, now) {
   const tp = thirdPersonView();
   app.camera.fov = THREE.MathUtils.lerp(app.camera.fov, aimFov(me), Math.min(1, dt * 12));
   app.controls.lookFov = app.camera.fov;
-  // Preserve the near plane that clips the borrowed FP body; collision
-  // protects its entire near-plane envelope, including widescreen corners.
+  // Arms-only geometry no longer relies on near-plane clipping to hide a body.
+  // Collision protects the full near-plane envelope, including wide screens.
   app.camera.near = tp ? 0.06 : FP_NEAR;
   const desired = tp ? eye.clone().addScaledVector(dir, -3.1).add(new THREE.Vector3(0, 0.45, 0)) : eye;
   resolveCamera(app.world, eye, desired, app.camera, app.camera.position);
   // A contracted shoulder camera can reach the avatar's face. Hide only the
   // local body there instead of filling the screen with its hair/inside mesh.
-  if (tp && app.self && app.camera.position.distanceToSquared(eye) < 0.64) app.self.root.visible = false;
+  if (app.self) {
+    const visible = alive && tp && bodyVisibleAtDistance(!!app.self.cameraBodyVisible, app.camera.position.distanceTo(eye));
+    app.self.cameraBodyVisible = visible;
+    app.self.root.visible = visible;
+  }
   app.camera.lookAt(app.camera.position.clone().add(dir));
   // in third person the character body replaces the viewmodel
   const scoped = alive && app.controls.ads && w.scope === true;
   document.getElementById('scope-overlay').classList.toggle('hidden', !scoped);
   document.body.classList.toggle('scope-active', scoped);
-  app.vm.root.visible = !tp && !scoped;
+  app.vm.root.visible = alive && !tp && !scoped;
   app.camera.updateProjectionMatrix();
 
   // 30 Hz input upload
@@ -2563,20 +2577,23 @@ function syncSelfAvatar(dt, alive) {
 // The first-person arms are the player's own character model. A second instance
 // of the same rig is parked under the camera with its eye at the lens, facing
 // the same way, and both arms are solved onto the viewmodel's hand anchors every
-// frame. The head, chest and legs end up behind the lens or inside the near
-// plane, so only the arms reach into frame — the weapon stays the viewmodel's,
+// frame. Skin-weight-filtered geometry removes the head, torso and legs;
+// the weapon stays the viewmodel's,
 // which is why ADS, recoil, reload and bob keep working untouched.
 const FP_EYE = 1.58;    // model eye height, matches combat.standEyeHeight
-const FP_NEAR = 0.20;   // clips the body the borrowed arms are mounted on
+const FP_NEAR = 0.06;   // keep nearby wrists/sleeves intact; the torso is removed
+const fpArmPresentation = new ArmPresentation();
 
 const _fpHand = new THREE.Vector3();
 const _fpFore = new THREE.Vector3();
 const _fpGunRotation = new THREE.Quaternion();
 
 function syncFpArms() {
-  if (!app.playing) return;
-  if (thirdPersonView() || document.body.classList.contains('scope-active')) {
+  const alive = app.playing && !!app.net.lastMe?.alive;
+  if (!alive || thirdPersonView() || document.body.classList.contains('scope-active')) {
     if (app.fpArms) app.fpArms.holder.visible = false;
+    if (app.vm?.armMeshes) app.vm.armMeshes.visible = false;
+    if (!alive) fpArmPresentation.reset();
     return;
   }
 
@@ -2591,6 +2608,7 @@ function syncFpArms() {
     app.fpArms = null;
   }
   if (!useExt) {
+    fpArmPresentation.reset();
     if (app.vm.armMeshes) app.vm.armMeshes.visible = true;
     return;
   }
@@ -2600,10 +2618,8 @@ function syncFpArms() {
     girl.marker.visible = false;
     girl.shadow.visible = false;
     const holder = new THREE.Group();
-    // The body is buried behind the near plane with only the arms reaching into
-    // view, so its exact spot is free: nudged forward and toward the gun side it
-    // puts the shoulders within the borrowed (short) arms' reach of the grip,
-    // which the hip-fire gun — held a forearm's length out — otherwise exceeds.
+    // Keep the calibrated shoulders near the grips without moving the gun or
+    // sight anchors. The dedicated geometry mask removes the rest of the body.
     holder.position.set(0.03, -FP_EYE, -0.18);
     holder.rotation.y = Math.PI;        // the model faces +Z, the lens faces -Z
     holder.add(girl.root);
@@ -2612,6 +2628,7 @@ function syncFpArms() {
     // keeps hair and — on a hat-wearing rig like the support class's — the whole
     // brim from hanging across the sight line just past the near plane.
     if (girl.setHeadHidden) girl.setHeadHidden(true);
+    girl.setArmsOnly(true);
     girl.key = key;
     girl.holder = holder;
     app.fpArms = girl;
@@ -2624,10 +2641,11 @@ function syncFpArms() {
   if (app.vm.gripWorld(_fpHand, _fpFore, _fpGunRotation)) {
     ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation,app.vm.weapon?.shape);
   }
-  // Do not draw two pairs, or keep a visibly disconnected external hand when
-  // a petite rig cannot reach the support grip during a reload.
-  app.fpArms.holder.visible = ok;
-  if (app.vm.armMeshes) app.vm.armMeshes.visible = !ok;
+  // Never alternate models as animated grips cross the reach threshold. If an
+  // equipped weapon needs the fallback once, retain it for that equip cycle.
+  const imported = fpArmPresentation.update(`${key}|${app.vm.gunMeshes.uuid}`, ok && app.fpArms.hasArmGeometry ? app.fpArms.armReachError : Infinity);
+  app.fpArms.holder.visible = imported;
+  if (app.vm.armMeshes) app.vm.armMeshes.visible = !imported;
 }
 
 const _shotFrom = new THREE.Vector3();

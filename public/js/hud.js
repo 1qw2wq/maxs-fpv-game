@@ -112,7 +112,8 @@ export class Hud {
       this.result(...this._lastResult);
     }
     if (this._deathInfo && !this.el.death.classList.contains('hidden')) {
-      this.showDeath(...this._deathInfo);
+      const choice = this.deathSelection;
+      this.showDeath(this._deathInfo[0], this._deathInfo[1], choice.cls, choice.weapon, choice.secondary);
     }
     if (this._lockSoft || this._cache.lock) this.setLockHint(this._cache.lock, this._lockNote, this._lockTitle || '');
   }
@@ -856,7 +857,7 @@ export class Hud {
   // ------------------------------------------------------------ death panel
 
   showDeath(killerName, weaponName, curCls, curWeapon, secondary) {
-    this._deathInfo = [killerName, weaponName, curCls, curWeapon];
+    this._deathInfo = [killerName, weaponName, curCls, curWeapon, secondary];
     this.el.deathBy.innerHTML = killerName
       ? t('被 <b>{killer}</b> 用 {weapon} 击倒', { killer: esc(killerName), weapon: esc(weaponName || '') })
       : t('被击倒');
@@ -865,7 +866,7 @@ export class Hud {
     // is what made the gun on screen stop matching the HUD.
     if (curCls) this._deathSel.cls = curCls;
     this._deathSel.weapon = curWeapon || null;
-    if(secondary)this._deathSel.secondary=secondary;
+    this._deathSel.secondary = secondary || this.secondary || this.data.secondaries[0].id;
     this.el.death.classList.remove('hidden');
     this.el.deathLoadout.innerHTML = '';
     const info = document.createElement('div');
@@ -873,6 +874,14 @@ export class Hud {
     info.textContent = t('阵亡期间可更换兵种与武器');
     this.el.deathLoadout.appendChild(info);
 
+    const classes = document.createElement('div');
+    classes.className = 'dl-classes';
+    classes.setAttribute('role', 'group');
+    classes.setAttribute('aria-label', t('兵种'));
+    this.el.deathLoadout.appendChild(classes);
+    const weapons = document.createElement('div');
+    weapons.className = 'dl-weapons';
+    this.el.deathLoadout.appendChild(weapons);
     for (const cls of this.data.classes) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -885,46 +894,60 @@ export class Hud {
         this._renderDeathWeapons();
         this._markDeath();
       };
-      this.el.deathLoadout.appendChild(b);
+      classes.appendChild(b);
     }
     this._renderDeathWeapons();
     this._markDeath();
   }
 
   _renderDeathWeapons() {
-    for (const old of this.el.deathLoadout.querySelectorAll('.dl-weapon')) old.remove();
-    const row = document.createElement('div');
-    row.className = 'dl-weapon dl-sub';
-    row.style.display = 'flex';
-    row.style.gap = '6px';
-    row.style.marginTop = '6px';
-    row.style.flexDirection = 'column';
-    for (const w of this.data.weaponsByClass[this._deathSel.cls]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'dl-btn';
-      b.style.width = '100%';
-      b.textContent = nameOf(w);
-      b.dataset.weapon = w.id;
-      b.onclick = () => { this._deathSel.weapon = w.id; this._markDeath(); };
-      row.appendChild(b);
-    }
-    this.el.deathLoadout.appendChild(row);
-    const label=document.createElement('label');label.textContent=t('副武器 · 选择一把手枪');
-    const select=document.createElement('select');
-    for(const side of this.data.secondaries){const o=document.createElement('option');o.value=side.id;o.textContent=nameOf(side);select.appendChild(o);}
-    select.value=this._deathSel.secondary||this.secondary||this.data.secondaries[0].id;
-    select.onchange=()=>{this._deathSel.secondary=select.value;};label.appendChild(select);row.appendChild(label);
+    const cls = this._deathSel.cls;
+    const weapons = this.data.weaponsByClass[cls];
+    if (!weapons.some(w => w.id === this._deathSel.weapon)) this._deathSel.weapon = weapons[0].id;
+    const pistols = this.data.secondaries;
+    if (!pistols.some(w => w.id === this._deathSel.secondary)) this._deathSel.secondary = pistols[0]?.id || 'apx';
+    const box = this.el.deathLoadout.querySelector('.dl-weapons');
+    box.replaceChildren();
+    const section = (slot, label, choices, field) => {
+      const group = document.createElement('section');
+      group.className = `dl-section dl-${field}`;
+      group.setAttribute('aria-label', label);
+      const title = document.createElement('h3');
+      title.textContent = `${slot} · ${label}`;
+      group.appendChild(title);
+      const grid = document.createElement('div');
+      grid.className = 'dl-options';
+      group.appendChild(grid);
+      for (const w of choices) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dl-btn dl-card';
+        btn.dataset[field] = w.id;
+        const name = document.createElement('span');
+        name.className = 'dl-card-name';
+        name.textContent = nameOf(w);
+        const sub = document.createElement('span');
+        sub.className = 'dl-card-sub';
+        const alternate = otherName(w);
+        sub.textContent = alternate && alternate !== name.textContent ? alternate : t('弹匣 {n} 发', { n:w.mag });
+        btn.append(name, sub);
+        btn.onclick = () => { this._deathSel[field] = w.id; this._markDeath(); };
+        grid.appendChild(btn);
+      }
+      box.appendChild(group);
+    };
+    section(1, t('主武器'), weapons, 'weapon');
+    section(2, t('副武器 · 选择一把手枪'), pistols, 'secondary');
+    this._markDeath();
   }
 
   _markDeath() {
-    for (const b of this.el.deathLoadout.querySelectorAll('.dl-btn')) {
-      if (b.dataset.cls) b.classList.toggle('on', b.dataset.cls === this._deathSel.cls);
-      if (b.dataset.weapon) {
-        const isDefault = this._deathSel.weapon === null
-          && b.dataset.weapon === this.data.weaponsByClass[this._deathSel.cls][0].id;
-        b.classList.toggle('on', b.dataset.weapon === this._deathSel.weapon || isDefault);
-      }
+    for (const btn of this.el.deathLoadout.querySelectorAll('.dl-btn')) {
+      const selected = btn.dataset.cls ? btn.dataset.cls === this._deathSel.cls
+        : btn.dataset.secondary ? btn.dataset.secondary === this._deathSel.secondary
+        : btn.dataset.weapon === this._deathSel.weapon;
+      btn.classList.toggle('on', selected);
+      btn.setAttribute('aria-pressed', String(selected));
     }
   }
 

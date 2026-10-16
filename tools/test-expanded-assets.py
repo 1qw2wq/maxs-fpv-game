@@ -120,6 +120,62 @@ with sync_playwright() as p:
             assert not overlaps,(width,height,overlaps)
         print('PASS: four portrait/landscape mobile layouts including the new weapon button, no control overlaps',flush=True)
         print('PASS: actual Solo/Pyodide city deploy; keyboard/touch switching; sidearm fire and independent ammunition; viewmodel acknowledgement',flush=True)
+        # A viewport resize legitimately resets rendering quality. Restore the
+        # test-only software-GPU override before the animation/death sequence.
+        page.evaluate("window.__trench.app.renderer.setPixelRatio(.25)")
+        page.evaluate("window.__trench.app.net._engine.py.runPython('import game;_host.room.match.start_ms=game.now_ms()')")
+        # Exercise the production syncFpArms path, not just the pure latch:
+        # alternate valid/invalid reach reports while real animation still runs.
+        page.wait_for_function("window.__trench.app.fpArms&&window.__trench.app.net.lastMe.alive",timeout=60000)
+        presentation=page.evaluate("""async()=>{
+          const a=window.__trench.app,rig=a.fpArms,pose=rig.poseArms,reach=Object.getOwnPropertyDescriptor(rig,'armReachError');
+          a.cameraMode='fp';a.controls.ads=false;
+          a.vm.setWeapon(a.data.weaponById[a.net.lastMe.w]);await a.vm.gunMeshes.userData.modelReady;
+          let calls=0,changes=0,last=null;
+          rig.poseArms=function(...args){pose.apply(this,args);return ++calls%2===1;};
+          Object.defineProperty(rig,'armReachError',{configurable:true,get:()=>.01});
+          try {
+            for(let i=0;i<40;i++) {
+              await new Promise(requestAnimationFrame);
+              const imported=rig.holder.visible,procedural=a.vm.armMeshes.visible;
+              if(imported===procedural)throw Error('Both/neither arm pairs drawn while alive');
+              if(last!==null&&imported!==last)changes++;
+              last=imported;
+            }
+            if(changes>1)throw Error('Production arm presentation flashes across reach threshold');
+            return{frames:40,changes,calls};
+          } finally {rig.poseArms=pose;Object.defineProperty(rig,'armReachError',reach);}
+        }""")
+        print('PASS: actual frame-loop arm fallback stays stable under alternating reach reports',presentation,flush=True)
+        # Drive a real authoritative death, then choose a different class,
+        # primary and secondary and redeploy through the real button/network.
+        page.evaluate("window.__trench.app.net._engine.py.runPython('_p=next(iter(_host.room.match.players.values()));_host.room.match._kill(_p,_p,False)')")
+        page.wait_for_function("!window.__trench.app.net.lastMe.alive&&!document.querySelector('#death-panel').classList.contains('hidden')")
+        page.wait_for_function("!window.__trench.app.vm.root.visible&&!window.__trench.app.fpArms.holder.visible&&!window.__trench.app.vm.armMeshes.visible")
+        # Advance past the former forced-redeploy deadline without waiting in
+        # real time: the authoritative human must remain in the open picker.
+        page.evaluate("window.__trench.app.net._engine.py.runPython('_p[\"respawn_at\"]=game.now_ms()-9000')")
+        page.wait_for_function("!window.__trench.app.net.lastMe.alive&&window.__trench.app.net.lastMe.respawnIn===0")
+        try:
+            page.locator('#death-loadout [data-cls="scout"]').click()
+        except Exception:
+            print('DEATH PICKER DIAGNOSTIC',page.evaluate("""()=>{
+              const a=window.__trench.app,cls=document.querySelector('#death-loadout [data-cls="scout"]'),panel=document.querySelector('.panel.death-panel');
+              return{phase:a.net.lastState?.phase,playing:a.playing,paused:a.paused,deathShown:a.deathShown,me:a.net.lastMe,body:document.body.className,cls:cls?.getBoundingClientRect().toJSON(),panel:panel?.getBoundingClientRect().toJSON(),overlay:document.querySelector('#death-panel').className,loadout:document.querySelector('#death-loadout').getBoundingClientRect().toJSON()};
+            }"""),flush=True)
+            page.screenshot(path='/tmp/death-picker-live-failed.png')
+            raise
+        page.locator('#death-loadout [data-weapon="m170"]').click()
+        page.locator('#death-loadout [data-secondary="g17"]').click()
+        page.evaluate("async()=>{const{setLang}=await import('/js/i18n.js');setLang('zh');setLang('en');}")
+        assert page.evaluate('window.__trench.app.hud.deathSelection')==dict(cls='scout',weapon='m170',secondary='g17')
+        page.wait_for_function("!document.querySelector('#btn-respawn').disabled",timeout=15000)
+        page.click('#btn-respawn')
+        page.wait_for_function("window.__trench.app.net.lastMe.alive&&window.__trench.app.net.lastMe.primary==='m170'&&window.__trench.app.net.lastMe.secondary==='g17'",timeout=30000)
+        page.evaluate("()=>{const a=window.__trench.app;document.activeElement?.blur();a.controls.requestLock();}")
+        page.keyboard.press('Digit2')
+        page.wait_for_function("window.__trench.app.net.lastMe.w==='g17'&&window.__trench.app.vm.weapon.id==='g17'",timeout=15000)
+        print('PASS: real death hides FP meshes; bilingual death picker preserves both slots; authoritative respawn equips selected M170/G17 and switches to G17',flush=True)
         page.evaluate("window.__trench.app.net.close()")
         host,guest=context.new_page(),context.new_page()
         for seat,role,side in[(host,'host','apx'),(guest,'guest','g17')]:

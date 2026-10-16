@@ -297,6 +297,48 @@ function cloneSkinned(source) {
 const _euler = new THREE.Euler();
 const _delta = new THREE.Quaternion();
 
+// Derivatives share immutable vertex attributes with the template, but own their
+// cropped index buffers and material groups. Reuse them across respawns; never
+// edit the original geometry also used by third-person/network avatars.
+const firstPersonGeometry = new WeakMap();
+function armsGeometry(mesh, armBones) {
+  const source = mesh.geometry;
+  const joints = mesh.skeleton.bones.map(b => armBones.has(b));
+  const signature = joints.map((arm, i) => arm ? i : '').join(',');
+  let variants = firstPersonGeometry.get(source);
+  if (!variants) firstPersonGeometry.set(source, variants = new Map());
+  if (variants.has(signature)) return variants.get(signature);
+  const out = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(source.attributes)) out.setAttribute(name, attr);
+  out.morphAttributes = source.morphAttributes;
+  out.morphTargetsRelative = source.morphTargetsRelative;
+  const skin = source.getAttribute('skinIndex'), weights = source.getAttribute('skinWeight');
+  const count = source.index ? source.index.count : source.getAttribute('position').count;
+  const belongs = new Uint8Array(source.getAttribute('position').count);
+  if (skin && weights) {
+    for (let v = 0; v < belongs.length; v++) {
+      let armWeight = 0;
+      for (let j = 0; j < skin.itemSize; j++) if (joints[skin.getComponent(v, j)]) armWeight += weights.getComponent(v, j);
+      belongs[v] = armWeight >= 0.35;
+    }
+  }
+  const indices = [];
+  for (const group of source.groups.length ? source.groups : [{ start:0, count, materialIndex:0 }]) {
+    const start = indices.length, end = Math.min(count, group.start + group.count);
+    for (let i = group.start; i + 2 < end; i += 3) {
+      const a = source.index ? source.index.getX(i) : i;
+      const b = source.index ? source.index.getX(i+1) : i+1;
+      const c = source.index ? source.index.getX(i+2) : i+2;
+      if (belongs[a] && belongs[b] && belongs[c]) indices.push(a,b,c);
+    }
+    if (indices.length > start) out.addGroup(start, indices.length-start, group.materialIndex);
+  }
+  out.setIndex(indices);
+  out.userData.armsOnly = true;
+  variants.set(signature, out);
+  return out;
+}
+
 /**
  * An imported character, exposed with exactly the same surface as createGirl:
  * { root, marker, shadow, height, setWeapon, setAlive, destroy, update }.
@@ -360,6 +402,11 @@ export function createExternalGirl({ template, meta, data, team }) {
     if (grip && gunRotation) grip.apply();
     return driven['hand' + side].bone.getWorldPosition(new THREE.Vector3()).distanceTo(target);
   }
+
+  let lastArmReachError = Infinity;
+  let armsOnly = false;
+  let hasArmGeometry = false;
+  const fullBodyMeshes = new Map();
 
   const { marker, shadow } = buildFactionOverlay(root, team, data, root, TARGET_HEIGHT * k + 0.40);
   // The gun hangs off the body root, never a hand bone: bone scale and unknown
@@ -1054,6 +1101,39 @@ export function createExternalGirl({ template, meta, data, team }) {
       root.visible = alive;
     },
 
+    // Hide torso, legs, head, capes and static accessories by their actual skin
+    // influences, not by hoping they stay behind the camera's near plane.
+    setArmsOnly(enabled) {
+      if (armsOnly === enabled) return hasArmGeometry;
+      armsOnly = enabled;
+      hasArmGeometry = false;
+      if (enabled) {
+        const armBones = new Set();
+        for (const side of ['R', 'L']) {
+          const upper = driven['elbow' + side]?.bone.parent;
+          if (upper?.isBone) upper.traverse(b => { if (b.isBone) armBones.add(b); });
+        }
+        rig.traverse(mesh => {
+          if (!mesh.isMesh) return;
+          fullBodyMeshes.set(mesh, { geometry:mesh.geometry, visible:mesh.visible });
+          if (mesh.isSkinnedMesh) {
+            mesh.geometry = armsGeometry(mesh, armBones);
+            mesh.visible = mesh.visible && mesh.geometry.index.count > 0;
+            if (mesh.visible) hasArmGeometry = true;
+          } else mesh.visible = false;
+        });
+      } else {
+        for (const [mesh, original] of fullBodyMeshes) {
+          mesh.geometry = original.geometry;
+          mesh.visible = original.visible;
+        }
+        fullBodyMeshes.clear();
+      }
+      return hasArmGeometry;
+    },
+    get hasArmGeometry() { return hasArmGeometry; },
+    get armReachError() { return lastArmReachError; },
+
     /**
      * First-person arms only. The rig is mounted with its eye at the lens, so the
      * head, hair and (on a hat-wearing rig like Navia's) the whole brim sit right
@@ -1090,6 +1170,7 @@ export function createExternalGirl({ template, meta, data, team }) {
      * keep the shaped glove pair instead of showing a disconnected hand.
      */
     poseArms(handTarget, foreTarget, gunRotation, shape) {
+      lastArmReachError = Infinity;
       if (!driven.elbowR || !driven.handR || !driven.elbowL || !driven.handL) return false;
       root.updateMatrixWorld(true);
       const eL = driven.elbowL.bone.getWorldPosition(_sA).clone();
@@ -1099,7 +1180,8 @@ export function createExternalGirl({ template, meta, data, team }) {
       _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
       const rightError = solveGrip('R', handTarget, _poleR, gunRotation, shape);
       const leftError = solveGrip('L', foreTarget, _poleL, gunRotation, shape);
-      return rightError < 0.07 && leftError < 0.07;
+      lastArmReachError = Math.max(rightError, leftError);
+      return lastArmReachError < 0.07;
     },
 
     destroy() {

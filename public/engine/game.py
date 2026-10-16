@@ -876,7 +876,10 @@ class Match:
                 self.outbox.extend(self._spawn(p))
 
         for p in self.players.values():
-            if not p["alive"] and now >= p["respawn_at"] + 8000.0 and self.phase == "live":
+            # Humans confirm their two-slot loadout with Redeploy. An automatic
+            # timeout used to close the picker mid-selection and discard it.
+            # Bots have no picker, so keep their existing automatic return.
+            if p["bot"] and not p["alive"] and now >= p["respawn_at"] + 8000.0 and self.phase == "live":
                 self.outbox.extend(self._spawn(p))
             if not p["alive"]:
                 continue
