@@ -245,9 +245,9 @@ export class LocalNet extends Net {
    * The first join creates the room (host.start); anything later -- a rejoin
    * after a reload, an address change -- is an ordinary message to it.
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm') {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
     const msg = {
-      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
       solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     };
     if (this._joined) { this.send(msg); return; }

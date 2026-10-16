@@ -11,7 +11,7 @@ export async function testAim(context, origin) {
     const { World } = await import('/js/map.js');
     const data = await (await fetch('/shared/weapons.json')).json();
     const scopes=data.weapons.filter(w=>w.scope===true).map(w=>w.id);
-    if(JSON.stringify(scopes)!==JSON.stringify(['sentinel','awp','longbow']))throw new Error('Only the three uploaded scoped rifles may use the scope overlay');
+    if(JSON.stringify(scopes)!==JSON.stringify(['sentinel','awp','longbow','ar15','gm6','m170','pgm']))throw new Error('Only inspected optic-equipped models may use the scope overlay');
     for(const id of ['smle','m95','springfield']) {
       const w=data.weapons.find(w=>w.id===id);
       if(w.scope!==false || w.zoomFov<40)throw new Error(`${id}: iron-sight rifle still behaves like an optic`);
@@ -62,9 +62,9 @@ export async function testAim(context, origin) {
     if (controls.ads || controls.mouse.right || controls._aimHeld) throw new Error('Aim sticks after release');
     return {weapons:data.weapons.length};
   });
-  assert.equal(result.weapons, 15); assert.deepEqual(errors, []);
+  assert.equal(result.weapons, 30); assert.deepEqual(errors, []);
   await page.close();
-  console.log('PASS: all 15 imported ADS sight centers, clear reticle rays, stationary/moving stability and FOV-scaled mouse precision');
+  console.log('PASS: all 30 imported ADS sight centers, clear reticle rays, stationary/moving stability and FOV-scaled mouse precision');
 }
 
 export async function testLiveAim(context, origin) {

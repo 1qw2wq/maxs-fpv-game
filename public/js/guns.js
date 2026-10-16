@@ -31,6 +31,21 @@ const D2R = Math.PI / 180;
  * be, so it finally ships as a model instead of the procedural placeholder.
  */
 const MODELS = {
+  ar15: {"file": "ar15_rifle.glb", "rot": [0, 90, 0], "off": [0.0173978, -0.3113935, -0.1840807], "scale": 0.818283217, "keepNodes": [17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 148, 133, 136, 139, 142, 151, 154, 157, 160, 163, 166, 169, 172, 175, 178, 181, 184, 187, 190, 193, 196, 199, 202]},
+  apx: {"file": "beretta_apx_a1_carry_nero.glb", "rot": [0, 0, 0], "off": [0.0001898, -0.0227166, -0.0068269], "scale": 0.012128862},
+  pmx: {"file": "beretta_pmx_pmxs_sportiva_nero.glb", "rot": [0, 0, 0], "off": [-0.0073748, -0.0182347, 0.0556089], "scale": 0.010283047},
+  deagle: {"file": "desert_eagle_gun.glb", "rot": [0, 0, 0], "off": [-1e-07, -0.056493, -0.0001478], "scale": 0.000741634},
+  flarepistol: {"file": "flare_gun.glb", "rot": [-27.4355, 0, 0], "off": [-3.1819213975229836e-08, -0.14842577487297914, -0.0812544057471825], "scale": 0.008760415602008277, "keepNodes": [8, 10, 12, 14]},
+  g17: {"file": "g17_gen_5_handgun__olight_-_nsw_police_force.glb", "rot": [0, 0, 0], "off": [0.0, -0.122649, -0.0011884], "scale": 0.115163414, "keepNodes": [6, 10, 11, 13, 14], "muzzle": [0, 0, 0.101931]},
+  gm6: {"file": "gm6_lynx.glb", "rot": [0, 90, 0], "off": [-0.0021992, -0.230899, -0.0939866], "scale": 0.223353962},
+  lr300: {"file": "lr-300_ml-a_assault_rifle.glb", "rot": [0, 0, 0], "off": [0.0020702, -0.0166523, -0.0], "scale": 0.902499967},
+  m170: {"file": "m170_sniper_rifle.glb", "rot": [0, 0, 0], "off": [0.0, -0.1754795, -0.0918632], "scale": 0.672082424},
+  m249: {"file": "m249_machine_gun.glb", "rot": [0, 0, 0], "off": [0.0009524, -0.0265045, 0.0087307], "scale": 0.992120244},
+  m4a1: {"file": "m4a1_rifle.glb", "rot": [0, 0, 0], "off": [-1.7e-06, -0.0460204, 0.0372036], "scale": 0.04572036},
+  m60light: {"file": "m60_light_machine_gun.glb", "rot": [0, 90, 0], "off": [-0.0021635, -0.1978272, 0.1449278], "scale": 0.007963461},
+  m60: {"file": "m60_machine_gun_-_vietnam_war.glb", "rot": [0, -90, 0], "off": [0.0200621, 0.078356, 0.0136031], "scale": 0.026448459, "keepNodes": [26, 28, 30, 32, 33, 35, 36, 37]},
+  mp5: {"file": "mp5_submachine_gun.glb", "rot": [0, 0, 0], "off": [-0.0, -0.0493994, -0.0], "scale": 1.043698452},
+  pgm: {"file": "pgm_ultima_ratio__game-ready_sniper_rifle.glb", "rot": [0, 90, 0], "off": [0.0270692, -0.0637567, 0.0044638], "scale": 0.236903079},
   // Uploaded scoped rifles, normalized to the same 1.28 m carry envelope.
   sentinel: { file: 'sniper.glb', rot: [0, 0, 0], off: [0, -.06, -.331187], scale: 0.007624 },
   awp: { file: 'sniper_rifle_-_awp.glb', rot: [0, 180, 0], off: [-.0141, .03, -.30324], scale: 0.00561385 },
@@ -96,6 +111,11 @@ function load(id) {
   let p = cache.get(id);
   if (!p) {
     p = loader.loadAsync(BASE + (MODELS[id].file || id + '.glb')).then((g) => {
+      if (MODELS[id].keepNodes) {
+        const keep = new Set(MODELS[id].keepNodes), remove = [];
+        g.scene.traverse(o => { if(o.isMesh && !keep.has(g.parser.associations.get(o)?.nodes))remove.push(o); });
+        for(const o of remove)o.removeFromParent();
+      }
       deSkin(g.scene);
       // These files are PBR with a metallicRoughness map: without an
       // environment they render black, so the scene's baked environment and a
@@ -154,14 +174,15 @@ export function calibrateMuzzle(holder, muzzle, sight) {
   }
   if (sight) {
     // Use only the bore's lane, not an offset magazine/bipod. Keep the reticle
-    // just above the tallest obstruction in that lane (including pan-fed guns).
+    // just above the tallest obstruction in that lane (including pan-fed guns
+    // and short pistols whose rear frame is most of the model length).
     let top = -Infinity;
     holder.traverse((mesh) => {
       const positions = mesh.isMesh && mesh.geometry?.attributes.position;
       if (!positions) return;
       for (let i = 0; i < positions.count; i++) {
         point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
-        if (Math.abs(point.x - muzzle.position.x) < .035 && point.z > bounds.min.z + .15) top = Math.max(top, point.y);
+        if (Math.abs(point.x - muzzle.position.x) < .035) top = Math.max(top, point.y);
       }
     });
     if (Number.isFinite(top)) sight.position.set(muzzle.position.x, top + .006, .2);
@@ -185,6 +206,10 @@ export function attachGunModel(weapon, group, muzzle) {
     const holder = place(scene.clone(true), cfg);
     holder.name = `gun-model-${id}`;
     calibrateMuzzle(holder, muzzle, group.userData.anchors?.sight);
+    if(cfg.muzzle){
+      muzzle.position.fromArray(cfg.muzzle);
+      if(group.userData.anchors?.sight)group.userData.anchors.sight.position.x=muzzle.position.x;
+    }
     for (const c of procedural) group.remove(c);
     group.add(holder);
   }).catch((err) => {

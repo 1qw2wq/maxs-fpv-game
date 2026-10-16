@@ -100,6 +100,7 @@ export class Hud {
     if (this.selected) {
       this.selectClass(this.selected.cls, 0);
       this.pickWeapon(this.selected.cls, this.selected.weapon);
+      this.renderSecondaries();
     }
     // the class and ability names in the bottom-left corner are written by
     // setLoadout, which normally only runs when the loadout changes
@@ -407,6 +408,7 @@ export class Hud {
       this.classCards[cls.id] = { card, canvas: cv };
     }
 
+    this.renderSecondaries();
     this.el.deploy.addEventListener('click', onDeploy);
     this.el.back.addEventListener('click', onBack);
   }
@@ -456,6 +458,23 @@ export class Hud {
     }
   }
 
+  renderSecondaries() {
+    const row=document.getElementById('secondary-row');
+    row.innerHTML='';
+    this.secondaryCards={};
+    for(const w of this.data.secondaries){
+      const card=document.createElement('button');card.type='button';card.className='weapon-card';
+      this._fillWeaponCard(card,w);card.onclick=()=>this.pickSecondary(w.id);
+      row.appendChild(card);this.secondaryCards[w.id]=card;
+    }
+    this.pickSecondary(this.secondary||this.data.secondaries[0].id);
+  }
+  pickSecondary(id) {
+    this.secondary=this.data.secondaries.some(w=>w.id===id)?id:this.data.secondaries[0].id;
+    if(this.selected)this.selected.secondary=this.secondary;
+    for(const [key,card]of Object.entries(this.secondaryCards||{}))card.classList.toggle('on',key===this.secondary);
+  }
+
   /** One weapon card, in the current language (see _fillClassCard). */
   _fillWeaponCard(card, w) {
     const bars = [
@@ -481,7 +500,7 @@ export class Hud {
   }
 
   pickWeapon(clsId, weaponId) {
-    this.selected = { cls: clsId, weapon: weaponId };
+    this.selected = { cls: clsId, weapon: weaponId, secondary:this.secondary||this.data.secondaries[0].id };
     for (const [id, c] of Object.entries(this.weaponCards)) c.classList.toggle('on', id === weaponId);
   }
 
@@ -836,7 +855,7 @@ export class Hud {
 
   // ------------------------------------------------------------ death panel
 
-  showDeath(killerName, weaponName, curCls, curWeapon) {
+  showDeath(killerName, weaponName, curCls, curWeapon, secondary) {
     this._deathInfo = [killerName, weaponName, curCls, curWeapon];
     this.el.deathBy.innerHTML = killerName
       ? t('被 <b>{killer}</b> 用 {weapon} 击倒', { killer: esc(killerName), weapon: esc(weaponName || '') })
@@ -846,6 +865,7 @@ export class Hud {
     // is what made the gun on screen stop matching the HUD.
     if (curCls) this._deathSel.cls = curCls;
     this._deathSel.weapon = curWeapon || null;
+    if(secondary)this._deathSel.secondary=secondary;
     this.el.death.classList.remove('hidden');
     this.el.deathLoadout.innerHTML = '';
     const info = document.createElement('div');
@@ -890,6 +910,11 @@ export class Hud {
       row.appendChild(b);
     }
     this.el.deathLoadout.appendChild(row);
+    const label=document.createElement('label');label.textContent=t('副武器 · 选择一把手枪');
+    const select=document.createElement('select');
+    for(const side of this.data.secondaries){const o=document.createElement('option');o.value=side.id;o.textContent=nameOf(side);select.appendChild(o);}
+    select.value=this._deathSel.secondary||this.secondary||this.data.secondaries[0].id;
+    select.onchange=()=>{this._deathSel.secondary=select.value;};label.appendChild(select);row.appendChild(label);
   }
 
   _markDeath() {
@@ -906,7 +931,7 @@ export class Hud {
   get deathSelection() {
     const cls = this._deathSel.cls;
     const weapon = this._deathSel.weapon || this.data.weaponsByClass[cls][0].id;
-    return { cls, weapon };
+    return { cls, weapon, secondary:this._deathSel.secondary||this.secondary||this.data.secondaries[0].id };
   }
 
   setRespawnReady(seconds, onRespawn) {

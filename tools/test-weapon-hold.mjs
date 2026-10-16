@@ -36,7 +36,7 @@ export async function testWeaponHold(context, origin) {
       for(const weapon of data.weapons) {
         girl.setWeapon(weapon);
         const immediate=girl.root.getObjectByName('weapon-hand').getWorldPosition(vec());
-        if(previousContact && immediate.distanceTo(previousContact)>.001)throw new Error(`${meta.id}/${weapon.id}: switching gun jumps off grip before next pose/LOD update`);
+        if(previousContact && weapon.shape!=='pistol' && immediate.distanceTo(previousContact)>.001)throw new Error(`${meta.id}/${weapon.id}: switching gun jumps off grip before next pose/LOD update`);
         const gun=girl.root.getObjectByName('weapon-hand').parent;
         await gun.userData.modelReady;
         const hand=gun.getObjectByName('weapon-hand'),fore=gun.getObjectByName('weapon-fore');
@@ -62,7 +62,7 @@ export async function testWeaponHold(context, origin) {
           if(!pitch && relativeRotation.angleTo(rotationReference)>.001)throw new Error(`${meta.id}/${weapon.id}/${phase}: rifle rotates independently of torso`);
           for(const [side,socket] of [['R',hand],['L',fore]]) {
             if(side==='L' && (state.reloading||state.ability))continue;
-            const target=hands[side].targetFor(socket.getWorldPosition(vec()),gunRotation).clone();
+            const target=hands[side].targetFor(socket.getWorldPosition(vec()),gunRotation,weapon.shape).clone();
             const error=hands[side].wrist.getWorldPosition(vec()).distanceTo(target);
             if(side==='R')maxRightError=Math.max(maxRightError,error);else maxLeftError=Math.max(maxLeftError,error);
             if(error>.03)throw new Error(`${meta.id}/${weapon.id}/${phase}/${side}: hand detached ${(error*100).toFixed(1)}cm from rifle`);
@@ -77,9 +77,9 @@ export async function testWeaponHold(context, origin) {
     window.weaponHoldPreview={scene,examples,data};
     return {frames,maxBodyDrift,maxRightError,maxLeftError};
   });
-  assert.equal(result.frames,4*15*192);
+  assert.equal(result.frames,4*30*192);
   assert.deepEqual(errors,[]);
-  console.log(`PASS: ${result.frames} actual third-person frames, 4 skins × 15 guns: animated-chest attachment, 8 run directions, turns, pitch, crouch, reload/throw and hand contact (max drift ${(result.maxBodyDrift*1000).toFixed(3)}mm; wrists ${result.maxRightError.toFixed(4)}/${result.maxLeftError.toFixed(4)}m)`);
+  console.log(`PASS: ${result.frames} actual third-person frames, 4 skins × 30 guns: animated-chest attachment, 8 run directions, turns, pitch, crouch, reload/throw and hand contact (max drift ${(result.maxBodyDrift*1000).toFixed(3)}mm; wrists ${result.maxRightError.toFixed(4)}/${result.maxLeftError.toFixed(4)}m)`);
   if(process.env.WEAPON_HOLD_SCREENSHOT) {
     await page.evaluate(async()=>{
       const T=await import('/vendor/three.module.js'),{scene,examples,data}=window.weaponHoldPreview;

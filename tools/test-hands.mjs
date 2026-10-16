@@ -57,10 +57,10 @@ export async function testHands(context, origin) {
           vm.gripWorld(hand, fore, gun);
           const expected = Object.fromEntries(['R', 'L'].map((side) => {
             const grip = wrists[side];
-            const target = grip.targetFor(side === 'R' ? hand : fore, gun).clone();
+            const target = grip.targetFor(side === 'R' ? hand : fore, gun,weapon.shape).clone();
             return [side, { target, rotation: grip.rotation.clone() }];
           }));
-          const ok = girl.poseArms(hand, fore, gun);
+          const ok = girl.poseArms(hand, fore, gun,weapon.shape);
           usable += Number(ok);
           for (const side of ['R', 'L']) {
             const grip = wrists[side], exp = expected[side];
@@ -73,7 +73,7 @@ export async function testHands(context, origin) {
             }
           }
           const before = wrists.R.wrist.getWorldQuaternion(new THREE.Quaternion());
-          girl.poseArms(hand, fore, gun); girl.poseArms(hand, fore, gun);
+          girl.poseArms(hand, fore, gun,weapon.shape); girl.poseArms(hand, fore, gun,weapon.shape);
           if (before.normalize().angleTo(wrists.R.wrist.getWorldQuaternion(new THREE.Quaternion()).normalize()) > 1e-5) throw new Error('Wrist rotation accumulates across frames');
           poses++;
         }
@@ -114,7 +114,7 @@ export async function testHands(context, origin) {
   });
   assert.deepEqual(errors, []);
   assert.equal(result.skins, 4);
-  assert.equal(result.poses, 4*15*8);
+  assert.equal(result.poses, 4*30*8);
   console.log(`PASS: ${result.skins} imported skeletons / ${result.poses} poses: wrist orientation, 30 finger joints, repeat-frame stability and reach fallback (${result.usable} reachable)`);
   if (process.env.HAND_SCREENSHOT) {
     await page.screenshot({ path: process.env.HAND_SCREENSHOT });
@@ -126,7 +126,7 @@ export async function testHands(context, origin) {
         vm.syncReload(2500, phase === 'reload' ? 1300 : 0, phase === 'reload');
         vm.update(0, { ads: phase === 'ads', moveSpeed: 0 });
         vm.gripWorld(hand, fore, gun);
-        const ok = girl.poseArms(hand, fore, gun);
+        const ok = girl.poseArms(hand, fore, gun,vm.weapon?.shape);
         holder.visible = ok; vm.armMeshes.visible = !ok;
         renderer.render(scene, camera);
       }, phase);

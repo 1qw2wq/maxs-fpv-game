@@ -95,7 +95,7 @@ export async function testArsenal(context, origin) {
   });
   assert.equal(result.shots,result.weapons*3);
   assert.deepEqual(errors,[]);
-  console.log('PASS: all 15 guns / 45 FP, TP and remote shots: flash at 20fps, smoke, brass sizing, light, recoil, tracer cadence, accepted-shot deduplication, bounded pools and decoded per-gun sound');
+  console.log('PASS: all 30 guns / 90 FP, TP and remote shots: flash at 20fps, smoke, brass sizing, light, recoil, tracer cadence, accepted-shot deduplication, bounded pools and decoded per-gun sound');
   await page.close();
 }
 

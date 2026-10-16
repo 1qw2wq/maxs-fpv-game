@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { attachGunModel } from './guns.js';
-import { weaponSockets, reloadPose } from './weaponpose.js';
+import { weaponSockets, reloadPose, weaponViewPose } from './weaponpose.js';
 import { buildGripGlove, gripRotation, gloveWrist } from './handpose.js';
 
 const GUNMETAL = '#2f343d';
@@ -65,6 +65,11 @@ export function buildWeapon(weapon) {
   };
 
   switch (weapon.shape) {
+    case 'pistol':
+      add(box(0,0,.01,.035,.045,.19),metal);
+      add(box(0,-.065,-.055,.032,.11,.045),wood);
+      add(box(0,.028,-.05,.025,.012,.015),dark);
+      break;
     case 'smg':
       add(cyl(0, 0, 0.14, 0.016, 0.016, 0.34), metalL);       // barrel
       add(box(0, 0.005, -0.06, 0.055, 0.095, 0.36), metal);   // receiver
@@ -108,7 +113,7 @@ export function buildWeapon(weapon) {
 
   const muzzle = new THREE.Object3D();
   muzzle.name = 'weapon-muzzle';
-  muzzle.position.set(0, 0, weapon.shape === 'bolt' ? 0.68 : weapon.shape === 'lmg' ? 0.62 : 0.5);
+  muzzle.position.set(0, 0, weapon.shape === 'pistol' ? .11 : weapon.shape === 'bolt' ? 0.68 : weapon.shape === 'lmg' ? 0.62 : 0.5);
   group.add(muzzle);
 
   // swap in the imported model once it arrives; the procedural gun above is the
@@ -216,7 +221,8 @@ export class ViewModel {
     // Hip fire holds the gun out to the lower right rather than up at the eye:
     // the imported models are bulky, and a centred one covers the very lane the
     // player is trying to look down. ADS instead uses the calibrated sight anchor.
-    this._base = new THREE.Vector3(0.16, -0.245, -0.30);
+    this._viewPose = weaponViewPose(weapon);
+    this._base = new THREE.Vector3().fromArray(this._viewPose.hip);
     this._adsPos = new THREE.Vector3(0, -.075, ADS_Z);
     this._applyPose(0);
     this.gunMount.traverse((o) => { o.frustumCulled = false; });
@@ -267,7 +273,7 @@ export class ViewModel {
       aim(rig.upper, rig.shoulder, rig.elbow);
       rig.palm.position.copy(target);
       const gunRotation = this.gunMount.quaternion.clone().multiply(this.gunMeshes.quaternion);
-      gripRotation(gunRotation, rig.side === 1 ? 'R' : 'L', rig.palm.quaternion);
+      gripRotation(gunRotation, rig.side === 1 ? 'R' : 'L', rig.palm.quaternion,this.weapon?.shape);
       // End the sleeve at the wrist, not through the middle of the palm.
       aim(rig.fore, rig.elbow, gloveWrist(target, rig.palm.quaternion));
     }
@@ -299,7 +305,7 @@ export class ViewModel {
   _applyPose(adsFactor) {
     if (!this._base) return;
     const sight = this.anchors?.sight;
-    if (sight) this._adsPos.set(sight.position.x, -sight.position.y, ADS_Z);
+    if (sight) this._adsPos.set(sight.position.x, -sight.position.y, this._viewPose?.adsZ ?? ADS_Z);
     const p = this._base.clone().lerp(this._adsPos, adsFactor);
     this.gunMount.position.copy(p);
     this.gunMount.rotation.set(

@@ -168,6 +168,9 @@ export class Controls {
       if (e.code === 'Escape') { this.releaseLook(); this.onEscape?.(); return; }
       if (e.repeat) return;
       this.keys.add(e.code);
+      if (e.code === 'Digit1') this.onWeaponSwitch?.('primary');
+      if (e.code === 'Digit2') this.onWeaponSwitch?.('secondary');
+      if (e.code === 'KeyX') this.onWeaponSwitch?.();
       if (e.code === 'KeyR') this.onReload?.();
       if (e.code === 'KeyQ') this.onAbilityDown?.();
       if (e.code === 'KeyG') this.onGrenadeDown?.();

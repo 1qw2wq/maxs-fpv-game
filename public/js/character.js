@@ -416,7 +416,7 @@ export function createGirl(cls, team, data) {
   const target = new THREE.Vector3(), direction = new THREE.Vector3(), pole = new THREE.Vector3(), elbow = new THREE.Vector3();
   function fitHand(arm, anchor, side) {
     anchor.getWorldPosition(target);
-    const rotation = gripRotation(anchor.getWorldQuaternion(new THREE.Quaternion()), side === -1 ? 'R' : 'L');
+    const rotation = gripRotation(anchor.getWorldQuaternion(new THREE.Quaternion()), side === -1 ? 'R' : 'L',new THREE.Quaternion(),st.weapon?.shape);
     gloveWrist(target, rotation, target);
     torsoG.worldToLocal(target);
     direction.copy(target).sub(arm.sh.position);
@@ -448,6 +448,7 @@ export function createGirl(cls, team, data) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      hands.position.z=weapon.shape==='pistol'?.315:.115;
       weaponMount.clear();
       const built = buildWeapon(weapon);
       // buildWeapon already points the muzzle down local +Z, which is also the

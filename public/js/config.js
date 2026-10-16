@@ -21,6 +21,7 @@ export async function loadConfig() {
     classes: w.classes,
     classById: Object.fromEntries(w.classes.map((c) => [c.id, c])),
     weapons: w.weapons,
+    secondaries: w.weapons.filter(x=>x.slot==='secondary'),
     weaponById: Object.fromEntries(w.weapons.map((x) => [x.id, x])),
     weaponsByClass: {},
     // Registry only: the map JSON itself is fetched on demand by setMap(), so a
@@ -30,7 +31,7 @@ export async function loadConfig() {
     defaultMapId: reg.default || reg.maps[0].id,
   };
   for (const x of w.weapons) {
-    (data.weaponsByClass[x.class] ||= []).push(x);
+    if(x.slot!=='secondary')(data.weaponsByClass[x.class] ||= []).push(x);
   }
 
   // Sanity: the server rejects unknown ids, so catching it here gives a much

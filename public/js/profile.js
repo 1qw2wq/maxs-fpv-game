@@ -20,6 +20,7 @@ export const DEFAULT_PROFILE = {
   name: '',
   cls: 'assault',
   weapon: null,
+  secondary: 'apx',
   skin: '',
   roomMode: 'create',     // 'create' | 'join'
   room: '',               // last room code this player created or joined
@@ -55,6 +56,7 @@ export function sanitize(raw) {
   p.name = clampStr(raw.name, 16);
   p.cls = clampStr(raw.cls, 24) || p.cls;
   p.weapon = raw.weapon ? clampStr(raw.weapon, 32) : null;
+  p.secondary = clampStr(raw.secondary,32)||'apx';
   p.skin = clampStr(raw.skin, 40);
   p.roomMode = raw.roomMode === 'join' ? 'join' : 'create';
   p.room = /^\d{8}$/.test(String(raw.room || '')) ? String(raw.room) : '';

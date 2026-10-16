@@ -187,18 +187,21 @@ class Match:
             return 1
         return self.next_id % 2
 
-    def add_player(self, name, ws, cls="assault", weapon=None, bot=False, skin=""):
+    def add_player(self, name, ws, cls="assault", weapon=None, bot=False, skin="", secondary=None):
         pid = self.next_id
         self.next_id += 1
         team = self._pick_team()
         cls = cls if cls in CLASSES else "assault"
         if weapon not in CLASS_WEAPONS.get(cls, []):
             weapon = CLASS_WEAPONS[cls][0]
+        secondary = secondary if isinstance(secondary, str) and secondary in combat.SECONDARIES else combat.SECONDARIES[0]
         spawn, spawn_yaw = random_spawn(team, self.rng)
         skill = bots_mod.skill_for_slot(sum(1 for q in self.players.values() if q["bot"] and q["team"] == team)) if bot else ""
         hp = float(CLASSES[cls]["maxHp"])
         p = {
             "id": pid, "name": name, "team": team, "cls": cls, "weapon": weapon,
+            "primary": weapon, "secondary": secondary, "slot": "primary", "equip_until": 0.0,
+            "inventory": {secondary: {"mag": mag_size(secondary), "reserve": reserve_cap(secondary), "last_shot": 0.0}},
             "hp": hp, "alive": True,
             "pos": list(spawn), "safe_pos": list(spawn),
             "recovery_seq": 0, "recovery_pos": None, "shield_until": now_ms() + SPAWN_SHIELD_MS,
@@ -267,6 +270,8 @@ class Match:
             self._on_input(p, msg)
         elif t == "fire":
             return self._on_fire(p, msg)
+        elif t == "switch":
+            self._on_switch(p, msg)
         elif t == "reload":
             self._on_reload(p)
         elif t == "ability":
@@ -342,8 +347,31 @@ class Match:
         p["pos"] = [nx, ny, nz]
         self._ensure_safe_position(p)
 
+    def _on_switch(self, p, msg):
+        now = now_ms()
+        if not p["alive"] or self.phase != "live" or now < p.get("equip_until", 0):
+            return
+        slot = msg.get("slot")
+        if slot is None:
+            slot = "secondary" if p["slot"] == "primary" else "primary"
+        if slot not in ("primary", "secondary") or slot == p["slot"]:
+            return
+        # Clip-fed reloads can already have seated rounds: bill those exactly
+        # once on cancellation, rather than minting ammunition by switching.
+        if p["reload_end"] and reload_is_clip(p["weapon"]):
+            seated = int(p["mag"])
+            p["reserve"] = max(0, p["reserve"] - max(0, seated - int(p["reload_from"])))
+            p["mag"] = float(seated)
+        p["inventory"][p["weapon"]] = {k: p[k] for k in ("mag", "reserve", "last_shot")}
+        p["weapon"] = p[slot]
+        ammo = p["inventory"].get(p["weapon"], {"mag": mag_size(p["weapon"]), "reserve": reserve_cap(p["weapon"]), "last_shot": 0.0})
+        p.update(ammo)
+        p["slot"] = slot
+        p["reload_end"] = p["reload_total"] = p["reload_from"] = 0.0
+        p["equip_until"] = now + 350.0
+
     def _on_reload(self, p):
-        if not p["alive"]:
+        if not p["alive"] or now_ms() < p.get("equip_until", 0):
             return
         if p["mag"] >= mag_size(p["weapon"]):
             return
@@ -362,6 +390,8 @@ class Match:
             return []
         w = WEAPONS[p["weapon"]]
         now = now_ms()
+        if now < p.get("equip_until", 0):
+            return []
         if now < p["reload_end"]:
             # A clip-fed bolt-action can be cut short: any round already seated
             # stays in the magazine, so the player may fire mid-reload. Those
@@ -411,6 +441,19 @@ class Match:
         p["last_shot"] = now
         p["shot_seq"] = p.get("shot_seq", 0) + 1
         p["mag"] -= 1
+
+        if w.get("utility") == "flare":
+            flight = self._throw_flight(p, {"d": list(d), "power": 1.0}, "flare")
+            if flight is None:
+                return []
+            spec = GRENADES.get("flare", {"radius": 30, "dur": 9000})
+            fx = {"k": "flare", "team": p["team"], "by": p["id"], "eid": self.next_eid,
+                  **flight, "from": list(eye), "r": spec["radius"], "dur": spec["dur"]}
+            self.next_eid += 1
+            fx["start"] = now + fx.get("delay", 0)
+            fx["until"] = fx["start"] + fx["dur"]
+            self.effects.append(fx)
+            return [{"to": None, "msg": {"t": "fx", "fx": {k: v for k, v in fx.items() if k not in ("start", "until")}}}]
 
         max_range = 220.0
         wall = ray_world(o, d, max_range)
@@ -522,11 +565,22 @@ class Match:
             p["cls"] = cls
         if weapon in CLASS_WEAPONS.get(p["cls"], []):
             p["weapon"] = weapon
+        elif p.get("primary", p["weapon"]) in CLASS_WEAPONS.get(p["cls"], []):
+            p["weapon"] = p["primary"]
         elif p["weapon"] not in CLASS_WEAPONS.get(p["cls"], []):
             p["weapon"] = CLASS_WEAPONS[p["cls"]][0]
+        p["primary"] = p["weapon"]
+        secondary = msg.get("secondary")
+        if isinstance(secondary, str) and secondary in combat.SECONDARIES:
+            p["secondary"] = secondary
         return self._spawn(p)
 
     def _spawn(self, p):
+        p["weapon"] = p.get("primary", p["weapon"])
+        p["slot"] = "primary"
+        p["equip_until"] = 0.0
+        side = p["secondary"]
+        p["inventory"] = {side: {"mag": mag_size(side), "reserve": reserve_cap(side), "last_shot": 0.0}}
         p["hp"] = max_hp(self, p)
         p["alive"] = True
         p["mag"] = mag_size(p["weapon"])
@@ -978,5 +1032,7 @@ class Match:
             "grenades": p["grenades"] if p["grenades"] > 0 or now < p["grenade_ready"] else int(combat.THROW["grenadeCharges"]),
             "grenadeIn": int(max(0, p["grenade_ready"]-now)) if p["grenades"] <= 0 else 0,
             "c": p["cls"], "w": p["weapon"],
+            "primary": p["primary"], "secondary": p["secondary"], "slot": p["slot"],
+            "equipIn": int(max(0, p.get("equip_until", 0) - now)),
             "team": p["team"], "nm": p["name"],
         }

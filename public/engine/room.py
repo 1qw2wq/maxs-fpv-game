@@ -106,7 +106,7 @@ class Room:
         # empties, so a normal multi match is never affected.
         self.match.solo = bool(msg.get("solo"))
         p = self.match.add_player(name, client, cls=str(msg.get("cls", "assault")),
-                                  weapon=msg.get("weapon"), skin=skin)
+                                  weapon=msg.get("weapon"), skin=skin, secondary=msg.get("secondary"))
         self.votes[p["id"]] = want
         self.sockets[client] = p["id"]
         self.by_pid[p["id"]] = client
@@ -132,7 +132,7 @@ class Room:
             "mapId": meta["id"], "map": meta["file"], "mapName": meta["name"],
             "scene": meta["scene"], "cfg": COMBAT, "tickRate": COMBAT["tickRate"],
             "spawn": [round(v, 2) for v in p["pos"]], "yaw": p["yaw"],
-            "cls": p["cls"], "weapon": p["weapon"], "skin": p["skin"],
+            "cls": p["cls"], "weapon": p["weapon"], "secondary": p["secondary"], "skin": p["skin"],
             "botsOn": self.bots_on, "gameMode": self.match.mode,
             # Existing clouds, fire, crates and pending flights retain their age.
             "fx": self.match.standing_crates(),

@@ -133,6 +133,9 @@
     <div class="weapon-block">
       <h3 id="weapon-title">主武器</h3>
       <div class="weapon-row" id="weapon-row"></div>
+      <h3>副武器 · 选择一把手枪</h3>
+      <div class="weapon-row secondary-row" id="secondary-row"></div>
+      <p class="slot-help">1 主武器 · 2 手枪 · X 切换武器</p>
     </div>
 
     <footer class="select-foot">
@@ -298,7 +301,7 @@
       <div class="hp-text"><b id="hp-num">100</b><span id="hp-cls">突击兵</span></div>
       <span id="spawn-shield-status" class="hidden" role="status"></span>
     </div>
-    <div class="ammo-wrap">
+    <div class="ammo-wrap"><small id="weapon-slot" aria-live="polite"></small>
       <b id="ammo-mag">32</b><span id="ammo-max">/32</span><span id="ammo-reserve">150</span>
       <div class="reload-bar"><i id="reload-fill"></i></div>
       <span id="reload-text" class="hidden">换弹中</span>

@@ -26,6 +26,9 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  '副武器 · 选择一把手枪':'Secondary · choose one pistol',
+  '副武器':'Secondary', '切换武器':'Switch weapon',
+  '1 主武器 · 2 手枪 · X 切换武器':'1 Primary · 2 Pistol · X Switch weapon',
   '瞄准镜': 'Scoped',
   '出生保护 · {seconds}秒': 'Spawn shield · {seconds}s',
   '自定义触屏布局': 'Customize touch layout',

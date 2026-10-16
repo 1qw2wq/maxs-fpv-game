@@ -31,9 +31,11 @@ THROW = COMBAT["throw"]
 CLASSES = {c["id"]: c for c in WEAPONS_DATA["classes"]}
 WEAPONS = {w["id"]: w for w in WEAPONS_DATA["weapons"]}
 
+SECONDARIES = [w["id"] for w in WEAPONS_DATA["weapons"] if w.get("slot") == "secondary"]
 CLASS_WEAPONS = {}
 for _w in WEAPONS_DATA["weapons"]:
-    CLASS_WEAPONS.setdefault(_w["class"], []).append(_w["id"])
+    if _w.get("slot") != "secondary":
+        CLASS_WEAPONS.setdefault(_w["class"], []).append(_w["id"])
 
 TEAMS = WEAPONS_DATA["teams"]
 
@@ -436,6 +438,9 @@ def _build_nav():
     _build_grid, since it queries blocked().
     """
     global NAV_FLOW
+    if MAP_DATA.get("bot_nav"):
+        NAV_FLOW = {}  # Authored multistorey graph replaces the dense 2D flood.
+        return
     c = NAV_CELL
     ix0 = int(math.floor(BOUNDS["minX"] / c))
     ix1 = int(math.floor(BOUNDS["maxX"] / c))
@@ -877,7 +882,7 @@ def validate_shared_data():
     """Cheap startup assertion so a broken JSON never reaches a live match."""
     problems = []
     for w in WEAPONS_DATA["weapons"]:
-        if w["class"] not in CLASSES:
+        if w["class"] not in CLASSES and not (w.get("slot") == "secondary" and w["class"] == "secondary"):
             problems.append("weapon %s has unknown class %s" % (w["id"], w["class"]))
         for key in ("dmg", "rpm", "mag", "reloadMs", "spreadDeg", "rangeM", "falloff", "zoomFov"):
             if key not in w:

@@ -28,13 +28,13 @@ export class MobileControls {
       <div class="touch-actions">
         <button type="button" data-action="aim"></button><button type="button" data-action="reload"></button><button type="button" data-action="jump"></button>
         <button type="button" data-action="ability"></button><button type="button" data-action="grenade"></button><button type="button" data-action="crouch"></button>
-        <button type="button" class="touch-cycle" data-action="cycle"></button>
+        <button type="button" data-action="weapon"></button><button type="button" class="touch-cycle" data-action="cycle"></button>
       </div>`;
     (parent || document.body).appendChild(this.root);
     this.stick = this.root.querySelector('.touch-stick');
     this.knob = this.root.querySelector('.touch-stick-knob');
     this.buttons = [...this.root.querySelectorAll('[data-action]')];
-    this.labels = { fire:'开火', aim:'瞄准', reload:'换弹', jump:'跳跃', ability:'技能', grenade:'手榴弹', crouch:'蹲下', cycle:'切换手榴弹', view:'视角', score:'战绩', chat:'聊天', pause:'暂停' };
+    this.labels = { fire:'开火', aim:'瞄准', reload:'换弹', jump:'跳跃', ability:'技能', grenade:'手榴弹', crouch:'蹲下', cycle:'切换手榴弹', weapon:'切换武器', view:'视角', score:'战绩', chat:'聊天', pause:'暂停' };
     this.renderLabels();
     onLangChange(() => this.renderLabels());
     controls.onInputReset = () => this.reset();
@@ -146,6 +146,7 @@ export class MobileControls {
       case 'aim': c.mouse.right=!c.mouse.right; c._aimHeld=c.mouse.right; break;
       case 'crouch': if(c.touchKeys.has('KeyC'))c.touchKeys.delete('KeyC');else c.touchKeys.add('KeyC'); break;
       case 'jump': c.touchKeys.add('Space'); c.queueJump(); break;
+      case 'weapon': c.onWeaponSwitch?.(); break;
       case 'reload': c.onReload?.(); break;
       case 'ability': c.onAbilityDown?.(); break;
       case 'grenade': c.onGrenadeDown?.(); break;

@@ -1,119 +1,102 @@
-# Procedural City (`proc_city`)
+# Expanded Procedural City (`proc_city`)
 
-Select **Procedural City** in the main menu before deploying. The shipped map uses seed **1942**.
-No frontend build, npm dependency, additional physics engine, external backend, or asset download is required.
+Select **Procedural City** in the main-menu map picker. The committed seed is **1942**.
 
-## 1. Uploaded assets / inspection
+## Size and variety
 
-The requested `models/buildings/proc_kit.glb` and `img/skybox/` were not present. Per the user's clarification,
-this implementation uses the already uploaded assets **in their original locations**:
+- **240 × 240 m** playable bounds: four times the previous width and depth, **16 times its area**.
+- 64 enterable buildings on eight-by-eight compact urban plots. Independently seeded footprints range from
+  10.8 m up to 19.2 m on their local axes; quarter-turn orientations vary independently.
+- 48 two-story buildings and 16 single-story shops/depots. Four interior variants remove different
+  partitions and combine dining/coffee tables, sofas, display cabinets, paintings, sconces and plants.
+- Connected 6 m asphalt streets with dashed centerlines, zebra crossings, sidewalks and 10 cm curbs;
+  central cobblestone yards, grassy gardens and dirt plots.
+- Tighter setbacks, 192 staggered low-wall cover runs, 99 parked delivery trucks and 64 uploaded
+  shop awnings create overlapping street/yard cover and covered entrances instead of empty fields.
+  Low raised grass beds add step-height changes without a second terrain/physics system.
+- 500 seeded vegetation/street placements: uploaded birch, broadleaf, pine, autumn/dead trees, bushes,
+  berries, plants and flowers; old-kit trees, benches, lamps, dumpsters, barriers, pallets, brick piles and trucks.
+  Trunks and solid furniture have explicit collision; foliage is decorative, not an invisible canopy-sized wall.
+- Four facade palettes and smaller/larger rectangular silhouettes, not a repeated four-house arena.
 
-- `public/models/maps/GLB format/`: modular building/street/barrier pieces.
-- `public/models/maps/house.glb`: floor material, stair treads and wooden rail material.
-- `public/models/maps/inter.glb`: dining tables, tall display cabinets, radiators, rugs and chandeliers.
-- `public/models/maps/Skyboxes/skybox-day.png`: 4096×2048 equirectangular panorama.
+The four interior variants share a proven structural grammar; this is not 64 individually hand-authored
+floor plans. Furniture footprints scale with each building while story height stays 3 m. Characters remain
+1.70 m tall. Exterior doors stay at least 1.8 m wide (minimum contract: 1.2 m), and 2.5 m tall.
 
-`node tools/inspect-proc-kit.mjs` scans 126 GLBs / 214 meshes using the **vendored Three `Box3`**, including
-scene-node transforms, and writes `public/shared/proc-kit.json`. It accepts individual GLB paths too.
-The manifest's `meshes` list contains original node names, file paths, bounds and dimensions;
-`groups` maps each category to indices into that list:
+## Assets and rendering
 
-| Category | Candidates |
-| --- | ---: |
-| floor | 22 |
-| ceiling | 1 |
-| wall_solid | 43 |
-| wall_doorway | 4 |
-| wall_window | 5 |
-| stairs | 4 |
-| cover_low | 13 |
-| cover_high | 4 |
-| decorative | 118 |
+Original uploaded binaries remain unchanged:
 
-Categories are semantic **candidates**, not permission to use a whole-mesh collider across an opening.
-Some source units are very large (e.g. a cabinet is 4.16 m tall); runtime prototype extraction removes staging
-transforms, centers each mesh, and normalizes its measured bounds. The curated alias dictionary `CITY_KIT`
-in `public/js/proc-city.js` resolves selected original node names through GLTF parser associations, including
-names the loader suffixes/sanitizes. No uploaded binaries were changed. Their existing licenses still apply;
-the files do not embed author/license metadata, so this feature does not assert new redistribution rights.
+- `models/maps/GLB format/`: architectural materials, street furniture, trucks and the old vegetation kit.
+- `models/maps/house.glb`: floor/wood materials, stair treads and rails.
+- `models/maps/inter.glb`: multiple furniture, lighting and wall-decoration types.
+- **`models/maps/vege/veg.glb`**: selected meshes from the newly uploaded 150-mesh vegetation pack.
+- `models/maps/Skyboxes/skybox-day.png`: panorama and PMREM environment.
 
-## 2. Deterministic generation / authoritative data
+`CITY_KIT` in `public/js/proc-city.js` resolves original names through GLTF parser associations, including
+sanitized names and multi-primitive nodes. Multi-material furniture retains all its primitives/materials.
+Structural surfaces use closed boxes matching the AABBs, with continuous plaster, cobbles and terrain
+textures rather than smearing the whole kit atlas over a door jamb or ground tile. Furniture/vegetation
+retain their uploaded geometry. Interiors are double-sided. Thin ground passes are front-sided with
+explicit ground/decal depth offsets, preventing distant top/bottom-face flickering. Existing lighting/smoke/disposal behavior stays.
 
-`public/engine/proc_city.js` exports `generateProcCity(integerSeed)` as a plain ES module. A uint32 LCG
-(`Math.imul`, no `Math.random`, clock or DOM) selects 2–4 building sites and furniture/cover variations.
-The default seed produces four 12×12 m buildings around two intersecting 12 m streets within a 60×60 m arena.
+Canonical seed: **13,129 visual placements, 50 instanced aliases, 7,030 collision boxes**. Multiple source
+materials may require more than one draw per instance batch; the test overview rendered in 73 draw calls.
+These are scene counts, not a mobile frame-rate guarantee. Original asset licenses still apply.
 
-Each building has two 3 m stories, two 1.8×2.5 m exterior doors on opposite walls, three rooms per floor,
-1.8 m partition doors, 1.05 m window sills, tables (0.95 m), cabinets (2.2 m) and radiators (1 m).
-A 2.2×6 m smooth ramp rises from Y=0 to Y=3. Its 3×7 m ceiling hole includes capsule/head clearance.
-Visible treads are **visuals only**, never individual movement colliders. Upper floor rails protect the well.
-Opposing spawns have authored yaw/team values and at least five clear metres ahead.
+## Shared authority, collision and navigation
 
-The committed artifact `public/shared/maps/proc_city.json` is the **single source of truth** for both engines:
+`public/engine/proc_city.js` and `city-building.js` are dependency-free seeded authoring modules. Neither
+is required at deployment runtime: Python, Pyodide and browser collision all consume the **same committed
+`public/shared/maps/proc_city.json`**. The large artifact is compact JSON to avoid hundreds of thousands
+of pretty-printed lines. No client independently randomizes the world.
 
-- `boxes`: the existing named center/full-size AABB object schema (`x,y,z,w,h,d,t`), plus existing ramp fields
-  `ax,y0,y1`. This intentionally does not introduce an incompatible six-number-only box format.
-- `spawns`: the existing team-keyed schema, with `yaw` and `team` on each point.
-- `tiles`: visual alias, bottom-center position, `rotY` in radians and world-size `scale`.
-- `floor_holes`, `buildings`, `navPoints`, and a 3D `bot_nav` node/edge graph.
-
-Python `combat.py` reads the artifact just like other maps. `local.js` already mirrors **every registered map**
-into Pyodide's filesystem, so it needs no duplicate generator or new Python module. Browser visuals and
-collision load that exact same artifact, including its seed. No client independently randomizes a match.
-
-Optional **map authoring**, not a deployment build step:
+Optional authoring command, **not a frontend build step**:
 
 ```sh
 node tools/generate-proc-city.mjs 1942
 ```
 
-To ship a different seed, regenerate and distribute the shared artifact to both engines together. There is
-no per-client seed setting or runtime seed negotiation. The menu description identifies the shipped seed.
+Each upper floor retains one smooth ramp and a real overhead well. Rotating/scaling a building also
+transforms its collision, ramp axis/slope direction, doors, holes, tiles and complete 3D navigation graph.
+Treads are visual only, never individual plank colliders. Roads connect to both exterior doors through
+explicit safe approaches. Planting, props and spawn runouts are kept clear of graph corridors.
 
-## 3. Rendering / atmosphere
+The city uses its authored multistorey graph instead of building an unnecessary 240 m dense 2D flood
+field in Pyodide. Ordinary maps keep their existing flow fields. Bots use the shared swept-capsule/floor
+math and walk normally, not teleports or jump hacks. Pointer lock, separate mobile mode and the existing
+Vercel-only host architecture are unchanged.
 
-`World.init()` selects the city renderer; `buildProcCity(scene,mapData,extractedKit)` is exported from
-`public/js/map.js`. It batches 724 placements into 12 `InstancedMesh` objects for the default seed.
-Structural walls/slabs are closed geometry matching collision thickness, with continuous procedural plaster
-and cobblestone surfaces rather than incorrectly projecting an entire facade atlas onto each jamb.
-Floors/wood retain their source atlas UV crop; furniture and treads retain the uploaded geometry/materials.
-All interior materials are double-sided, and structural materials write opaque depth.
-
-`lighting.js` loads the existing daytime panorama into `scene.background`, bakes a PMREM environment,
-and uses warm directional sunlight, a 1024² soft shadow map, ambient/hemisphere fill and subtle distance fog.
-Map disposal releases owned panorama/PMREM/shadow resources without clearing a newer map's environment.
-Smoke correctly replaces and restores texture backgrounds. Other maps keep their existing lighting path.
-
-## 4. Navigation / verification
-
-The authored graph connects central/outer streets to both doors, the two left rooms, stair hall, every half-metre
-of each ramp and upper lookouts. `combat.waypoint_route()` uses weighted 3D shortest paths and validates
-attachments against actual capsule/floor queries so routes cannot jump walls or floors.
-`bots.py` uses these routes for city objectives/investigation and patrols upstairs lookouts when not in combat;
-ordinary maps keep their existing 2D flow-field behavior. Bots walk through `_steer`, not teleports/jump hacks.
+## Validation
 
 ```sh
-node tools/test-proc-city.mjs       # 32 seeds, reproducibility, layout rules, artifact equality
-python tools/test-proc-city.py     # both-way graph sweeps, door/window rays, cover, runouts,
-                                  # actual bot ascent and two-player authoritative room
+node tools/test-proc-city.mjs       # 32 seeds, dimensions/variety/doors/ramps, exact artifact
+python tools/test-proc-city.py     # every graph edge both ways, transformed opening rays,
+                                  # furniture/floors, runouts, bot ascent and authoritative room
+python tools/test-secondaries.py  # inventory, equip/reload security, utility flare, host/guest
 ```
 
-Optional browser regression `tools/test-proc-city-browser.py` uses an externally provided Python Playwright
-installation and `CHROMIUM_EXECUTABLE` pointing to a current Chromium. Set `CITY_ORIGIN` to a normal static
-preview with the existing `/api/*` JSON shims. It checks the real menu, loaded assets, PMREM, instancing,
-13,180 JS edge samples, 20/60/144 FPS sprint ascent, Solo/Pyodide bot ascent and two-player Relay networking.
-The frontend never imports these test dependencies. No npm install is necessary.
+Optional real-browser regression (externally supplied Python Playwright; no frontend dependency):
 
-### Verification in this workspace
+```sh
+CHROMIUM_EXECUTABLE=/path/to/chromium CITY_ORIGIN=http://127.0.0.1:8080 \
+  CITY_LIVE=1 python tools/test-expanded-assets.py
+```
 
-- 96 Python regression tests passed (including seven new city tests).
-- 32 deterministic seed cases and exact artifact reproduction passed.
-- WebGL inspection passed: 724 placements / 12 instance batches; 13,180 collision-edge samples;
-  sprint ascent at 20/60/144 FPS; uploaded textures and panorama/PMREM loaded.
-- Actual `main.js` Solo/Pyodide deployment and bot ascent passed; actual two-seat
-  `RelayHostNet`/`RelayNet` city welcome/state synchronization passed without an external service.
-- No missing asset responses or uncaught browser errors were observed. Existing autoplay/legacy-browser
-  warnings are not treated as application errors. The available test Chromium was version 92, so its isolated
-  test server adapted **only the already-vendored Pyodide class static-block syntax** and enabled experimental
-  Wasm flags. No production/vendor file was adapted, and no frontend build or npm tool was used.
-- Physical phones and a deployed Vercel instance were not tested.
+The browser suite checks real uploaded assets, 196,796 JS collision-edge samples, 144 ramp sprint cases
+at 20/60/144 FPS, all thirty model loads/dimensions, pistol support-grip spacing, per-model placement,
+loadout selection, and (with `CITY_LIVE=1`) actual Solo/Pyodide and two-seat RelayHostNet/RelayNet.
+`CITY_ONLY_LIVE=1` skips the isolated asset pass for faster transport iteration.
+
+The sandbox browser is Chromium 92. Its isolated test fixture rewrites only vendored Pyodide class
+static-block syntax and enables experimental Wasm flags; **production/vendor files are not modified**.
+Optional `/api/*` probes fail normally on a bare Python static server and are not missing game assets.
+Physical phones and a deployed Vercel instance have not been tested.
+
+See [arsenal-and-sidearms.md](arsenal-and-sidearms.md) for the weapon additions and controls.
+
+### Latest completed run
+
+108 Python tests, 32 seed/artifact cases, the full WebGL asset/collision/sprint suite, Solo/Pyodide
+sidearm controls, four mobile layouts, and two-player Relay synchronization all passed. The separate
+imported-hand suite also passed 960 poses and 23,040 third-person animated frames; see the arsenal notes.

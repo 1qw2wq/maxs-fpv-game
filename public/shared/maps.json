@@ -84,8 +84,8 @@
       "id": "proc_city",
       "name": "程序化旧城",
       "nameEn": "Procedural City",
-      "desc": "种子 1942 · 双层楼房与交叉街道",
-      "descEn": "Seed 1942 · enterable two-story urban blocks",
+      "desc": "种子 1942 · 240×240 米 · 64 栋紧凑楼房 · 道路与连续掩体",
+      "descEn": "Seed 1942 · 240×240 m · 64 dense blocks, marked roads and layered cover",
       "file": "/shared/maps/proc_city.json",
       "scene": null,
       "controlPoints": [

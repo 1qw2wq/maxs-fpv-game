@@ -98,7 +98,7 @@ const app = {
   cameraMode: 'fp',
   myTeam: 0,
   myId: null,
-  loadout: { cls: 'assault', weapon: 'mp18', skin: '' },
+  loadout: { cls: 'assault', weapon: 'mp18', secondary:'apx', skin: '' },
   suppressed: false,
   lastReloading: false,
   wasAlive: true,
@@ -484,7 +484,7 @@ function setupTutorial() {
       app.hud.screen('select');
       app.hud.setBotsVisible(false);
       app.hud.selectClass(app.loadout.cls, 0);
-      app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+      app.hud.pickWeapon(app.loadout.cls, app.loadout.primary || app.loadout.weapon || app.loadout.cls);
     },
     onFinish: (completed) => {
       profile.save({ tutorialDone: true });
@@ -774,7 +774,7 @@ function setupMenu() {
     app.hud.setBotsVisible(which === 'solo');
     app.hud.screen('select');
     app.hud.selectClass(app.loadout.cls, 0);
-    app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+    app.hud.pickWeapon(app.loadout.cls, app.loadout.primary || app.loadout.weapon || app.loadout.cls);
   };
 
   // Multiplayer is entered through a room code: creating one makes you the
@@ -851,6 +851,12 @@ function setupMenu() {
     },
   });
   app.hud.buildMaps(app.data.maps, app.mapPick);
+  app.hud.secondary=saved.secondary;
+  if(app.data.classById[saved.cls]) {
+    app.loadout.cls=saved.cls;
+    const primary=app.data.weaponsByClass[saved.cls].find(w=>w.id===saved.weapon)||app.data.weaponsByClass[saved.cls][0];
+    app.loadout.weapon=app.loadout.primary=primary.id;
+  }
   if (saved.name) app.hud.el.name.value = saved.name;
 
   app.hud.buildSelect(
@@ -867,6 +873,7 @@ function setupMenu() {
         name: app.hud.playerName,
         cls: sel.cls,
         weapon: sel.weapon,
+        secondary: sel.secondary,
         // The walkthrough is a solo match with nobody shooting at the player.
         bots: practice ? false : mode === 'solo',
         botCount: mode === 'solo' ? botCount : 0,
@@ -1359,7 +1366,7 @@ async function deploy(opts) {
   // Remember the loadout locally before the handshake, so the menu comes back
   // exactly as the player left it even if the join fails.
   profile.save({
-    name: opts.name, cls: opts.cls, weapon: opts.weapon, skin: opts.skin || '',
+    name: opts.name, cls: opts.cls, weapon: opts.weapon, secondary:opts.secondary, skin: opts.skin || '',
     roomMode: opts.solo ? app.roomMode : (opts.room ? 'join' : 'create'),
     mapId: opts.map || app.mapPick,
   });
@@ -1368,7 +1375,7 @@ async function deploy(opts) {
   // keep running another room's map instead.
   app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
-    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm');
+    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm', opts.secondary || 'apx');
 }
 
 // ----------------------------------------------------------------- map swap
@@ -1429,7 +1436,7 @@ async function onWelcome(m) {
   app.playing = false;
   app.myId = m.id;
   app.myTeam = m.team;
-  app.loadout = { cls: m.cls, weapon: m.weapon, skin: m.skin || app.loadout.skin || '' };
+  app.loadout = { cls: m.cls, weapon: m.weapon, primary:m.weapon, secondary:m.secondary||'apx', skin: m.skin || app.loadout.skin || '' };
 
   // The world must exist before anything can be positioned in it. Waiting here
   // is safe: state/me/spawn messages only touch the HUD and controls, and tick()
@@ -1526,6 +1533,11 @@ function resetRemoteWorld() {
 function wireControls() {
   const c = app.controls;
   c.onFireDown = () => { app.clickPending = true; c.requestLock(); };
+  c.onWeaponSwitch = (slot) => {
+    if(!app.playing || app.paused || !app.net?.lastMe?.alive || !c.canLook)return;
+    cancelCharge(); c.mouse.left=false; c.mouse.right=false; c.touchFirePending=false;
+    app.net.switchWeapon(slot);
+  };
   c.onReload = () => {
     if (!app.playing || app.paused) return;
     app.net?.reload(); app.tut?.notify('reload');
@@ -1672,6 +1684,7 @@ function onState(st) {
 }
 
 function onMe(me) {
+  const previousPrimary=app.loadout.primary,previousSecondary=app.loadout.secondary;
   app.shieldUntil = performance.now() + (me.shieldMs || 0);
   if (me.recovery && me.recovery.seq !== app.lastRecoverySeq) {
     app.lastRecoverySeq = me.recovery.seq;
@@ -1688,6 +1701,7 @@ function onMe(me) {
   if (me.c !== app.vmCls || me.w !== app.vmWeapon) {
     app.vmCls = me.c;
     app.vmWeapon = me.w;
+    app.nextShot = 0;
     app.boltWait = false;
     app.pendingBolt = null;
     app.controls.setClass(data.classById[me.c]);
@@ -1695,9 +1709,17 @@ function onMe(me) {
     app.vm.setWeapon(data.weaponById[me.w] || data.weaponsByClass[me.c][0]);
   }
   if (app.loadout.cls !== me.c || app.loadout.weapon !== me.w) {
-    app.loadout = { ...app.loadout, cls: me.c, weapon: me.w };
+    app.loadout = { ...app.loadout, cls: me.c, weapon: me.w, primary:me.primary||me.w, secondary:me.secondary||'apx' };
   }
 
+  app.loadout.primary=me.primary||me.w;
+  app.loadout.secondary=me.secondary||'apx';
+  if(previousPrimary!==app.loadout.primary||previousSecondary!==app.loadout.secondary) {
+    profile.save({cls:me.c,weapon:app.loadout.primary,secondary:app.loadout.secondary});
+  }
+  if(app.hud.secondary!==app.loadout.secondary)app.hud.pickSecondary(app.loadout.secondary);
+  const slotText=document.getElementById('weapon-slot');
+  slotText.textContent=(me.slot==='secondary'?'2 · ':'1 · ')+t(me.slot==='secondary'?'副武器':'主武器')+(me.equipIn>0?' · …':'');
   app.lastReloading = !!me.reloading;
   app.vm.syncReload(me.reloadTotal || data.weaponById[me.w].reloadMs, me.reloadIn, !!me.reloading);
 
@@ -1715,7 +1737,7 @@ function onMe(me) {
     cancelCharge();
     if (!app.deathShown) {
       app.deathShown = true;
-      app.hud.showDeath(app.killedBy?.name, app.killedBy?.weaponName, me.c, me.w);
+      app.hud.showDeath(app.killedBy?.name, app.killedBy?.weaponName, me.c, me.primary||me.w,me.secondary);
       app.hud.setRespawnReady(Math.ceil(me.respawnIn / 1000), doRespawn);
       app.controls.releaseLock();
     } else {
@@ -1728,8 +1750,9 @@ function onMe(me) {
 
 function doRespawn() {
   const sel = app.hud.deathSelection;
-  app.loadout = { ...app.loadout, ...sel };
-  app.net.respawn(sel.cls, sel.weapon);
+  app.loadout = { ...app.loadout, ...sel, primary:sel.weapon };
+  profile.save({cls:sel.cls,weapon:sel.weapon,secondary:sel.secondary});
+  app.net.respawn(sel.cls, sel.weapon, sel.secondary);
 }
 
 /**
@@ -2376,7 +2399,7 @@ function tick(dt, now) {
   // one trigger edge, not an entire extra burst; canceled gestures clear it.
   const trigger = app.controls.mouse.left || app.controls.touchFirePending;
   const wantShot = w.auto ? trigger : (app.clickPending && trigger);
-  if (alive && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
+  if (alive && !me?.equipIn && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
       if (me.reserve > 0) app.net.reload();
@@ -2463,7 +2486,7 @@ function fireOnce(w, eye, dir) {
   const barrelDir = attachment ? attachment.getWorldDirection(new THREE.Vector3()) : dir;
   app.gunfx.fire(w, from, barrelDir, { eject, attachment });
   const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
-  if (tracerRound(style, rounds)) spawnTracer(from, end, style);
+  if (!w.utility && tracerRound(style, rounds)) spawnTracer(from, end, style);
   app.controls.applyRecoil(style.kick);
 }
 
@@ -2594,7 +2617,7 @@ function syncFpArms() {
   app.camera.updateMatrixWorld(true);
   let ok = false;
   if (app.vm.gripWorld(_fpHand, _fpFore, _fpGunRotation)) {
-    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation);
+    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation,app.vm.weapon?.shape);
   }
   // Do not draw two pairs, or keep a visibly disconnected external hand when
   // a petite rig cannot reach the support grip during a reload.

@@ -644,7 +644,7 @@ shown for both sides. The models keep their original colours; nobody gets dyed t
 
 ### Weapon models
 
-All 15 primary weapons use imported glTF models (`public/models/guns/`, mapped by `guns.js`), hot-swapped
+All 26 primary weapons and four sidearms use imported glTF models (`public/models/guns/`, mapped by `guns.js`), hot-swapped
 in by `guns.js` once downloaded, over a procedural placeholder (first person, your own third-person
 body and remote players all share the same `buildWeapon` path).
 
@@ -922,10 +922,19 @@ round restart flow. Run `node tools/test-vercel.mjs` for the full suite.
 
 ### Procedural City (`proc_city`)
 
-Select **Procedural City** in the map picker. Seed **1942** produces four enterable two-story buildings,
-two intersecting streets, furnished rooms, open stairwells, upstairs sniper windows and opposing spawn zones.
-The seeded generator supports 2–4 buildings. The shared generated JSON drives Python, Pyodide and browser
-collision; bots use a 3D waypoint graph to reach the upper floor. Uploaded furniture/treads are instanced,
-with a panorama/PMREM sky, soft sun shadows and fog. No npm, frontend build or new physics library.
+Select **Procedural City** in the map picker. The expanded seed **1942** is **240 × 240 m**:
+four times the previous width/depth and **16× its area**. It contains 64 differently sized/oriented
+one- and two-story buildings, four interior variants, asphalt/cobble/pavement/grass/dirt surfaces,
+500 planting/street placements, and the newly uploaded vegetation pack. Marked asphalt streets,
+crossings, sidewalks, 192 low-wall cover runs, 99 parked trucks and 64 shop awnings keep blocks
+compact and covered. Smooth ramps, openings and
+three-dimensional bot routes use the same committed collision JSON in Python, Pyodide and the browser.
+No npm, frontend build or new physics dependency is required.
 
-See [the asset inspection, seed authoring and verification notes](docs/proc-city.md).
+The arsenal now includes **all 30 uploaded gun models** (26 primaries and 4 sidearms). Choose an
+**APX Carry, G17, Desert Eagle or Flare Pistol** as your secondary. Switch with **1 / 2 / X**, or the
+mobile **Switch weapon** button. Ammunition is independent; pistols have close two-handed poses,
+and long guns have individual model/grip/hip/ADS calibration rather than a shared placement.
+
+See [map generation and validation](docs/proc-city.md) and
+[arsenal, secondary inventory and controls](docs/arsenal-and-sidearms.md).

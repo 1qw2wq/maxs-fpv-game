@@ -352,10 +352,10 @@ export function createExternalGirl({ template, meta, data, team }) {
     L: prepareHandGrip(driven.handL?.bone, 'L'),
   };
   const gripGunRotation = new THREE.Quaternion();
-  function solveGrip(side, contact, pole, gunRotation) {
+  function solveGrip(side, contact, pole, gunRotation, shape=st.weapon?.shape) {
     if (!driven['hand' + side]) return Infinity;
     const grip = handGrips[side];
-    const target = grip && gunRotation ? grip.targetFor(contact, gunRotation) : contact;
+    const target = grip && gunRotation ? grip.targetFor(contact, gunRotation, shape) : contact;
     solveArm(side, target, pole);
     if (grip && gunRotation) grip.apply();
     return driven['hand' + side].bone.getWorldPosition(new THREE.Vector3()).distanceTo(target);
@@ -729,7 +729,9 @@ export function createExternalGirl({ template, meta, data, team }) {
     holdRotation.setFromEuler(_euler.set(-.08-THREE.MathUtils.degToRad(s.pitch || 0),0,-.03));
     weaponMount.quaternion.copy(carryRotation).multiply(holdRotation);
     weaponMount.scale.setScalar(k);
-    carryContact.copy(CARRY_HAND).multiplyScalar(k).applyQuaternion(carryRotation).add(_chest);
+    carryContact.copy(CARRY_HAND);
+    if(st.weapon?.shape==='pistol'){carryContact.y-=.025;carryContact.z+=.20;}
+    carryContact.multiplyScalar(k).applyQuaternion(carryRotation).add(_chest);
     _grip.fromArray(st.grips.hand).multiplyScalar(k).applyQuaternion(weaponMount.quaternion);
     weaponMount.position.copy(carryContact).sub(_grip);
     root.updateMatrixWorld(true);
@@ -1087,7 +1089,7 @@ export function createExternalGirl({ template, meta, data, team }) {
      * Returns false for missing arms or unreachable contacts so the caller can
      * keep the shaped glove pair instead of showing a disconnected hand.
      */
-    poseArms(handTarget, foreTarget, gunRotation) {
+    poseArms(handTarget, foreTarget, gunRotation, shape) {
       if (!driven.elbowR || !driven.handR || !driven.elbowL || !driven.handL) return false;
       root.updateMatrixWorld(true);
       const eL = driven.elbowL.bone.getWorldPosition(_sA).clone();
@@ -1095,8 +1097,8 @@ export function createExternalGirl({ template, meta, data, team }) {
       _right.copy(eR).sub(eL).normalize();
       _poleR.copy(_right).multiplyScalar(0.7).add(_down).normalize();
       _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
-      const rightError = solveGrip('R', handTarget, _poleR, gunRotation);
-      const leftError = solveGrip('L', foreTarget, _poleL, gunRotation);
+      const rightError = solveGrip('R', handTarget, _poleR, gunRotation, shape);
+      const leftError = solveGrip('L', foreTarget, _poleL, gunRotation, shape);
       return rightError < 0.07 && leftError < 0.07;
     },
 

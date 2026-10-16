@@ -283,9 +283,9 @@ export class Net {
   /**
    * @param {string} room  8-digit code to join, or '' to host a new room
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm') {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
     this.send({
-      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
       solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     });
   }
@@ -302,6 +302,7 @@ export class Net {
     this.send({ t: 'fire', o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
   }
 
+  switchWeapon(slot) { this.send({t:'switch', ...(slot ? {slot} : {})}); }
   reload() { this.send({ t: 'reload' }); }
   /** Ability cast. `land` is the aim preview's landing point for a thrown one. */
   ability(dir, land, power) {
@@ -312,7 +313,7 @@ export class Net {
     this.send(msg);
   }
   grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
-  respawn(cls, weapon) { this.send({ t: 'respawn', c: cls, w: weapon }); }
+  respawn(cls, weapon, secondary) { this.send({ t: 'respawn', c: cls, w: weapon, secondary }); }
   chat(text) { this.send({ t: 'chat', m: text }); }
 
   // -------------------------------------------------- interpolation sampling

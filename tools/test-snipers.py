@@ -25,10 +25,10 @@ class SniperTests(unittest.TestCase):
     def tearDown(self):
         self.timer.stop();combat.set_map(combat.DEFAULT_MAP_ID)
 
-    def test_only_uploaded_three_are_scoped(self):
-        self.assertEqual(len(combat.WEAPONS),15)
-        self.assertEqual({w['id'] for w in combat.WEAPONS.values() if w.get('scope')},set(SCOPED))
-        self.assertEqual(len(combat.CLASS_WEAPONS['scout']),6)
+    def test_uploaded_scopes_keep_legacy_iron_sights(self):
+        self.assertEqual(len(combat.WEAPONS),30)
+        self.assertEqual({w['id'] for w in combat.WEAPONS.values() if w.get('scope')},set(SCOPED)|{'ar15','gm6','m170','pgm'})
+        self.assertEqual(len(combat.CLASS_WEAPONS['scout']),9)
         self.assertEqual(combat.validate_shared_data(),[])
         for wid in ('smle','m95','springfield'):
             self.assertIs(combat.WEAPONS[wid]['scope'],False)

@@ -1061,7 +1061,7 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 #mobile-controls button.held { color:#ffde8c; border-color:#ffcf5c; background:rgba(255,207,92,.24); box-shadow:0 0 12px #ffcf5c22; }
 .touch-tools { position:absolute; right:max(12px, env(safe-area-inset-right)); top:max(10px, env(safe-area-inset-top)); display:flex; gap:5px; }
 .touch-actions { position:absolute; right:max(16px, env(safe-area-inset-right)); bottom:max(18px, env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,50px); gap:7px; }
-#mobile-controls .touch-cycle { grid-column:span 3; min-height:44px; }
+#mobile-controls .touch-cycle { grid-column:span 2; min-height:44px; }
 #mobile-controls .touch-fire { position:absolute; right:max(22px, env(safe-area-inset-right)); bottom:calc(192px + env(safe-area-inset-bottom)); width:74px; height:74px; border-radius:50%; background:rgba(180,70,60,.18); border:2px solid #ffb4a899; font-size:15px; }
 .touch-guide { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); margin:0; font-size:10px; color:#dde7f6a0; white-space:nowrap; text-shadow:0 1px 3px #000; }
 .mobile-mode #screen-hud > .overlay { z-index:20; }
@@ -1229,3 +1229,8 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 #statusbar .hp-wrap { position:relative; }
 #spawn-shield-status { position:absolute; bottom:calc(100% + 3px); left:0; white-space:nowrap; color:#78deff; font-size:11px; font-weight:700; line-height:1.25; letter-spacing:.02em; }
 .mobile-mode #spawn-shield-status { font-size:10px; line-height:10px; bottom:calc(100% + 1px); }
+
+/* Secondary occupies the spare third-row touch cell; fire keeps its clear lane. */
+.secondary-row .weapon-card { text-align:left; color:inherit; font-family:inherit; }
+.slot-help { opacity:.7; font-size:12px; }
+#weapon-slot { display:block; font-size:10px; color:var(--gold); margin-bottom:4px; }

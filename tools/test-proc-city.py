@@ -42,14 +42,16 @@ class CityTests(unittest.TestCase):
 
     def test_door_and_window_rays_are_not_whole_mesh_aabbs(self):
         for b in self.m['buildings']:
-            x,z=b['x'],b['z']
-            # Two door openings connect outside to inside, while adjacent jambs stop fire.
+            c,s=round(math.cos(b['orientation']*math.pi/2)),round(math.sin(b['orientation']*math.pi/2))
+            sx,sz=b['scale']
+            def P(x,y,z):return [b['x']+c*x*sx+s*z*sz,y,b['z']-s*x*sx+c*z*sz]
             for sign in (-1,1):
-                direction=[0,0,-sign]
-                self.assertIsNone(combat.ray_world([x-4,1.58,z+7*sign],direction,2))
-                self.assertIsNotNone(combat.ray_world([x-2.5,1.58,z+7*sign],direction,2))
-            self.assertIsNone(combat.ray_world([x+7,4.58,z],[-1,0,0],2))
-            self.assertIsNotNone(combat.ray_world([x+7,3.5,z],[-1,0,0],2))
+                direction=[-s*sign,0,-c*sign]
+                self.assertIsNone(combat.ray_world(P(-4,1.58,7*sign),direction,2*sz))
+                self.assertIsNotNone(combat.ray_world(P(-2.5,1.58,7*sign),direction,2*sz))
+            if b['stories']>1:
+                self.assertIsNone(combat.ray_world(P(7,4.58,0),[-c,0,s],2*sx))
+                self.assertIsNotNone(combat.ray_world(P(7,3.5,0),[-c,0,s],2*sx))
 
     def test_furniture_and_roof_collide(self):
         low=[b for b in combat.SOLID if b['t']=='cover'and .8<=b['h']<=1.1]
@@ -57,8 +59,9 @@ class CityTests(unittest.TestCase):
         self.assertTrue(low and high)
         for b in low+high:
             if b['y']-b['h']/2<.01:self.assertTrue(combat.blocked(b['x'],b['z'],0))
-        for b in self.m['buildings']:
-            self.assertAlmostEqual(combat.floor_at(b['x']-3,b['z']-3,3),3)
+        for n in self.m['bot_nav']['nodes']:
+            if n.get('kind')=='lookout':
+                x,y,z=n['p'];self.assertAlmostEqual(combat.floor_at(x,z,y),3)
 
     def test_all_upper_lookouts_have_routes_from_both_teams(self):
         for team in ('0','1'):

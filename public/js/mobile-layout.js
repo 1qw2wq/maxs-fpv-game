@@ -1,5 +1,5 @@
 // Normalized screen positions, stored separately for each orientation.
-export const TOUCH_ITEMS = ['move','fire','aim','reload','jump','ability','grenade','crouch','cycle'];
+export const TOUCH_ITEMS = ['move','fire','aim','reload','jump','ability','grenade','crouch','cycle','weapon'];
 export function sanitizeTouchLayout(raw) {
   const out = { portrait:{}, landscape:{} };
   for (const mode of Object.keys(out)) for (const key of TOUCH_ITEMS) {

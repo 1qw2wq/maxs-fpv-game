@@ -13,8 +13,9 @@ const rotations = {
   L: frame(new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0)),
 };
 export const GLOVE_WRIST = new THREE.Vector3(0, -0.042, -0.028);
-export function gripRotation(gunRotation, side, out = new THREE.Quaternion()) {
-  return out.copy(gunRotation).multiply(rotations[side]);
+const pistolLeft = frame(new THREE.Vector3(0,0,1),new THREE.Vector3(-1,0,0));
+export function gripRotation(gunRotation, side, out = new THREE.Quaternion(), shape) {
+  return out.copy(gunRotation).multiply(shape==='pistol'&&side==='L'?pistolLeft:rotations[side]);
 }
 export function gloveWrist(contact, rotation, out = new THREE.Vector3()) {
   return out.copy(contact).add(GLOVE_WRIST.clone().applyQuaternion(rotation));
@@ -122,8 +123,8 @@ export function prepareHandGrip(wrist, side) {
   const scale = new THREE.Vector3();
   return {
     wrist, joints, target, rotation,
-    targetFor(contact, gunRotation) {
-      const desired = gripRotation(gunRotation, side, rotation);
+    targetFor(contact, gunRotation, shape) {
+      const desired = gripRotation(gunRotation, side, rotation, shape);
       target.set(0, 0, -0.028).applyQuaternion(desired).add(contact);
       desired.multiply(inverseBasis);
       wrist.getWorldScale(scale);

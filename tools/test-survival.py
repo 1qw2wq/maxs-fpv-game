@@ -34,7 +34,8 @@ class SurvivalTests(unittest.TestCase):
 
     def test_exact_five_seconds_all_guns_humans_and_bots(self):
         for bot in (False,True):
-            for wid in combat.WEAPONS:
+            for wid,w in combat.WEAPONS.items():
+                if w.get('utility'):continue  # Flares reveal; they never apply bullet damage.
                 self.owner.update(bot=bot,weapon=wid)
                 for elapsed in (0,4999,5000):
                     self.clock=100000+elapsed

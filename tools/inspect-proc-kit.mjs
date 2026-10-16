@@ -7,7 +7,7 @@ const base='public/models/maps/';
 const files=process.argv.slice(2);
 if(!files.length){
   for(const f of (await readdir(base+'GLB format')).sort())if(f.endsWith('.glb'))files.push(base+'GLB format/'+f);
-  files.push(base+'house.glb',base+'inter.glb');
+  files.push(base+'house.glb',base+'inter.glb',base+'vege/veg.glb');
 }
 const categories=['floor','ceiling','wall_solid','wall_doorway','wall_window','stairs','cover_low','cover_high','decorative'];
 const groups=Object.fromEntries(categories.map(k=>[k,[]]));
@@ -45,6 +45,6 @@ for(const file of files){
  for(const i of json.scenes[json.scene||0].nodes)walk(i,new T.Matrix4());
 }
 const result={version:1,note:'Actual scene-space Box3 bounds including node transforms. Categories are candidates; openings/colliders are authored separately, never whole-mesh AABBs across a doorway.',meshes,groups};
-await writeFile('public/shared/proc-kit.json',JSON.stringify(result,null,2)+'\n');
+await writeFile(process.env.INSPECT_OUTPUT||'public/shared/proc-kit.json',JSON.stringify(result,null,2)+'\n');
 console.log(`Inspected ${files.length} GLBs / ${meshes.length} meshes with vendored Three.Box3`);
 for(const [k,v]of Object.entries(groups))console.log(k,v.length);
