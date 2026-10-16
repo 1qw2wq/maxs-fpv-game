@@ -188,6 +188,19 @@ The game needs no plugins, but two browser environments restrict pages and both 
   instead of hanging there.
 
 
+### Spawn protection, recoil and map safety
+
+- Every initial spawn, respawn and new round grants **five seconds of host-enforced protection**
+  to players and bots. Bullets, blast/fire damage and flash blindness are blocked during this window;
+  firing does not shorten it. A blue shield bubble and health-column countdown show the remaining time.
+- Firing immediately kicks the weapon backward and raises the **actual aim**, with per-gun strength,
+  bounded sideways recoil and reduced kick while ADS. Pull down to compensate during a burst. The
+  camera, crosshair and subsequent shot ray stay aligned; recoil never pushes the player off a ledge.
+- Movement sweeps the full path on client and host to prevent thin-wall tunnelling on slow frames or
+  late packets. Bounds, floor support and invalid-position guards restore the last safe grounded
+  position, including holes leading to a model map's invisible backstop. Real basement floors and
+  ramps remain playable. Host recovery is replicated without refilling health/ammo or renewing immunity.
+
 ### Weapon presentation and smoke
 
 - Guns share gun-local trigger/support grips, reload/feed points and receiver-ejection sockets across
@@ -201,9 +214,9 @@ The game needs no plugins, but two browser environments restrict pages and both 
 - Reloads have presentation, feed/magazine service, seating and recovery phases; the support hand
   follows the feed while the trigger hand holds the weapon. Clip-fed rifles use a feeding motion.
   Progress follows the authoritative reload timer and stops when the reload ends or is interrupted.
-- Recoil lifts the barrel with a damped return. First-person flashes track the animated muzzle;
+- Recoil immediately raises aim; the weapon kicks backward and smoothly returns. First-person flashes track the animated muzzle;
   third-person shots start at the avatar's barrel, not its chest. Brass leaves the receiver.
-  Ballistics still use the original eye/aim ray; these changes do not move hit detection.
+  Each shot uses the eye/aim ray before its kick; subsequent shots follow the recoiled aim.
 - Smoke grenades use 36 bounded, layered, noise-textured puffs with outward expansion, rolling drift,
   a buoyant crown and gradual dissipation. Inside-cloud fog follows the same density envelope.
   Particle placement is seeded by effect id and animation is time-based, not frame-rate dependent.
@@ -369,6 +382,9 @@ visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q 
 all four shipped skeletons across 384 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
 hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
+`tools/test-survival.mjs` adds 24 real-aim recoil cases, 5,376 map movement frames at 20/60/144fps,
+shield replication/expiry and disposal, plus live respawn protection/HUD and client/host recovery.
+Run `python tools/test-survival.py` for nine authoritative shield/safety regressions.
 `tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
 `tools/test-arsenal.mjs` verifies all 12 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
 shot deduplication and pool cleanup; the actual solo game also fires all 12 guns in FP and TP (24 cases).
@@ -866,9 +882,9 @@ FPS web game demo/
   (8 / 18 / 16) that are repositioned rather than allocated and destroyed, so 900 rpm weapons do
   not make the GC stutter. Muzzle light uses **two always-present** `PointLight`s in the scene
   (intensity 0 when idle): lights that come and go make three.js recompile the whole world's
-  shaders, while permanent ones just cost a little per-pixel work. Camera recoil only moves the
-  **render** camera — the crosshair and the server-shared aim ray do not move a pixel, so it feels
-  like "the picture shakes" rather than "the bullets fly anywhere".
+  shaders, while permanent ones just cost a little per-pixel work. Recoil now changes **real aim**
+  with reduced kick in ADS; the rendered camera and next shot ray stay aligned, rather than only
+  shaking the picture. The viewmodel still has its own damped backward kick.
 - **Anime rendering**: four-band `MeshToonMaterial` steps, inverted-hull outlines and a hair
   highlight band; no real-time shadows (a dark disc under the feet stands in), and every face and
   portrait is drawn procedurally on a canvas with no image assets.

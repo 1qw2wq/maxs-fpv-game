@@ -82,7 +82,7 @@ export async function testLiveAim(context, origin) {
     await page.evaluate(({mode,id})=>{
       const {app}=window.__trench,w=app.data.weaponById[id];app.cameraMode=mode;
       app.controls.reset([0,0,0],0);app.boltWait=false;app.nextShot=0;app.gunfx.clear();
-      app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}]\np['weapon']='${id}';p['cls']='${w.class}';p['mag']=100;p['reserve']=100;p['last_shot']=0;p['reload_end']=0\ntarget['hp']=100;target['alive']=True;target['last_hit_ms']=game.now_ms()`);
+      app.net._engine.py.runPython(`p=_host.room.match.players[${app.myId}]\np['weapon']='${id}';p['cls']='${w.class}';p['mag']=100;p['reserve']=100;p['last_shot']=0;p['reload_end']=0\ntarget['hp']=100;target['alive']=True;target['shield_until']=0;target['last_hit_ms']=game.now_ms()`);
     },{mode,id});
     await page.waitForFunction(id=>window.__trench.app.vm.weapon.id===id && window.__trench.app.net.lastMe.w===id,id);
     await page.evaluate(async()=>await window.__trench.app.vm.gunMeshes.userData.modelReady);
@@ -104,6 +104,10 @@ export async function testLiveAim(context, origin) {
     await page.evaluate(()=>{const {app}=window.__trench;app.controls.yaw=app.controls.pitch=0;document.getElementById('game').dispatchEvent(new MouseEvent('mousedown',{button:0}));});
     try { await page.waitForFunction(()=>window.__trench.app.net._engine.py.runPython("target['hp'] < 100"),null,{timeout:8000}); }
     catch(error) { console.error('AIM HIT',mode,id,await page.evaluate(()=>{const {app}=window.__trench;return {ads:app.controls.ads,mouse:app.controls.mouse,locked:app.controls.locked,me:app.net.lastMe,eye:app.controls.eye().toArray(),aim:app.controls.aim().toArray(),engine:app.net._engine.py.runPython("str([(p['id'],p['pos'],p['team'],p['hp'],p['shot_seq']) for p in _host.room.match.players.values()])")};}));throw error; }
+    assert.ok(await page.evaluate(()=>{
+      const {app}=window.__trench;
+      return app.controls.pitch>0 && app.camera.getWorldDirection(app.controls.aim().clone()).dot(app.controls.aim())>1-1e-8;
+    }),'Real shots must lift aim while the rendered reticle and next shot ray remain aligned');
     await page.evaluate(()=>window.dispatchEvent(new MouseEvent('mouseup',{button:0})));
     await page.mouse.up({button:'right'});
     await page.waitForFunction(mode=>{const {app}=window.__trench;return !app.controls.ads && (mode!=='tp' || (!app.vm.root.visible && app.self.root.visible));},mode);

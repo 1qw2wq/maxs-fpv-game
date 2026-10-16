@@ -80,7 +80,7 @@ export async function testLiveCover(context,origin) {
   await page.waitForFunction(()=>window.__trench?.app.playing&&window.__trench.app.net.lastMe?.alive,null,{timeout:45000});
   await page.evaluate(async()=>{
     const {app}=window.__trench,{World}=await import('/js/map.js');
-    app.net._engine.py.runPython("import combat,game\n_host.room.match.drop_bots();_host.room.bots_on=False\ncombat.SOLID=[dict(t='wall',x=1.2,y=2,z=0,w=.02,h=4,d=10)];combat._build_grid();combat.GROUND_Y=combat.FLOOR_BASE=0\np=_host.room.match.players[1];p['pos']=[0,0,0]\ncover_target=_host.room.match.add_player('Covered',None);cover_target['team']=1-p['team'];cover_target['pos']=[10,0,0];cover_target['hp']=1000\ngame._seed_hist(cover_target,game.now_ms())");
+    app.net._engine.py.runPython("import combat,game\n_host.room.match.drop_bots();_host.room.bots_on=False\ncombat.SOLID=[dict(t='wall',x=1.2,y=2,z=0,w=.02,h=4,d=10)];combat._build_grid();combat.GROUND_Y=combat.FLOOR_BASE=0\np=_host.room.match.players[1];p['pos']=[0,0,0]\ncover_target=_host.room.match.add_player('Covered',None);cover_target['team']=1-p['team'];cover_target['pos']=[10,0,0];cover_target['hp']=1000;cover_target['shield_until']=0\ngame._seed_hist(cover_target,game.now_ms())");
     app.world.group.visible=false;app.renderer.setPixelRatio(.3);
     app.world=app.controls.world=new World(app.scene,{groundY:0,bounds:{minX:-60,maxX:60,minZ:-60,maxZ:60},boxes:[{t:'ground',x:0,y:-.5,z:0,w:150,h:1,d:150},{t:'wall',x:1.2,y:2,z:0,w:.02,h:4,d:10}]},app.data.combat);
     app.controls.reset([0,0,0],0);

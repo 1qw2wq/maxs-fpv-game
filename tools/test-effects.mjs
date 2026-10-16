@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { testLiveArsenal } from './test-arsenal.mjs';
 import { testLiveCamera } from './test-camera.mjs';
 import { testLiveGrenades } from './test-grenades.mjs';
+import { testLiveSurvival } from './test-survival.mjs';
 import { testLiveWeaponHold } from './test-live-weapon-hold.mjs';
 export async function testEffects(context, origin) {
   const page = await context.newPage();
@@ -232,6 +233,7 @@ export async function testEffects(context, origin) {
   await testLiveWeaponHold(game);
   await testLiveCamera(game);
   await testLiveGrenades(game);
+  await testLiveSurvival(game);
   assert.deepEqual(gameErrors, []);
   console.log('PASS: real main.js solo deploy, native mouse firing, reload and landed smoke rendering');
   await game.close();

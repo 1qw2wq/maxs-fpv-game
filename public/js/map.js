@@ -140,10 +140,16 @@ export class World {
 
   /** Full move first, then slide along each axis separately, else stay put. */
   resolveMove(ox, oz, nx, nz, y, height) {
-    if (!this.blocked(nx, nz, y, height)) return [nx, nz];
-    if (!this.blocked(nx, oz, y, height)) return [nx, oz];
-    if (!this.blocked(ox, nz, y, height)) return [ox, nz];
-    return [ox, oz];
+    // Match the authority: sweep the whole travel, not just the endpoint.
+    const steps = Math.max(1, Math.ceil(Math.hypot(nx-ox,nz-oz)/(PLAYER_RADIUS*.5)));
+    const dx=(nx-ox)/steps, dz=(nz-oz)/steps;
+    let x=ox, z=oz;
+    for(let i=0;i<steps;i++) {
+      if(!this.blocked(x+dx,z+dz,y,height)){x+=dx;z+=dz;}
+      else if(!this.blocked(x+dx,z,y,height))x+=dx;
+      else if(!this.blocked(x,z+dz,y,height))z+=dz;
+    }
+    return [x,z];
   }
 
   /**
@@ -169,6 +175,17 @@ export class World {
       if (top <= limit && bot <= limit && top > best) best = top;
     }
     return best;
+  }
+
+  // Model maps have an invisible emergency slab, not rendered walkable terrain.
+  // Reaching it without a real floor/ramp means the body fell into a map hole.
+  isVoidFloor(x, z, y) {
+    if(!this.map.scene || y>this.floorBase+.05)return false;
+    return !this._near(x,z,PLAYER_RADIUS).some(b=>{
+      if(Math.abs(x-b.x)>b.w/2+PLAYER_RADIUS || Math.abs(z-b.z)>b.d/2+PLAYER_RADIUS)return false;
+      const top=b.t==='ramp'?rampHeight(b,x,z):b.y+b.h/2;
+      return Math.abs(top-y)<=.05;
+    });
   }
 
   clampToBounds(x, z) {

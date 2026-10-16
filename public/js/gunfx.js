@@ -150,7 +150,7 @@ export class GunFx {
     this.flashes = [];         // { meshes:[cone,core], light, t, ms, size }
     this.smokes = [];          // { mesh, t, ms, size, vy, vx, vz }
     this.casings = [];         // { mesh, vel, spin, t, ms }
-    this.punchPitch = 0;       // degrees, applied to the camera only
+    this.punchPitch = 0;       // effect envelope; Controls owns the actual aim kick
     this.punchYaw = 0;
     this.punchRoll = 0;
     // Lifetime counters: the pooled pieces are invisible between shots, so this

@@ -359,6 +359,7 @@ export class Net {
         speed: Math.hypot(dx, dz) / dt,
         flags: pb.f,
         shotSeq: pb.sq,
+        shieldMs: Math.max(0,(pb.sh || 0)-(performance.now()-b.t)),
         alive: pb.al,
         name: pb.n, cls: pb.c, weapon: pb.w, team: pb.tm, skin: pb.sk || '',
         hp: pb.hp, kills: pb.k, deaths: pb.d,

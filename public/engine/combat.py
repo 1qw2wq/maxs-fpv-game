@@ -302,14 +302,32 @@ def resolve_move(old, target, y, height=None):
     used here, so the Z component must come from index 2 (index 1 is the feet
     height and would collapse every body onto the map's centre line).
     """
-    nx, nz = target[0], target[2]
-    if not blocked(nx, nz, y, height):
-        return nx, nz
-    if not blocked(nx, old[2], y, height):
-        return nx, old[2]
-    if not blocked(old[0], nz, y, height):
-        return old[0], nz
-    return old[0], old[2]
+    # Endpoint-only collision can tunnel through a thin wall on a late packet.
+    steps = max(1, math.ceil(math.hypot(target[0]-old[0], target[2]-old[2]) / (PLAYER_RADIUS * 0.5)))
+    dx, dz = (target[0]-old[0])/steps, (target[2]-old[2])/steps
+    x, z = old[0], old[2]
+    for _ in range(steps):
+        nx, nz = x+dx, z+dz
+        if not blocked(nx, nz, y, height):
+            x, z = nx, nz
+        elif not blocked(nx, z, y, height):
+            x = nx
+        elif not blocked(x, nz, y, height):
+            z = nz
+    return x, z
+
+
+def is_void_floor(x, z, y):
+    """A model map's unrendered backstop is rescue terrain, not a playable floor."""
+    if not MAP_BY_ID.get(CUR_MAP_ID, {}).get("scene") or y > FLOOR_BASE + 0.05:
+        return False
+    for b in _near(x, z, PLAYER_RADIUS):
+        if abs(x-b["x"]) > b["w"]*0.5+PLAYER_RADIUS or abs(z-b["z"]) > b["d"]*0.5+PLAYER_RADIUS:
+            continue
+        top = ramp_height(b,x,z) if b["t"] == "ramp" else b["y"]+b["h"]*0.5
+        if abs(top-y) <= 0.05:
+            return False
+    return True
 
 
 def floor_at(x, z, feet_y):
