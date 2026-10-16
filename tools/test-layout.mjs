@@ -38,7 +38,7 @@ export async function testLayouts(context, origin) {
         return failures;
       };
       window.headerChecks=()=>{
-        const pairs=[['#topbar','#room-chip'],['#room-chip','#objective-hud'],['#ability-chip','#grenade-chip']];
+        const pairs=[['#topbar','#room-chip'],['#room-chip','#objective-hud'],['#ability-chip','#grenade-chip'],['#spawn-shield-status','#topbar'],['#spawn-shield-status','.hp-bar'],['#spawn-shield-status','#ability-chip']];
         const failures=[];
         for(const [a,b] of pairs) {
           const x=document.querySelector(a).getBoundingClientRect(),y=document.querySelector(b).getBoundingClientRect();
@@ -72,6 +72,7 @@ export async function testLayouts(context, origin) {
       assert.deepEqual(await page.evaluate(()=>inspectLayout('#invite')),[],label+' invite');checks++;
       await page.evaluate(()=>{
         hud.closeInvite();hud.screen('game');hud.setRoomCode('12345678');hud.setLoadout('assault','mp18');hud.updateGrenade('smoke',{grenades:2},null,c.mobileMode);
+        const shield=document.getElementById('spawn-shield-status');shield.classList.remove('hidden');shield.textContent=lang.t('出生保护 · {seconds}秒',{seconds:5});
         const objective=document.querySelector('#objective-hud');objective.classList.remove('hidden');
         document.querySelector('#objective-cards').innerHTML=['A','B','C'].map(id=>`<div class="objective-card"><b>${id}</b><span class="objective-distance">125 m</span><small>CONTESTED</small><div class="objective-progress"><i></i></div></div>`).join('');
         document.querySelector('#objective-status').textContent=lang.t('占领全部据点并守住 {n} 秒',{n:15});

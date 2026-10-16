@@ -33,6 +33,7 @@ export class Controls {
     // The World is built lazily (a 92 MB model map must not delay the menu), so
     // boot passes null and setMap() fills it in before the first deploy.
     this.pos = new THREE.Vector3(0, world?.groundY ?? 0, 0);
+    this.safePos = this.pos.clone();
     this.vel = new THREE.Vector3();
     this.vy = 0;
     // Smooths the *camera* onto the ground height only; the body itself is still
@@ -328,14 +329,36 @@ export class Controls {
       this.requestLock();
     }
     this.mouseLook.reset();
-    this.pos.set(pos[0], pos[1], pos[2]);
-    this.eyeGround = pos[1];
+    this.recoverPosition(pos);
     this.yaw = yaw ?? this.yaw;
     this.pitch = 0;
-    this.vy = 0;
-    this.grounded = true;
-    this.vel.set(0, 0, 0);
+  }
+
+  /** Shot kick changes the real aim, so subsequent bullets and the reticle agree. */
+  applyRecoil(kick, random = Math.random) {
+    const scale = this.ads ? 0.65 : 1;
+    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + kick.punch*scale));
+    this.yaw += (random()*2-1)*kick.roll*scale;
+  }
+
+  recoverPosition(pos) {
+    this.pos.fromArray(pos);
+    this.safePos.copy(this.pos);
+    this.eyeGround=this.pos.y;
+    this.vel.set(0,0,0);this.vy=0;this.grounded=true;
     this._jumpHeld=false;this._jumpBuffer=this._coyote=0;
+  }
+
+  ensureSafePosition() {
+    const b=this.world.bounds, p=this.pos;
+    if(!Number.isFinite(this.yaw))this.yaw=0;
+    if(!Number.isFinite(this.pitch))this.pitch=0;
+    if(![p.x,p.y,p.z,this.vel.x,this.vel.z,this.vy].every(Number.isFinite) ||
+       p.x<b.minX+1.5 || p.x>b.maxX-1.5 || p.z<b.minZ+1.5 || p.z>b.maxZ-1.5 || p.y<this.world.floorBase-.05 || this.world.isVoidFloor(p.x,p.z,p.y)) {
+      const [x,z]=this.world.clampToBounds(this.safePos.x,this.safePos.z);
+      const y=this.world.floorAt(x,z,Math.max(this.safePos.y,this.world.floorBase));
+      this.recoverPosition([x,y,z]);
+    }
   }
 
   get eyeY() {
@@ -374,6 +397,7 @@ export class Controls {
   update(dt, alive, suppressed, reloading = false) {
     if (alive) this.updateMouseLook(dt); else this.mouseLook.reset();
     if (!this.world) return;
+    this.ensureSafePosition();
     // Ease the *camera* ground height. Vertical speed is unbounded on a jump or
     // a fall, so those track instantly; walking and stairs use a slow constant
     // that filters the few centimetres a tread or a cobble adds -- which is the
@@ -502,6 +526,8 @@ export class Controls {
     }
     this.pos.y = ny;
 
+    this.ensureSafePosition();
+    if(this.grounded && !this.world.blocked(this.pos.x,this.pos.z,this.pos.y,this.bodyHeight))this.safePos.copy(this.pos);
     this.moveSpeed = Math.hypot(this.vel.x, this.vel.z);
   }
 

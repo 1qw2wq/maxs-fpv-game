@@ -34,6 +34,12 @@ MAX_ONE_WAY_MS = 120.0
 # to humans and bots alike. The medic zone stacks on top of this.
 REGEN_DELAY_MS = 8000.0
 REGEN_SECONDS = 8.0
+SPAWN_SHIELD_MS = float(COMBAT.get("spawnShieldMs", 5000))
+
+
+def shield_remaining(p, now):
+    return max(0.0, p.get("shield_until", 0.0) - now) if p["alive"] else 0.0
+
 
 # A bot firing through smoke at anything past this range only lands one shot in
 # ten: the cloud is thin enough to see through up close, but a bot has no way to
@@ -194,7 +200,8 @@ class Match:
         p = {
             "id": pid, "name": name, "team": team, "cls": cls, "weapon": weapon,
             "hp": hp, "alive": True,
-            "pos": list(spawn),
+            "pos": list(spawn), "safe_pos": list(spawn),
+            "recovery_seq": 0, "recovery_pos": None, "shield_until": now_ms() + SPAWN_SHIELD_MS,
             # the spawn point carries the facing that looks across the map
             "yaw": spawn_yaw,
             "pitch": 0.0, "flags": {}, "mag": mag_size(weapon),
@@ -312,6 +319,7 @@ class Match:
             speed *= 0.55
         maxd = speed * dt * 1.8 + 0.3
 
+        self._ensure_safe_position(p)
         ox, oy, oz = p["pos"]
         dx, dz = target[0] - ox, target[2] - oz
         d = math.hypot(dx, dz)
@@ -328,10 +336,11 @@ class Match:
         # (and a landing carries them down) instead of the body sinking through
         # the geometry. oy caps how far one tick can climb, so walls still block.
         floor = combat.floor_at(nx, nz, oy)
-        ny = clamp(target[1], floor - 0.05, floor + 1.6)
+        ny = clamp(target[1], floor, floor + 1.6)
         cap = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * COMBAT.get("sprintMult", 1.35)
         p["velocity"] = [clamp((nx-ox)/dt, -cap, cap), clamp((ny-oy)/dt, -cap, cap), clamp((nz-oz)/dt, -cap, cap)]
         p["pos"] = [nx, ny, nz]
+        self._ensure_safe_position(p)
 
     def _on_reload(self, p):
         if not p["alive"]:
@@ -433,6 +442,9 @@ class Match:
             return []
 
         t, vic, zone = best
+        # The shield still stops the bullet; never shoot through it at a body behind.
+        if shield_remaining(vic, now) > 0:
+            return []
 
         # Solo only: a bot's shots at the human are voided half the time, so the
         # lone player is not deleted by accurate fire. Bot-vs-bot and every human
@@ -535,11 +547,14 @@ class Match:
         p["last_input"] = now_ms()
         # a fresh body starts the out-of-combat timer over
         p["last_hit_ms"] = p["last_input"]
+        p["shield_until"] = p["last_input"] + SPAWN_SHIELD_MS
+        p["safe_pos"] = list(s)
+        p["recovery_pos"] = None
         _seed_hist(p, p["last_input"])
         if p["bot"]:
             p["bot_state"] = bots_mod.new_state(p["team"], p["bot_skill"])
         return [{"to": p["id"], "msg": {"t": "spawn", "p": [round(v, 2) for v in p["pos"]],
-                                        "yaw": p["yaw"], "hp": p["hp"], "c": p["cls"], "w": p["weapon"]}}]
+                                        "yaw": p["yaw"], "hp": p["hp"], "shieldMs": int(SPAWN_SHIELD_MS), "c": p["cls"], "w": p["weapon"]}}]
 
     # ---------------------------------------------------------------- abilities
 
@@ -646,6 +661,8 @@ class Match:
         return {k: v for k, v in effect.items() if k not in ("until", "start", "owner", "triggered")}
 
     def _grenade_damage(self, effect, victim, damage, zone):
+        if shield_remaining(victim, now_ms()) > 0:
+            return []
         owner = self.players.get(effect["by"]) or effect["owner"]
         victim["hp"] -= damage
         victim["last_hit_ms"] = now_ms()
@@ -668,7 +685,7 @@ class Match:
                 return
             e["triggered"] = True
         for victim in self.players.values():
-            if not victim["alive"]:
+            if not victim["alive"] or shield_remaining(victim, now) > 0:
                 continue
             if kind != "flash" and victim["team"] == e["team"] and victim["id"] != e["by"]:
                 continue  # no friendly damage, but one's own grenade still hurts
@@ -756,6 +773,29 @@ class Match:
         return [dict(self._public_effect(e), age=max(0, now-e["start"]+e.get("delay", 0)))
                 for e in self.effects if e.get("persist") or e["until"] > now]
 
+    def _ensure_safe_position(self, p):
+        """Recover corrupt/out-of-map bodies without granting another spawn shield."""
+        pos, b = p["pos"], combat.BOUNDS
+        def inside(q):
+            return (q and len(q) == 3 and all(math.isfinite(v) for v in q)
+                    and b["minX"] + 1.5 <= q[0] <= b["maxX"] - 1.5
+                    and b["minZ"] + 1.5 <= q[2] <= b["maxZ"] - 1.5
+                    and q[1] >= combat.FLOOR_BASE - 0.05
+                    and not combat.is_void_floor(q[0], q[2], q[1]))
+        if not inside(pos):
+            safe = p.get("safe_pos")
+            if not inside(safe) or combat.blocked(safe[0], safe[2], safe[1], body_height(p)):
+                safe, _ = random_spawn(p["team"], self.rng)
+            p["pos"] = list(safe)
+            p["velocity"] = [0.0, 0.0, 0.0]
+            p["recovery_seq"] = p.get("recovery_seq", 0) + 1
+            p["recovery_pos"] = list(safe)
+            _seed_hist(p, now_ms())
+        else:
+            floor = combat.floor_at(pos[0], pos[2], pos[1])
+            if abs(pos[1] - floor) <= 0.05 and not combat.blocked(pos[0], pos[2], pos[1], body_height(p)):
+                p["safe_pos"] = list(pos)
+
     # -------------------------------------------------------------- simulation
 
     def tick(self, dt_ms):
@@ -786,6 +826,7 @@ class Match:
                 self.outbox.extend(self._spawn(p))
             if not p["alive"]:
                 continue
+            self._ensure_safe_position(p)
             if p["reload_end"] > 0:
                 # Rounds still to load are bounded by the spare ammo on hand.
                 need = min(mag_size(p["weapon"]) - int(p["reload_from"]), int(p["reserve"]))
@@ -913,6 +954,7 @@ class Match:
                 "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f, "sq": p.get("shot_seq", 0),
                 "rv": 1 if p["reveal_until"] > now else 0,
                 "sp": 1 if p["suppress_until"] > now else 0,
+                "sh": int(math.ceil(shield_remaining(p, now))),
                 "sk": p["skin"], "ai": p["bot_skill"],
                 "k": p["kills"], "d": p["deaths"],
             })
@@ -929,6 +971,8 @@ class Match:
             "reloadTotal": int(p["reload_total"]),
             "reloading": 1 if p["reload_end"] > now else 0,
             "alive": 1 if p["alive"] else 0,
+            "shieldMs": int(math.ceil(shield_remaining(p, now))),
+            "recovery": {"seq": p["recovery_seq"], "p": p["recovery_pos"]} if p.get("recovery_pos") else None,
             "respawnIn": int(max(0, p["respawn_at"] - now)) if not p["alive"] else 0,
             "abilityIn": int(max(0, p["ability_ready"] - now)),
             "grenades": p["grenades"] if p["grenades"] > 0 or now < p["grenade_ready"] else int(combat.THROW["grenadeCharges"]),

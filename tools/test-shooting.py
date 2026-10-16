@@ -19,7 +19,7 @@ class ShootingTests(unittest.TestCase):
         self.shooter=self.match.add_player('Shooter',None)
         self.target=self.match.add_player('Target',None)
         self.shooter.update(pos=[0,0,0],team=0)
-        self.target.update(pos=[10,0,0],team=1,hp=1000)
+        self.target.update(pos=[10,0,0],team=1,hp=1000,shield_until=0)
         game._seed_hist(self.target,self.clock)
         self.geometry([])
     def tearDown(self):

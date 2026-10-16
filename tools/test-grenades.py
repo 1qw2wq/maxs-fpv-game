@@ -24,7 +24,7 @@ class GrenadeTests(unittest.TestCase):
         self.enemy = self.match.add_player('Enemy', None)
         self.ally = self.match.add_player('Ally', None)
         for player, team, pos in ((self.owner, 0, [-10, 0, 0]), (self.enemy, 1, [0, 0, 0]), (self.ally, 0, [0, 0, 1])):
-            player.update(team=team, pos=pos, hp=100, alive=True)
+            player.update(team=team, pos=pos, hp=100, alive=True, shield_until=0)
         self.match.phase = 'live'
         self.geometry([])
 

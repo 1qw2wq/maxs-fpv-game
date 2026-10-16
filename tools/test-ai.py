@@ -22,6 +22,7 @@ class BotTests(unittest.TestCase):
         self.bot = self.match.add_player('Bot', None, bot=True)
         self.foe = self.match.add_player('Enemy', None)
         # add_player returns the player dict; no network is required.
+        self.bot['shield_until'] = self.foe['shield_until'] = 0
         self.bot['team'], self.foe['team'] = 0, 1
         self.bot['pos'], self.foe['pos'] = [0, 0, 0], [18, 0, 0]
         self.bot['yaw'] = 0

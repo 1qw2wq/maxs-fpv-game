@@ -1224,3 +1224,8 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 .layout-editing .touch-look { pointer-events:none; }
 .layout-editing .touch-actions button, .layout-editing .touch-fire, .layout-editing .touch-stick { outline:2px dashed #d9f29b99; outline-offset:2px; cursor:move; }
 #mobile-controls.sprinting .touch-stick { border-color:#d9f29b; box-shadow:0 0 12px #d9f29b40; }
+
+/* Kept inside the health column, away from both desktop and touch actions. */
+#statusbar .hp-wrap { position:relative; }
+#spawn-shield-status { position:absolute; bottom:calc(100% + 3px); left:0; white-space:nowrap; color:#78deff; font-size:11px; font-weight:700; line-height:1.25; letter-spacing:.02em; }
+.mobile-mode #spawn-shield-status { font-size:10px; line-height:10px; bottom:calc(100% + 1px); }

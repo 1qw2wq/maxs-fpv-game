@@ -20,6 +20,7 @@ import { simulateThrow, sampleThrow } from './throwing.js';
 import { buildGrenadeEffect, updateGrenadeEffect } from './grenadefx.js';
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
+import { updateSpawnShield } from './spawn-shield.js';
 import { MobileControls } from './mobile-controls.js';
 import { requestMobileFullscreen } from './mobile-fullscreen.js';
 import { Hud } from './hud.js';
@@ -1413,6 +1414,8 @@ async function setMap(mapId) {
 // ------------------------------------------------------------------ welcome
 
 async function onWelcome(m) {
+  app.lastRecoverySeq = 0;
+  app.shieldUntil = 0;
   app.playing = false;
   app.myId = m.id;
   app.myTeam = m.team;
@@ -1659,6 +1662,11 @@ function onState(st) {
 }
 
 function onMe(me) {
+  app.shieldUntil = performance.now() + (me.shieldMs || 0);
+  if (me.recovery && me.recovery.seq !== app.lastRecoverySeq) {
+    app.lastRecoverySeq = me.recovery.seq;
+    app.controls.recoverPosition(me.recovery.p);
+  }
   const data = app.data;
   app.hud.updateMe(me);
   app.hud.setLoadout(me.c, me.w);
@@ -2312,16 +2320,6 @@ function tick(dt, now) {
   // local body there instead of filling the screen with its hair/inside mesh.
   if (tp && app.self && app.camera.position.distanceToSquared(eye) < 0.64) app.self.root.visible = false;
   app.camera.lookAt(app.camera.position.clone().add(dir));
-  // Per-gun camera punch: applied to the rendered camera *after* it has been
-  // aimed, so the aim ray the crosshair and the server share is untouched -- a
-  // Springfield throws the picture around, an MP18 barely moves it.
-  const punch = app.gunfx;
-  if (punch && (punch.punchPitch || punch.punchYaw || punch.punchRoll)) {
-    const D = Math.PI / 180;
-    app.camera.rotateX(punch.punchPitch * D);
-    app.camera.rotateY(punch.punchYaw * D);
-    app.camera.rotateZ(punch.punchRoll * D);
-  }
   // in third person the character body replaces the viewmodel
   const scoped = alive && app.controls.ads && w.class === 'scout';
   document.getElementById('scope-overlay').classList.toggle('hidden', !scoped);
@@ -2376,6 +2374,14 @@ function tick(dt, now) {
       if (w.shape === 'bolt' && !w.straightPull) app.boltWait = true;
     }
   }
+  // Recoil moves the real aim, not a disconnected camera-only animation.
+  // Updating here makes even a single shot visible in its first rendered frame.
+  app.camera.lookAt(app.camera.position.clone().add(app.controls.aim()));
+  if (app.gunfx?.punchRoll) app.camera.rotateZ(app.gunfx.punchRoll * Math.PI / 180);
+  const shield = document.getElementById('spawn-shield-status');
+  const shieldMs = alive ? Math.max(0, (app.shieldUntil || 0) - now) : 0;
+  shield.classList.toggle('hidden', shieldMs <= 0);
+  shield.textContent = shieldMs > 0 ? t('出生保护 · {seconds}秒', {seconds: Math.ceil(shieldMs/1000)}) : '';
   app.clickPending = false;
   app.controls.touchFirePending = false;
 
@@ -2445,6 +2451,7 @@ function fireOnce(w, eye, dir) {
   app.gunfx.fire(w, from, barrelDir, { eject, attachment });
   const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
   if (tracerRound(style, rounds)) spawnTracer(from, end, style);
+  app.controls.applyRecoil(style.kick);
 }
 
 function updateCrosshair(w, suppressed) {
@@ -2489,6 +2496,7 @@ function syncSelfAvatar(dt, alive) {
   app.self.root.position.copy(c.pos);
   app.self.root.rotation.y = yawToRotation(c.yaw);
   updateContactShadow(app.self, app.world, alive && app.self.root.visible);
+  updateSpawnShield(app.self, alive && (app.shieldUntil || 0) > performance.now());
   // First person already solves a separate pair of arms. Do not animate a
   // second, invisible full-body rig every frame as well.
   if (!app.self.root.visible) return;
@@ -2629,6 +2637,7 @@ function updateRemotePlayers(dt, me) {
     const rw = app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0];
     girl.setWeapon(rw);
     girl.setAlive(!!p.alive);
+    updateSpawnShield(girl, !!p.alive && p.shieldMs > 0);
     girl.marker.visible = true;
     girl.marker.material.color.set(p.team === app.myTeam ? 0x3ddc6a : 0xff3b30);
 
