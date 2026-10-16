@@ -17,7 +17,7 @@ Select **Procedural City** in the main-menu map picker. The committed seed is **
   vacant units. Room contents and omissions vary by seed, room and floor; pallets/rubble, seating,
   cabinets, tables, rugs, pictures and lighting do not appear in every unit. 2,044 furniture/decor
   placements in the tracked furnishing aliases, compared with 1,275 in the previous version.
-- 140 staggered low-wall cover runs, 82 parked delivery trucks, 132 shop awnings and 295 additional
+- 140 staggered low-wall cover runs, 82 parked vehicles in seven variants (including all three new car uploads), 132 shop awnings and 299 additional
   vegetation/street placements. Uploaded birch, broadleaf, pine, autumn/dead trees, bushes, berries,
   plants and flowers are mixed with the original street kit. Foliage has no canopy-sized invisible wall.
 
@@ -34,17 +34,18 @@ Original uploaded binaries remain unchanged:
 - `models/maps/house.glb`: floor/wood materials, stair treads and rails.
 - `models/maps/inter.glb`: multiple furniture, lighting and wall-decoration types.
 - **`models/maps/vege/veg.glb`**: selected meshes from the newly uploaded 150-mesh vegetation pack.
+- `models/maps/car_crashed.glb`, `crashed_abandoned_car_-_game_ready.glb`, and `damaged_f1_car.glb`: the three new uploaded vehicle models. See `models/maps/VEHICLES.md`.
 - `models/maps/Skyboxes/skybox-day.png`: panorama and PMREM environment.
 
 `CITY_KIT` in `public/js/proc-city.js` resolves original names through GLTF parser associations, including
-sanitized names and multi-primitive nodes. Multi-material furniture retains all its primitives/materials.
+sanitized names and multi-primitive nodes. Multi-material furniture and cars retain all their primitives/materials; missing normals/UVs and mixed tangent layouts are normalized for merging. Groups sharing a material are batched together.
 Structural surfaces use closed boxes matching the AABBs, with continuous plaster, cobbles and terrain
 textures rather than smearing the whole kit atlas over a door jamb or ground tile. Furniture/vegetation
 retain their uploaded geometry. Interiors are double-sided. Thin ground passes are front-sided with
 explicit ground/decal depth offsets, preventing distant top/bottom-face flickering. Existing lighting/smoke/disposal behavior stays.
 
-Canonical seed: **20,237 visual placements, 51 instanced aliases, 14,210 collision boxes**. Multiple source
-materials may require more than one draw per instance batch; the test overview rendered in 74 draw calls.
+Canonical seed: **20,241 visual placements, 57 instanced aliases, 14,213 collision boxes**. Multiple source
+materials may require more than one draw per instance batch; the test overview rendered in 118 draw calls.
 These are scene counts, not a mobile frame-rate guarantee. Original asset licenses still apply.
 
 ## Shared authority, collision and navigation

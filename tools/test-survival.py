@@ -47,6 +47,55 @@ class SurvivalTests(unittest.TestCase):
                         self.assertEqual(self.target['suppress_until'],0)
                         self.assertEqual(self.target['last_hit_ms'],123)
 
+    def test_shield_deadline_cannot_extend_same_life(self):
+        self.target['shield_until']=float('inf')
+        self.clock+=5000
+        self.assertEqual(game.shield_remaining(self.target,self.clock),0)
+        life=self.target['life']
+        self.match._ensure_safe_position(self.target)
+        self.match._on_reload(self.target)
+        self.match._on_switch(self.target,{})
+        self.assertEqual(self.target['life'],life)
+        self.assertEqual(game.shield_remaining(self.target,self.clock),0)
+        self.match._spawn(self.target)
+        self.assertEqual(self.target['life'],life+1)
+        self.assertEqual(self.match.me_payload(self.target)['life'],life+1)
+        self.assertEqual(game.shield_remaining(self.target,self.clock),5000)
+
+    def test_real_map_shield_expiry_all_guns_and_bots(self):
+        for meta in combat.MAPS:
+            combat.set_map(meta['id'])
+            found=None
+            for spawn in combat.MAP_DATA['spawns']['0']:
+                base=[spawn['x'],spawn['y'],spawn['z']]
+                for dx,dz in ((3,0),(-3,0),(0,3),(0,-3),(5,0),(0,5)):
+                    q=[base[0]+dx,combat.floor_at(base[0]+dx,base[2]+dz,base[1]),base[2]+dz]
+                    if combat.blocked(q[0],q[2],q[1]):continue
+                    eye=[base[0],base[1]+1.58,base[2]]
+                    target=[q[0],q[1]+1.3,q[2]]
+                    if not combat.has_line_of_sight(eye,target):continue
+                    found=(base,q,combat.normalize(tuple(target[i]-eye[i] for i in range(3))))
+                    break
+                if found:break
+            self.assertIsNotNone(found,meta['id'])
+            base,q,direction=found
+            self.owner.update(pos=base,safe_pos=base)
+            self.target.update(pos=q,safe_pos=q,alive=True)
+            for bot in (False,True):
+                for wid,w in combat.WEAPONS.items():
+                    if w.get('utility'):continue
+                    self.clock+=10000
+                    start=self.clock
+                    self.owner.update(bot=bot,weapon=wid,last_shot=0,equip_until=0,reload_end=0,mag=100)
+                    self.target.update(hp=1000,alive=True,spawned_at=start,shield_until=start+5000)
+                    game._seed_hist(self.target,self.clock)
+                    for elapsed in (4999,5000,15000):
+                        self.clock=start+elapsed
+                        self.owner.update(last_shot=0,mag=100)
+                        self.target['hp']=1000
+                        self.match._on_fire(self.owner,dict(d=direction))
+                        self.assertEqual(self.target['hp']==1000,elapsed<5000,(meta['id'],bot,wid,elapsed))
+
     def test_bullet_cannot_pass_shield_and_hit_body_behind(self):
         behind=self.match.add_player('Behind',None)
         behind.update(team=1,pos=[15,0,0],shield_until=0)

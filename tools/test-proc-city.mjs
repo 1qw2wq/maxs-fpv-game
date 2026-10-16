@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {generateProcCity} from '../public/engine/proc_city.js';
+import {CITY_VEHICLES} from '../public/engine/vehicles.js';
 const saved=JSON.parse(readFileSync(new URL('../public/shared/maps/proc_city.json',import.meta.url)));
 assert.deepEqual(generateProcCity(1942),saved,'Shared artifact must be exactly reproducible');
 assert.throws(()=>generateProcCity(NaN));assert.throws(()=>generateProcCity(1.2));
@@ -14,6 +15,14 @@ for(let seed=0;seed<32;seed++){
  for(const b of m.buildings){assert.ok(b.stories>=1&&b.stories<=4);assert.equal(b.storyHeight,3);assert.equal(b.doors.length,2);assert.notEqual(b.doors[0].side,b.doors[1].side);for(const d of b.doors){assert.ok(d.width>=1.2&&d.height>=2.1);}}
  assert.ok(m.coverRuns>=80);
  assert.ok(m.parkedVehicles>=12);
+ assert.equal(Object.values(m.vehicleCounts).reduce((a,b)=>a+b,0),m.parkedVehicles);
+ for(const key of Object.keys(CITY_VEHICLES))assert.ok(m.vehicleCounts[key]>0,`Missing vehicle ${key}`);
+ assert.equal(m.vehicleCounts.car_f1,1,'High-poly landmark budget');
+ assert.ok(m.vehicleCounts.car_crashed<=2);
+ for(const tile of m.tiles.filter(t=>CITY_VEHICLES[t.meshName])){
+  const b=m.boxes.find(b=>b.vehicle===tile.meshName&&b.x===tile.x&&b.z===tile.z);
+  assert.ok(b);assert.deepEqual([b.w,b.h,b.d],tile.scale);
+ }
  assert.ok(m.tiles.some(t=>t.meshName==='paint_yellow'));
  assert.equal(m.roadsX.length+m.roadsZ.length,5);
  assert.equal(m.connectedPairs,66);
@@ -32,4 +41,4 @@ for(let seed=0;seed<32;seed++){
  assert.equal(m.floor_holes.length,m.buildings.reduce((n,b)=>n+b.stories-1,0));
 }
 assert.equal(variants.size,32);
-console.log('PASS: 32 repeatable seeds, distinct layouts/cover, 132 attached buildings, 1–4 floors, eight interiors, five roads, ≥1.2m flanking doors, one smooth collider per flight, canonical shared JSON');
+console.log('PASS: 32 repeatable seeds, distinct layouts/cover, 132 attached buildings, 1–4 floors, eight interiors, five roads, ≥1.2m flanking doors, one smooth collider per flight, seven vehicle variants with matching collision and high-poly limits, canonical shared JSON');

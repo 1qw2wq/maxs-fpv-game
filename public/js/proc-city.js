@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {GLTFLoader} from '../vendor/loaders/GLTFLoader.js';
 import {mergeGeometries} from '../vendor/utils/BufferGeometryUtils.js';
 import {fixImportedMaterials} from './lighting.js';
+import {CITY_VEHICLES} from '../engine/vehicles.js';
 
 function citySurface(kind) {
   const canvas=document.createElement('canvas');canvas.width=canvas.height=512;
@@ -33,7 +34,7 @@ function citySurface(kind) {
 const KIT='/models/maps/GLB format/';
 export const CITY_KIT={
   awning:[KIT+'detail-awning-wide.glb','detail-awning-wide'],
-  parked_truck:[KIT+'truck-grey.glb','truck-grey'],
+  ...Object.fromEntries(Object.entries(CITY_VEHICLES).map(([key,v])=>[key,[v.file,v.node]])),
   curb:[KIT+'road-asphalt-pavement.glb','road-asphalt-pavement','box'],
   paint_white:[KIT+'road-asphalt-center.glb','road-asphalt-center','box'],
   paint_yellow:[KIT+'road-asphalt-center.glb','road-asphalt-center','box'],
@@ -103,18 +104,42 @@ export async function extractCityKit() {
     const parts=[];source.traverse(o=>{if(o.isMesh)parts.push(o);});
     if(!parts.length)throw Error(`Empty city asset: ${name}`);
     const geometries=parts.map(o=>o.geometry.clone().applyMatrix4(o.matrixWorld));
-    const materials=[],groups=[];let offset=0;
+    // Uploads mix painted/body/trim primitives: some omit UVs or normals and
+    // others have tangents. Normalize only those merge requirements; otherwise
+    // one missing attribute makes the whole map fail to load.
+    for(const geo of geometries){
+      if(!geo.getAttribute('normal'))geo.computeVertexNormals();
+      if(!geo.getAttribute('uv'))geo.setAttribute('uv',new THREE.Float32BufferAttribute(new Float32Array(geo.getAttribute('position').count*2),2));
+    }
+    const common=Object.keys(geometries[0].attributes).filter(key=>geometries.every(g=>g.hasAttribute(key)));
+    for(const geo of geometries)for(const key of Object.keys(geo.attributes))if(!common.includes(key))geo.deleteAttribute(key);
+    if(geometries.some(g=>!!g.index!==!!geometries[0].index)){
+      for(let i=0;i<geometries.length;i++)if(geometries[i].index){const indexed=geometries[i];geometries[i]=indexed.toNonIndexed();indexed.dispose();}
+    }
+    const materials=[],materialIds=new Map(),groups=[];let offset=0;
     parts.forEach((o,i)=>{
-      const list=Array.isArray(o.material)?o.material:[o.material],base=materials.length;
-      materials.push(...list.map(m=>m.clone()));
+      const list=Array.isArray(o.material)?o.material:[o.material];
+      const ids=list.map(mat=>{
+        if(!materialIds.has(mat)){materialIds.set(mat,materials.length);materials.push(mat.clone());}
+        return materialIds.get(mat);
+      });
       const geo=geometries[i],count=geo.index?.count||geo.attributes.position.count;
-      for(const group of geo.groups.length?geo.groups:[{start:0,count,materialIndex:0}])groups.push({start:offset+group.start,count:group.count,materialIndex:base+group.materialIndex});
+      for(const group of geo.groups.length?geo.groups:[{start:0,count,materialIndex:0}])groups.push({start:offset+group.start,count:group.count,materialIndex:ids[group.materialIndex]});
       offset+=count;
     });
     const geometry=geometries.length===1?geometries[0]:mergeGeometries(geometries,false);
     if(!geometry)throw Error(`Incompatible city geometry: ${name}`);
     if(geometries.length>1)for(const geo of geometries)geo.dispose();
-    geometry.clearGroups();for(const group of groups)geometry.addGroup(group.start,group.count,group.materialIndex);
+    // Bucket triangles by shared material: 167 meshes in the uploaded wreck
+    // must not become 167 separate draw calls for every parked instance.
+    const indices=[],original=geometry.index;
+    geometry.clearGroups();
+    for(let mat=0;mat<materials.length;mat++){
+      const start=indices.length;
+      for(const group of groups)if(group.materialIndex===mat)for(let i=group.start;i<group.start+group.count;i++)indices.push(original?original.getX(i):i);
+      if(indices.length>start)geometry.addGroup(start,indices.length-start,mat);
+    }
+    geometry.setIndex(indices);
     geometry.computeBoundingBox();
     const bounds=geometry.boundingBox,size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
     geometry.translate(-center.x,-bounds.min.y,-center.z);

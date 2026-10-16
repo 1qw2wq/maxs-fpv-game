@@ -194,6 +194,8 @@ The game needs no plugins, but two browser environments restrict pages and both 
 - Every initial spawn, respawn and new round grants **five seconds of host-enforced protection**
   to players and bots. Bullets, blast/fire damage and flash blindness are blocked during this window;
   firing does not shorten it. A blue shield bubble and health-column countdown show the remaining time.
+  Shield deadlines cannot be extended within a life. Delayed/repeated packets and asynchronous
+  map loading cannot restart the countdown; only an authoritative new spawn renews it.
 - Firing immediately kicks the weapon backward and raises the **actual aim**, with per-gun strength,
   bounded sideways recoil and reduced kick while ADS. Pull down to compensate during a burst. The
   camera, crosshair and subsequent shot ray stay aligned; recoil never pushes the player off a ledge.
@@ -398,20 +400,20 @@ duplicate delivery over two transports, joining during host startup, invalid cod
 departure cleanup, native lock/retry/Esc/relock, permitted iframe locking, and denied sandbox requests
 without alternative steering. This is a local
 static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
-The same command also runs `tools/test-effects.mjs`: 15 imported models / 105 weapon poses,
+The same command also runs `tools/test-effects.mjs`: 30 imported models / 210 weapon poses,
 third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
 and an actual solo deploy/fire/reload/grenade render. `python tools/test-grenades.py` covers
 21 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
 visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q controls and effects. `tools/test-hands.mjs` additionally exercises
-all four shipped skeletons across 480 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
+all four shipped skeletons across 960 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
 hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
-`tools/test-survival.mjs` adds 30 real-aim recoil cases, 5,376 map movement frames at 20/60/144fps,
+`tools/test-survival.mjs` adds 60 real-aim recoil cases, 8,064 map movement frames at 20/60/144fps,
 shield replication/expiry and disposal, plus live respawn protection/HUD and client/host recovery.
-Run `python tools/test-survival.py` for nine authoritative shield/safety regressions.
+Run `python tools/test-survival.py` for eleven authoritative shield/safety regressions.
 `tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
-`tools/test-arsenal.mjs` verifies all 15 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
-shot deduplication and pool cleanup; the actual solo game also fires all 15 guns in FP and TP (30 cases).
+`tools/test-arsenal.mjs` verifies all 30 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
+shot deduplication and pool cleanup; the actual solo game also fires all 30 guns in FP and TP (60 cases).
 Run `python tools/test-ai.py` for 23 deterministic AI/engine tests, including 60-second simulated matches
 on both shipped maps. Browser regressions can take a few minutes on software-rendered Chromium.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
@@ -941,3 +943,12 @@ and long guns have individual model/grip/hip/ADS calibration rather than a share
 
 See [map generation and validation](docs/proc-city.md) and
 [arsenal, secondary inventory and controls](docs/arsenal-and-sidearms.md).
+
+`node tools/test-protection.mjs` checks capped, non-renewing per-life deadlines, delayed/replayed
+packets, old seat/life rejection, respawn teleports and remote-clock cleanup without a browser.
+`tools/test-vehicles.mjs` (included in the browser runner) loads all seven vehicle variants, verifies
+all 82 canonical cover bounds and material groups, and renders the three newly uploaded cars.
+For a running static preview, set `CITY_ORIGIN` and `CHROMIUM_EXECUTABLE`, then run
+`python tools/test-map-shields.py` with test-only Python Playwright installed. It waits a real five
+seconds on **all three maps**, checks authoritative damage before/after expiry, remote countdowns,
+position recovery without renewal, and a new protection grant only after respawning.

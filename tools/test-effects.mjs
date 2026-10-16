@@ -53,33 +53,43 @@ export async function testEffects(context, origin) {
         const matrix = new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld);
         for (let i = 0; i < positions.count; i++) bounds.expandByPoint(point.fromBufferAttribute(positions, i).applyMatrix4(matrix));
       });
-      if (Math.abs(vm.muzzle.position.z - bounds.max.z - 0.005) > 0.001) throw new Error(`${weapon.id}: barrel tip is not calibrated`);
+      // G17's flashlight protrudes beyond its barrel; the audited barrel socket
+      // must not be replaced with the overall model's furthest attachment.
+      const muzzleError = weapon.model === 'g17'
+        ? vm.muzzle.position.distanceTo(new THREE.Vector3(0,0,0.101931))
+        : Math.abs(vm.muzzle.position.z - bounds.max.z - 0.005);
+      if (muzzleError > 0.001) throw new Error(`${weapon.id}: barrel tip is not calibrated`);
       girl.setWeapon(weapon);
       girl.update(1 / 60, { speed: 2, crouch: true, pitch: 15 });
       girl.root.updateMatrixWorld(true);
       for (const [side, socket] of [['R', 'hand'], ['L', 'fore']]) {
         const wrist = girl.root.getObjectByName(`wrist-${side}`).getWorldPosition(new THREE.Vector3());
         const socketNode = girl.root.getObjectByName(`weapon-${socket}`);
-        const rotation = gripRotation(socketNode.getWorldQuaternion(new THREE.Quaternion()), side);
+        const rotation = gripRotation(socketNode.getWorldQuaternion(new THREE.Quaternion()), side, new THREE.Quaternion(), weapon.shape);
         const target = gloveWrist(socketNode.getWorldPosition(new THREE.Vector3()), rotation);
         const wristNode = girl.root.getObjectByName(`wrist-${side}`);
         if (wristNode.getWorldQuaternion(new THREE.Quaternion()).angleTo(rotation) > 1e-6) throw new Error(`${weapon.id}: third-person wrist twist`);
         maxThirdPersonError = Math.max(maxThirdPersonError, wrist.distanceTo(target));
         if (wrist.distanceTo(target) > 0.07) throw new Error(`${weapon.id}: third-person wrist misses grip`);
       }
-      // These must be real mesh contacts, not arbitrary empty anchor nodes.
-      // Shoot upward from below the fore-end: the palm sits 13mm below that
-      // surface, its padded glove touching it instead of floating in midair.
-      const support = weaponSockets(weapon).fore;
-      const ray = new THREE.Raycaster(new THREE.Vector3(support[0], bounds.min.y - 0.1, support[2]), new THREE.Vector3(0, 1, 0));
-      model.updateWorldMatrix(true, true);
-      const origin = ray.ray.origin.clone().applyMatrix4(vm.gunMeshes.matrixWorld);
-      const direction = ray.ray.direction.clone().transformDirection(vm.gunMeshes.matrixWorld);
-      ray.set(origin, direction);
-      const hit = ray.intersectObject(model, true)[0];
-      if (!hit) throw new Error(`${weapon.id}: support grip misses gun geometry`);
-      const surface = hit.point.clone().applyMatrix4(inverse);
-      if (Math.abs(surface.y - support[1]) > 0.025) throw new Error(`${weapon.id}: support palm floats off handguard`);
+      // Test distance to the actual assembled triangle surface. An upward
+      // first-hit ray hits BAR's bipod / a magazine before its handguard and
+      // wrongly rejects a correct contact; pistols also grip a side surface.
+      const support = new THREE.Vector3().fromArray(weaponSockets(weapon).fore);
+      const tri = new THREE.Triangle(), closest = new THREE.Vector3();
+      let contactDistance = Infinity;
+      model.traverse(mesh => {
+        if (!mesh.isMesh) return;
+        const geo = mesh.geometry, pos = geo.getAttribute('position');
+        const matrix = new THREE.Matrix4().multiplyMatrices(inverse,mesh.matrixWorld);
+        const count = geo.index?.count || pos.count;
+        for (let i=0;i+2<count;i+=3) {
+          for (const [corner,offset] of [[tri.a,0],[tri.b,1],[tri.c,2]]) corner.fromBufferAttribute(pos,geo.index?geo.index.getX(i+offset):i+offset).applyMatrix4(matrix);
+          tri.closestPointToPoint(support,closest);
+          contactDistance = Math.min(contactDistance,closest.distanceTo(support));
+        }
+      });
+      if (contactDistance > 0.025) throw new Error(`${weapon.id}: support palm floats off actual geometry`);
       const sockets = weaponSockets(weapon), mounted = mountedGrips(weapon);
       if (Math.abs(mounted.hand[2] - sockets.hand[2] - 0.06) > 1e-8) throw new Error('FP/TP grip frame mismatch');
       for (const phase of ['hip', 'ads', 'recoil', 'reload-start', 'reload-service', 'reload-seat', 'reload-end']) {
@@ -99,7 +109,7 @@ export async function testEffects(context, origin) {
           const error = actual.distanceTo(rig.side === 1 ? hand : fore);
           maxPalmError = Math.max(maxPalmError, error);
           if (error > 1e-6) throw new Error(`${weapon.id}/${phase}: palm drift ${error}`);
-          const expected = gripRotation(vm.gunMeshes.getWorldQuaternion(new THREE.Quaternion()), rig.side === 1 ? 'R' : 'L');
+          const expected = gripRotation(vm.gunMeshes.getWorldQuaternion(new THREE.Quaternion()), rig.side === 1 ? 'R' : 'L', new THREE.Quaternion(), weapon.shape);
           if (rig.palm.getWorldQuaternion(new THREE.Quaternion()).angleTo(expected) > 1e-6) throw new Error(`${weapon.id}/${phase}: glove faces away from grip`);
           for (let i = 0; i < 4; i++) if (!rig.palm.getObjectByName(`finger-${i}-2`)) throw new Error('Missing curled glove finger');
           if (!rig.palm.getObjectByName('thumb')) throw new Error('Missing opposed thumb');

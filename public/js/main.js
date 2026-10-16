@@ -1691,7 +1691,9 @@ function onState(st) {
 
 function onMe(me) {
   const previousPrimary=app.loadout.primary,previousSecondary=app.loadout.secondary;
-  app.shieldUntil = performance.now() + (me.shieldMs || 0);
+  // The network clock is stamped once at receipt and can only shrink within
+  // this life. Replaying lastMe after a slow map decode cannot renew a shield.
+  app.shieldUntil = app.net?.protection?.until || 0;
   if (me.recovery && me.recovery.seq !== app.lastRecoverySeq) {
     app.lastRecoverySeq = me.recovery.seq;
     app.controls.recoverPosition(me.recovery.p);

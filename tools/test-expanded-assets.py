@@ -109,6 +109,14 @@ with sync_playwright() as p:
         page.wait_for_function("!window.__trench.app.net.lastMe.equipIn")
         page.keyboard.press('Digit2')
         page.wait_for_function("window.__trench.app.net.lastMe.w==='deagle'&&window.__trench.app.net.lastMe.mag===6")
+        page.wait_for_function("window.__trench.app.net.lastMe.shieldMs===0")
+        page.evaluate("""()=>{
+          const a=window.__trench.app;
+          a.net.h.onMe({...a.net.lastMe,shieldMs:5000});
+          if(a.shieldUntil>performance.now())throw Error('Reapplying a delayed map-load packet restarted the local shield');
+          a.net.h.onMe({...a.net.lastMe});
+        }""")
+        print('PASS: actual main.js cannot renew an expired shield by reapplying a stale remaining-duration packet',flush=True)
         page.evaluate("document.body.classList.add('mobile-mode')")
         for width,height in[(360,780),(390,844),(844,390),(740,360)]:
             page.set_viewport_size(dict(width=width,height=height))

@@ -61,8 +61,8 @@ export async function testSurvival(context, origin) {
     if(girl.spawnShield||disposed!==2)throw new Error('Removed avatar leaks shield resources');
     const net=new Net();net._dispatch({t:'state',ps:[{i:2,p:[0,0,0],y:0,pi:0,al:1,sh:5000}]});
     if(net.sample().get(2).shieldMs<4900)throw new Error('Remote shield not replicated');
-    net.snaps[0].t-=6000;
-    if(net.sample().get(2).shieldMs!==0)throw new Error('Stale remote snapshot keeps shield alive');
+    const stale=new Net();stale._dispatch({t:'state',ps:[{i:2,p:[0,0,0],y:0,pi:0,al:1,sh:5000}]},performance.now()-6000);
+    if(stale.sample().get(2).shieldMs!==0)throw new Error('Stale remote snapshot keeps shield alive');
     return {poses,kicks};
   });
   assert.deepEqual(errors,[]);await page.close();

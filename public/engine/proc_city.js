@@ -1,9 +1,10 @@
 // Pure seeded authoring. Both engines consume the same committed JSON artifact.
 import {generateCityTemplates} from './city-building.js';
+import {CITY_VEHICLES,cityVehicle} from './vehicles.js';
 export function generateProcCity(seed=1942){
   if(!Number.isSafeInteger(seed))throw new TypeError('Integer seed required');
   let state=seed>>>0;const rand=()=>((state=(Math.imul(state,1664525)+1013904223)>>>0)/4294967296);
-  const base=generateCityTemplates(seed),m={...base,seed:seed>>>0,generatorVersion:4,
+  const base=generateCityTemplates(seed),m={...base,seed:seed>>>0,generatorVersion:5,
     bounds:{minX:-120,maxX:120,minZ:-120,maxZ:120},boxes:[],tiles:[],buildings:[],floor_holes:[],navPoints:[],bot_nav:{nodes:[],edges:[]}};
   m.style={...base.style,fogNear:60,fogFar:190};
   m.spawns={'0':[-3,0,3].map(z=>({x:-115,y:0,z,yaw:0,team:0})),'1':[-3,0,3].map(z=>({x:115,y:0,z,yaw:180,team:1}))};
@@ -117,6 +118,7 @@ export function generateProcCity(seed=1942){
     return true;
   }
   let coverRuns=0,parkedVehicles=0;
+  m.vehicleCounts={};
   // Yard walls create staggered, overlapping cover instead of isolated islands.
   for(const b of m.buildings)for(const sign of[-1,1])for(const axis of['x','z']){
     const x=b.x+(axis==='x'?sign*(b.w/2+1.0):sign*b.w*.18),z=b.z+(axis==='z'?sign*(b.d/2+1.0):-sign*b.d*.18);
@@ -127,9 +129,15 @@ export function generateProcCity(seed=1942){
   // Park in paired bays along the street edges; always leave door approaches open.
   for(const v of roadsX)for(let along=-100;along<=100;along+=10)for(const sign of[-1,1]){
     const at=v+sign*2.55,vertical=true;
-    const x=vertical?at:along,z=vertical?along:at,w=vertical?2.0:4.5,d=vertical?4.5:2.0;
+    const kind=cityVehicle(parkedVehicles),size=CITY_VEHICLES[kind].size;
+    const [vw,vh,vd]=size;
+    const x=vertical?at:along,z=vertical?along:at,w=vertical?vw:vd,d=vertical?vd:vw;
     if(!rectClear(x,z,w,d))continue;
-    box(x,.95,z,w,1.9,d,'cover');tile('parked_truck',x,0,z,2,1.9,4.5,vertical?0:Math.PI/2);parkedVehicles++;
+    // Both directions face along the curb. Wrecks retain their genuine width,
+    // including opened bodywork, instead of stretching every model into a truck.
+    const yaw=(vertical?0:Math.PI/2)+(sign>0?Math.PI:0);
+    box(x,vh/2,z,w,vh,d,'cover',{vehicle:kind});tile(kind,x,0,z,vw,vh,vd,yaw);
+    m.vehicleCounts[kind]=(m.vehicleCounts[kind]||0)+1;parkedVehicles++;
   }
   const clear=(x,z,r)=>{
     if(Math.abs(x)>116||Math.abs(z)>116||Math.abs(z)<5&&Math.abs(x)>106)return false;

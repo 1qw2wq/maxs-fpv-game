@@ -38,7 +38,9 @@ SPAWN_SHIELD_MS = float(COMBAT.get("spawnShieldMs", 5000))
 
 
 def shield_remaining(p, now):
-    return max(0.0, p.get("shield_until", 0.0) - now) if p["alive"] else 0.0
+    # A corrupt/extended deadline must never grant more than one spawn window.
+    deadline = min(p.get("shield_until", 0.0), p.get("spawned_at", now - SPAWN_SHIELD_MS) + SPAWN_SHIELD_MS)
+    return max(0.0, deadline - now) if p["alive"] else 0.0
 
 
 # A bot firing through smoke at anything past this range only lands one shot in
@@ -198,13 +200,15 @@ class Match:
         spawn, spawn_yaw = random_spawn(team, self.rng)
         skill = bots_mod.skill_for_slot(sum(1 for q in self.players.values() if q["bot"] and q["team"] == team)) if bot else ""
         hp = float(CLASSES[cls]["maxHp"])
+        spawned_at = now_ms()
         p = {
             "id": pid, "name": name, "team": team, "cls": cls, "weapon": weapon,
             "primary": weapon, "secondary": secondary, "slot": "primary", "equip_until": 0.0,
             "inventory": {secondary: {"mag": mag_size(secondary), "reserve": reserve_cap(secondary), "last_shot": 0.0}},
             "hp": hp, "alive": True,
             "pos": list(spawn), "safe_pos": list(spawn),
-            "recovery_seq": 0, "recovery_pos": None, "shield_until": now_ms() + SPAWN_SHIELD_MS,
+            "recovery_seq": 0, "recovery_pos": None, "shield_until": spawned_at + SPAWN_SHIELD_MS,
+            "spawned_at": spawned_at, "life": 1,
             # the spawn point carries the facing that looks across the map
             "yaw": spawn_yaw,
             "pitch": 0.0, "flags": {}, "mag": mag_size(weapon),
@@ -601,7 +605,9 @@ class Match:
         p["last_input"] = now_ms()
         # a fresh body starts the out-of-combat timer over
         p["last_hit_ms"] = p["last_input"]
-        p["shield_until"] = p["last_input"] + SPAWN_SHIELD_MS
+        p["spawned_at"] = p["last_input"]
+        p["life"] = p.get("life", 0) + 1
+        p["shield_until"] = p["spawned_at"] + SPAWN_SHIELD_MS
         p["safe_pos"] = list(s)
         p["recovery_pos"] = None
         _seed_hist(p, p["last_input"])
@@ -1011,7 +1017,7 @@ class Match:
                 "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f, "sq": p.get("shot_seq", 0),
                 "rv": 1 if p["reveal_until"] > now else 0,
                 "sp": 1 if p["suppress_until"] > now else 0,
-                "sh": int(math.ceil(shield_remaining(p, now))),
+                "sh": int(math.ceil(shield_remaining(p, now))), "life": p["life"],
                 "sk": p["skin"], "ai": p["bot_skill"],
                 "k": p["kills"], "d": p["deaths"],
             })
@@ -1020,7 +1026,7 @@ class Match:
     def me_payload(self, p):
         now = now_ms()
         return {
-            "t": "me", "id": p["id"], "hp": int(max(0, p["hp"])),
+            "t": "me", "tick": self.tick_count, "life": p["life"], "id": p["id"], "hp": int(max(0, p["hp"])),
             "hpMax": int(max_hp(self, p)),
             "mag": int(max(0, p["mag"])), "magMax": mag_size(p["weapon"]),
             "reserve": int(max(0, p["reserve"])),
