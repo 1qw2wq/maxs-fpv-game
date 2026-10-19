@@ -158,6 +158,40 @@ class CityTests(unittest.TestCase):
         self.assertFalse(room.bots_on)
         self.assertEqual(len(combat.SOLID),len(self.m['boxes'])-1)
 
+    def test_central_park_is_accessible_and_solid_props_match(self):
+        park=self.m['park']
+        self.assertEqual((park['x'],park['z']),(0,0))
+        self.assertGreaterEqual(park['trees'],10)
+        for a,b in [([-34,0,0],[34,0,0]),([0,0,-9],[0,0,9])]:self.walk(a,b)
+        self.assertEqual(self.m['parkedVehicles'],8)
+        for b in (b for b in combat.SOLID if b.get('park')):
+            if b['h']>.65:self.assertTrue(combat.blocked(b['x'],b['z'],0))
+            else:self.assertGreaterEqual(combat.floor_at(b['x'],b['z'],0),b['h']-.01)
+
+    def test_city_defaults_to_fifteen_bots_but_honours_explicit_counts(self):
+        from room import Room
+        from host import Sink
+        room=Room('12121212')
+        room.join(Sink(),dict(name='Park QA',map='proc_city',solo=True,bots=True))
+        self.assertEqual(room.bot_target,15)
+        self.assertEqual(sum(p['bot'] for p in room.match.players.values()),15)
+        other=Room('34343434')
+        other.join(Sink(),dict(name='Low budget',map='proc_city',solo=True,bots=True,botCount=4))
+        self.assertEqual(sum(p['bot'] for p in other.match.players.values()),4)
+
+    def test_reload_clock_is_public_for_remote_animation(self):
+        match=game.Match();p=match.add_player('Reload QA',None)
+        p['mag']=0
+        with patch.object(game,'now_ms',lambda:100000.):
+            match._on_reload(p)
+            row=next(row for row in match.players_payload() if row['i']==p['id'])
+            self.assertGreater(row['rt'],0);self.assertEqual(row['ri'],row['rt'])
+        with patch.object(game,'now_ms',lambda:100000.+row['rt']*.5):
+            half=next(row for row in match.players_payload() if row['i']==p['id'])
+            self.assertGreater(half['ri'],0);self.assertLess(half['ri'],half['rt'])
+        p['reload_end']=0
+        self.assertEqual(next(row for row in match.players_payload() if row['i']==p['id'])['rt'],0)
+
     def test_live_bot_reaches_second_floor_without_teleport_or_jump(self):
         match=game.Match()
         p=match.add_player('Route QA',None,cls='scout',bot=True)

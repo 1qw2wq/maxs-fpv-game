@@ -70,7 +70,7 @@ export function sanitize(raw) {
   p.controlMode = ['auto', 'desktop', 'mobile'].includes(raw.controlMode) ? raw.controlMode : 'auto';
   p.touchLayout = sanitizeTouchLayout(raw.touchLayout);
   p.tutorialDone = !!raw.tutorialDone;
-  p.soloBots = [0, 4, 6, 8, 12, 16].includes(Number(raw.soloBots)) ? Number(raw.soloBots) : 6;
+  p.soloBots = [0, 4, 6, 8, 12, 15, 16].includes(Number(raw.soloBots)) ? Number(raw.soloBots) : 6;
   p.mapId = clampStr(raw.mapId, 32);
   p.sensitivity = num(raw.sensitivity, 0.0004, 0.01, DEFAULT_PROFILE.sensitivity);
   const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};

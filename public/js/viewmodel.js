@@ -10,7 +10,8 @@
 import * as THREE from 'three';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { attachGunModel } from './guns.js';
-import { weaponSockets, reloadPose, weaponViewPose } from './weaponpose.js';
+import { weaponReloadPose } from './reload-motion.js';
+import { weaponSockets, weaponViewPose } from './weaponpose.js';
 import { buildGripGlove, gripRotation, gloveWrist } from './handpose.js';
 
 const GUNMETAL = '#2f343d';
@@ -330,12 +331,12 @@ export class ViewModel {
     const wantAds = st.ads && !st.sprinting && this.reloadT < 0 ? 1 : 0;
     this.ads += (wantAds - this.ads) * Math.min(1, dt * 11);
 
-    let reload = reloadPose(0);
+    let reload = weaponReloadPose(this.weapon,0);
     if (this.reloadT >= 0) {
       this.reloadT += dt * 1000;
       const k = this.reloadT / this.reloadMs;
       if (k >= 1) { this.reloadT = -1; }
-      else reload = reloadPose(k, !!this.weapon?.clip);
+      else reload = weaponReloadPose(this.weapon,k);
     }
 
     let boltDrop = 0;
@@ -353,12 +354,13 @@ export class ViewModel {
 
     this._applyPose(this.ads);
 
-    this.gunMount.position.x += bobX * (1 - this.ads) + breathe * (1 - this.ads);
-    this.gunMount.position.y += bobY * (1 - this.ads) + breathe * (1 - this.ads) - reload.present * 0.075 + reload.seat
+    this.gunMount.position.x += bobX * (1 - this.ads) + breathe * (1 - this.ads) + reload.position[0];
+    this.gunMount.position.y += bobY * (1 - this.ads) + breathe * (1 - this.ads) + reload.position[1]
       - boltDrop * 0.045;
     this.gunMount.position.z += this.recoil * 0.045;
-    this.gunMount.rotation.x += reload.present * 0.28 + boltDrop * 0.14 + Math.sin(this.bobT * 0.5) * 0.006 * (1 - this.ads);
-    this.gunMount.rotation.z += Math.sin(this.bobT * 0.5) * 0.02 * (1 - this.ads) - reload.present * 0.24 + boltDrop * 0.24;
+    this.gunMount.rotation.y += reload.rotation[1];
+    this.gunMount.rotation.x += reload.rotation[0] + boltDrop * 0.14 + Math.sin(this.bobT * 0.5) * 0.006 * (1 - this.ads);
+    this.gunMount.rotation.z += Math.sin(this.bobT * 0.5) * 0.02 * (1 - this.ads) + reload.rotation[2] + boltDrop * 0.24;
 
     if (this.anchors) {
       const sockets = weaponSockets(this.weapon);
@@ -368,11 +370,7 @@ export class ViewModel {
         this.anchors.hand.position.y += boltDrop * 0.09;
         this.anchors.hand.position.z -= boltDrop * 0.06;
       }
-      this.anchors.fore.position.fromArray(sockets.fore);
-      this.anchors.fore.position.lerp(this.anchors.reload.position, reload.reach);
-      // Left hand services the feed while the right hand keeps its grip.
-      this.anchors.fore.position.y -= reload.service * (reload.clip ? -0.035 : 0.16);
-      this.anchors.fore.position.x -= reload.service * 0.06;
+      this.anchors.fore.position.fromArray(reload.fore);
     }
     this._updateArms();
   }

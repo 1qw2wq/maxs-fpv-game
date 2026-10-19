@@ -48,7 +48,7 @@ export async function testVehicles(context, origin) {
     window.vehiclePreview = { preview, renderer, scene, camera };
     // Exercise actual instancing too, without allocating/rendering a second city.
     const instancedScene = new T.Scene(), city = buildProcCity(instancedScene,{tiles},kit);
-    if (city.children.length !== 7 || city.children.some(m => !m.isInstancedMesh)) throw Error('Parked cars lost batching');
+    if (new Set(city.children.map(m=>m.userData.asset)).size !== 7 || city.children.some(m => !m.isInstancedMesh)) throw Error('Parked cars lost batching');
     return { models, vehicles:tiles.length };
   });
   for (const name of ['car_crashed','car_abandoned','car_f1']) {
@@ -57,6 +57,6 @@ export async function testVehicles(context, origin) {
   }
   assert.deepEqual(errors,[]);
   await page.close();
-  console.log('PASS: uploaded vehicle rendering, normalized proportions, material batching, all 82 cover colliders', result);
+  console.log('PASS: uploaded vehicle rendering, normalized proportions, material batching, all sparse vehicle cover colliders', result);
   return result;
 }

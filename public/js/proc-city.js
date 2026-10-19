@@ -8,9 +8,18 @@ import {CITY_VEHICLES} from '../engine/vehicles.js';
 function citySurface(kind) {
   const canvas=document.createElement('canvas');canvas.width=canvas.height=512;
   const c=canvas.getContext('2d');
-  const base=({paint_white:'#e5e5cc',paint_yellow:'#e8bf53',curb:'#b1b2a8',street:'#595c58',asphalt:'#444b50',pavement:'#a4a59e',grass:'#617c46',planter:'#617c46',dirt:'#92775b'})[kind]||'#b2a58f';
+  const base=({park_path:'#b7a58a',wall_solid:'#c4b8a2',wall_brick:'#b68771',wall_stone:'#8c9998',wall_ochre:'#cfb57d',paint_white:'#e5e5cc',paint_yellow:'#e8bf53',curb:'#b1b2a8',street:'#595c58',asphalt:'#444b50',pavement:'#a4a59e',grass:'#617c46',planter:'#617c46',dirt:'#92775b'})[kind]||'#b2a58f';
   c.fillStyle=base;c.fillRect(0,0,512,512);
-  if(kind==='street')for(let row=0;row<24;row++)for(let col=-1;col<24;col++){
+  if(kind==='wall_brick'||kind==='wall_stone'){
+    const stone=kind==='wall_stone',height=stone?64:28,width=stone?110:78;
+    c.fillStyle=stone?'#666f6c':'#71675c';c.fillRect(0,0,512,512);
+    for(let row=0;row<Math.ceil(512/height);row++)for(let col=-1;col<Math.ceil(512/width);col++){
+      const shade=(row*37+col*71)&31;
+      c.fillStyle=stone?`rgb(${125+shade},${131+shade},${126+shade})`:`rgb(${151+shade},${99+shade},${77+shade})`;
+      c.fillRect(col*width+(row%2)*width*.5+2,row*height+2,width-4,height-4);
+    }
+  }
+  else if(kind==='street')for(let row=0;row<24;row++)for(let col=-1;col<24;col++){
     const shade=113+((row*73+col*37)&31);c.fillStyle=`rgb(${shade},${shade+2},${shade-3})`;
     c.fillRect(col*24+(row%2)*12+1,row*22+1,22,20);
   }
@@ -19,6 +28,9 @@ function citySurface(kind) {
     for(let i=0;i<9000;i++){
       const x=(i*73)%512,y=(i*157+Math.floor(i/512)*17)%512;
       c.fillStyle=i%2?'#ffffff12':'#00000016';c.fillRect(x,y,kind==='dirt'?3:2,2);
+    }
+    if(kind==='wall_solid'||kind==='wall_ochre')for(let i=0;i<80;i++){
+      c.fillStyle=i%2?'#4e51431a':'#fff4d911';c.fillRect((i*73)%512,(i*127)%512,12+(i%7)*5,18+(i%9)*9);
     }
     if(kind==='grass'||kind==='planter')for(let i=0;i<1600;i++){
       const x=(i*71)%512,y=(i*131)%512;c.strokeStyle=i%2?'#a3b76e55':'#354e3455';c.beginPath();c.moveTo(x,y);c.lineTo(x+2,y-4);c.stroke();
@@ -46,6 +58,7 @@ export const CITY_KIT={
   asphalt:[KIT+'road-asphalt-center.glb','road-asphalt-center','box'],
   pavement:[KIT+'road-asphalt-pavement.glb','road-asphalt-pavement','box'],
   dirt:[KIT+'road-dirt-center.glb','road-dirt-center','box'],
+  park_path:[KIT+'road-dirt-center.glb','road-dirt-center','box'],
   grass:[KIT+'grass.glb','grass','box'],
   bench:[KIT+'detail-bench.glb','detail-bench'],
   dumpster:[KIT+'detail-dumpster-closed.glb','detail-dumpster-closed'],
@@ -166,7 +179,7 @@ export async function extractCityKit() {
     for(const mat of materials){mat.side=THREE.DoubleSide;mat.shadowSide=THREE.DoubleSide;if(mode==='box'||mode==='stairSlab'){mat.transparent=false;mat.opacity=1;mat.alphaTest=0;mat.depthWrite=true;}}
     const prototype=new THREE.Mesh(shape,materials.length>1?materials:materials[0]);
     fixImportedMaterials(prototype,{lightUnlit:true,metalCap:.2});
-    if(['wall_solid','wall_brick','wall_stone','wall_ochre','street','courtyard','asphalt','pavement','grass','planter','dirt','curb','paint_white','paint_yellow'].includes(key)) {
+    if(['wall_solid','wall_brick','wall_stone','wall_ochre','street','courtyard','asphalt','pavement','grass','planter','dirt','curb','paint_white','paint_yellow','park_path'].includes(key)) {
       // Closed structural solids need their own continuous surface, not the
       // kit's facade atlas (which would paint fake windows across door jambs).
       for(const mat of Array.isArray(prototype.material)?prototype.material:[prototype.material])mat.dispose();
@@ -176,7 +189,7 @@ export async function extractCityKit() {
       // Thin ground boxes must NOT draw their back/bottom faces: depth
       // quantization otherwise produces light/dark camouflage at city scale.
       // Offset the layered ground/decal passes, not the opaque building shells.
-      const layer=({courtyard:4,grass:2,dirt:2,street:2,pavement:1,asphalt:0,paint_white:-1,paint_yellow:-1})[key];
+      const layer=({park_path:-1,courtyard:4,grass:2,dirt:2,street:2,pavement:1,asphalt:0,paint_white:-1,paint_yellow:-1})[key];
       if(layer!==undefined){
         prototype.material.side=THREE.FrontSide;
         prototype.material.polygonOffset=true;
@@ -184,6 +197,8 @@ export async function extractCityKit() {
         prototype.material.polygonOffsetUnits=layer;
       }
     }
+    if(['lamp','wall_lamp','chandelier'].includes(key))for(const mat of Array.isArray(prototype.material)?prototype.material:[prototype.material]){if(mat.emissive){mat.emissive.set('#ffd9a0');mat.emissiveIntensity=.22;}}
+    if(/^(tree_|shrub|berries|fern|flowers)/.test(key))for(const mat of Array.isArray(prototype.material)?prototype.material:[prototype.material]){mat.transparent=false;mat.alphaTest=.45;mat.depthWrite=true;mat.forceSinglePass=true;}
     out.set(key,prototype);
   }
   return out;
@@ -191,19 +206,42 @@ export async function extractCityKit() {
 
 export function buildProcCity(scene,mapData,extractedKit) {
   const root=new THREE.Group();root.name='proc-city';
-  const buckets=new Map();
-  for(const tile of mapData.tiles){if(!buckets.has(tile.meshName))buckets.set(tile.meshName,[]);buckets.get(tile.meshName).push(tile);}
+  const buckets=new Map(),decorative=/^(chandelier|ceiling_trim|painting_|wall_lamp|flowers$|rug)/,details=[];
+  // Local bounds let Three cull distant/offscreen vegetation and detailed cars.
+  // Keep cheap architecture in its compact shared batches to limit CPU draws.
+  const spatial=/^(tree_|shrub|berries|fern|flowers_patch|car_|truck_|parked_truck|rubble|table|coffee|sofa|cabinet|painting_|wall_lamp|ceiling_trim|chandelier|radiator|bench|rug|flowers$)/;
+  for(const tile of mapData.tiles){
+    const cell=decorative.test(tile.meshName)?32:64;
+    const key=spatial.test(tile.meshName)?tile.meshName+'@'+Math.floor(tile.x/cell)+','+Math.floor(tile.z/cell):tile.meshName;
+    if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(tile);
+  }
   const transform=new THREE.Object3D();
-  for(const [name,tiles]of buckets){
+  const tint=new THREE.Color();
+  for(const [bucket,tiles]of buckets){
+    const name=tiles[0].meshName;
     const source=extractedKit.get(name);
     if(!source)throw Error(`Unknown city tile: ${name}`);
     const instanced=new THREE.InstancedMesh(source.geometry,source.material,tiles.length);
-    instanced.name='city:'+name;instanced.castShadow=!name.startsWith('paint_');instanced.receiveShadow=true;
+    instanced.name='city:'+bucket;instanced.userData.asset=name;instanced.castShadow=!name.startsWith('paint_')&&!decorative.test(name);instanced.receiveShadow=true;
     tiles.forEach((t,i)=>{
       transform.position.set(t.x,t.y,t.z);transform.rotation.set(0,t.rotY,0);transform.scale.fromArray(t.scale);transform.updateMatrix();instanced.setMatrixAt(i,transform.matrix);
+      instanced.setColorAt(i,tint.set(t.tint||'#ffffff'));
     });
+    if(instanced.instanceColor)instanced.instanceColor.needsUpdate=true;
     instanced.instanceMatrix.needsUpdate=true;instanced.computeBoundingBox();instanced.computeBoundingSphere();root.add(instanced);
+    if(decorative.test(name))details.push(instanced);
   }
-  root.userData.instances=mapData.tiles.length;root.userData.batches=buckets.size;
+  root.userData.instances=mapData.tiles.length;root.userData.batches=buckets.size;root.userData.aliases=new Set(mapData.tiles.map(t=>t.meshName)).size;
+  // Cull non-colliding room ornaments only, never furniture or physical cover.
+  // A ten-metre hysteresis prevents boundary flicker; no per-frame allocations.
+  let lastDetailUpdate=-Infinity;
+  root.userData.updateDetail=(position,force=false)=>{
+    const now=performance.now();if(!force&&now-lastDetailUpdate<100)return;lastDetailUpdate=now;
+    for(const mesh of details){
+      const sphere=mesh.boundingSphere,distance=position.distanceTo(sphere.center)-sphere.radius;
+      mesh.visible=distance<(mesh.visible?60:50);
+    }
+  };
+  root.userData.detailBatches=details.length;
   scene.add(root);return root;
 }

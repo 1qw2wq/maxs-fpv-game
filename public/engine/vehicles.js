@@ -13,9 +13,6 @@ export const CITY_VEHICLES = {
 };
 
 export function cityVehicle(index) {
-  // Detailed uploaded models are landmarks, not dozens of 150k-triangle copies.
-  // Keep the economical abandoned car common and vary the original trucks too.
-  if (index === 2) return 'car_f1';
-  if (index === 5 || index === 19) return 'car_crashed';
-  return ['parked_truck','car_abandoned','truck_green','truck_flat','car_abandoned','truck_cargo'][index % 6];
+  // Eight widely spaced landmarks, not a street lined with identical cars.
+  return ['parked_truck','car_abandoned','car_f1','truck_green','truck_flat','car_crashed','truck_cargo','car_abandoned'][index%8];
 }

@@ -393,6 +393,8 @@ export class Net {
         speed: Math.hypot(dx, dz) / dt,
         flags: pb.f,
         shotSeq: pb.sq,
+        reloading: (pb.ri||0)>Math.max(0,performance.now()-b.t),
+        reloadProgress: pb.rt?Math.min(1,Math.max(0,1-((pb.ri||0)-Math.max(0,performance.now()-b.t))/pb.rt)):0,
         shieldMs: pb.life !== undefined && pb.life !== this.remoteProtection.get(id)?.life
           ? 0 : this.remoteProtection.get(id)?.remaining(performance.now()) || 0,
         alive: pb.al,

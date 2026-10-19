@@ -927,11 +927,11 @@ round restart flow. Run `node tools/test-vercel.mjs` for the full suite.
 ### Procedural City (`proc_city`)
 
 Select **Procedural City** in the map picker. The expanded seed **1942** is **240 × 240 m**:
-four times the previous width/depth and **16× its area**. Its 132 buildings form 66 attached pairs,
-with 114 internal door connections, eight interior uses and 1–4 stories. Building coverage is now
-56.5% (previously 22.8%); vehicle streets are reduced from 18 to five, with narrow pedestrian alleys
-between blocks instead. It includes 156 low-wall cover sections, 82 parked vehicles in seven variants (including the three
-uploaded cars), 132 shop awnings, 292 other vegetation/street placements and varied furniture/room contents. Smooth stacked stair slabs,
+four times the previous width/depth and **16× its area**. Its 128 buildings form 64 attached pairs,
+with 109 internal door connections, eight interior uses and 1–4 stories. Building coverage is now
+54.7% (previously 22.8%); vehicle streets are reduced from 18 to five, with narrow pedestrian alleys
+between blocks instead. It includes 151 low-wall cover sections, only eight parked vehicles in seven variants (including the three
+uploaded cars), 128 shop awnings, 240 other vegetation/street placements and varied furniture/room contents. Smooth stacked stair slabs,
 openings, bullet-blocking walls and three-dimensional bot routes use the same committed collision JSON
 in Python, Pyodide and the browser.
 No npm, frontend build or new physics dependency is required.
@@ -941,11 +941,22 @@ The arsenal now includes **all 30 uploaded gun models** (26 primaries and 4 side
 mobile **Switch weapon** button. Ammunition is independent; pistols have close two-handed poses,
 and long guns have individual model/grip/hip/ADS calibration rather than a shared placement.
 
-City generator version 6 replaces the repeated opening grid with **six facade rhythms** and
-**1,080 exterior windows instead of 2,067** (about 48% fewer). Door positions, window widths/sills,
-and shared-wall portal positions/heights vary. All **264 exterior doors** and **114 internal
+City generator version 7 retains the repeated opening grid with **six facade rhythms** and
+**1,044 exterior windows**. Door positions, window widths/sills,
+and shared-wall portal positions/heights vary. All **256 exterior doors** and **109 internal
 connections** remain; visible closed bays now provide more solid cover. Entrances, lookout routes,
 and curb cuts follow the real openings. Refresh and start a new city match to load the changed map.
+
+Version 7 adds a **72 × 18 m central pocket park**, twelve mixed trees, paths, benches, shrubs,
+flowers and rubble. **15 Solo bots** are the city default; explicit per-map choices remain remembered.
+Warmer lighting, brighter interior fill and varied textured/tinted surfaces replace the uniform look.
+Local instancing, decorative-only distance LOD and a static sun shadow reduce the rendering budget:
+the fixed near-park check submits **70.8% fewer triangles**, though draw calls increase; this is not an FPS claim.
+
+All **30 guns have distinct procedural reload profiles**, shared by FP and imported/procedural TP hands,
+with feed sockets calibrated against the actual models and authoritative reload progress. These animate
+the gun and hands, not newly separated magazine/bolt meshes. Tests cover 9,030 VM/glove frames,
+960 imported FP poses and 720 imported TP reload poses across four skeletons.
 
 See [map generation and validation](docs/proc-city.md) and
 [arsenal, secondary inventory and controls](docs/arsenal-and-sidearms.md).
@@ -953,7 +964,7 @@ See [map generation and validation](docs/proc-city.md) and
 `node tools/test-protection.mjs` checks capped, non-renewing per-life deadlines, delayed/replayed
 packets, old seat/life rejection, respawn teleports and remote-clock cleanup without a browser.
 `tools/test-vehicles.mjs` (included in the browser runner) loads all seven vehicle variants, verifies
-all 82 canonical cover bounds and material groups, and renders the three newly uploaded cars.
+all eight canonical cover bounds and material groups, and renders the three newly uploaded cars.
 For a running static preview, set `CITY_ORIGIN` and `CHROMIUM_EXECUTABLE`, then run
 `python tools/test-map-shields.py` with test-only Python Playwright installed. It waits a real five
 seconds on **all three maps**, checks authoritative damage before/after expiry, remote countdowns,

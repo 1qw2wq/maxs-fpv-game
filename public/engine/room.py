@@ -113,7 +113,7 @@ class Room:
         self.empty_since = None
         if self.match.solo and msg.get("bots"):
             self.bots_on = True
-            self.bot_target = _bot_count(msg.get("botCount", 6))
+            self.bot_target = _bot_count(msg.get("botCount", MAP_BY_ID[self.map_id].get("recommendedBots", 6)))
         else:
             # Bots are a solo-only feature: a multiplayer join clears any AI
             # already in play, so a human match can never field bots.

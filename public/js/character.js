@@ -16,6 +16,8 @@
 // little — the visible head has to stay where the server says it is.
 
 import * as THREE from 'three';
+import {weaponReloadPose} from './reload-motion.js';
+import {weaponSockets} from './weaponpose.js';
 import { buildGripGlove, gripRotation, gloveWrist, GLOVE_WRIST, setWorldRotation } from './handpose.js';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { makeFaceTexture } from './face.js';
@@ -529,6 +531,13 @@ export function createGirl(cls, team, data) {
 
       // Read the same gun-local sockets as first person instead of a fixed
       // elbow pose that only happened to fit one rifle.
+      if(st.anchors){
+        const reload=weaponReloadPose(st.weapon,s.reloading?s.reloadProgress||0:0);
+        st.anchors.fore.position.fromArray(reload.fore);
+        st.anchors.hand.position.fromArray(weaponSockets(st.weapon).hand);
+        weaponMount.rotation.set(-.08+reload.rotation[0],reload.rotation[1],reload.rotation[2]);
+        weaponMount.position.fromArray(reload.position);
+      }
       root.updateMatrixWorld(true);
       if (st.anchors) {
         fitHand(arms.R, st.anchors.hand, -1);

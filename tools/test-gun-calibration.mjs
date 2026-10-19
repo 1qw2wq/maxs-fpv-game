@@ -16,13 +16,13 @@ const triangle=new T.Triangle(),target=new T.Vector3(),closest=new T.Vector3();
 const svgDir=process.argv[2];if(svgDir)mkdirSync(svgDir,{recursive:true});
 for(const [id,g]of Object.entries(out)){
   const report={};
-  for(const key of ['hand','fore']){
+  for(const key of ['hand','fore','reload']){
     target.fromArray(g.sockets[key]);let distance=Infinity;
     for(let i=0;i<g.triangles.length;i+=3){
       triangle.a.fromArray(g.points[g.triangles[i]]);triangle.b.fromArray(g.points[g.triangles[i+1]]);triangle.c.fromArray(g.points[g.triangles[i+2]]);
       triangle.closestPointToPoint(target,closest);distance=Math.min(distance,target.distanceTo(closest));
     }
-    assert.ok(distance<.027,`${id}/${key}: palm floats ${(distance*100).toFixed(1)}cm off actual geometry`);
+    assert.ok(distance<(key==='reload'?.003:.027),`${id}/${key}: palm floats ${(distance*100).toFixed(1)}cm off actual geometry`);
     report[key]=+(distance*100).toFixed(2);
   }
   assert.ok(g.sockets.fore[2]>=g.sockets.hand[2]-.01,`${id}: support behind trigger`);
@@ -32,12 +32,12 @@ for(const [id,g]of Object.entries(out)){
     const scale=Math.min(720/(z1-z0),300/(y1-y0)),P=p=>[40+(p[2]-z0)*scale,40+(y1-p[1])*scale];
     const paths=[];
     for(let i=0;i<g.triangles.length;i+=3)paths.push('M'+g.triangles.slice(i,i+3).map(j=>P(g.points[j]).map(n=>n.toFixed(2)).join(',')).join('L')+'Z');
-    const dots=['hand','fore'].map((key,i)=>{const[x,y]=P(g.sockets[key]);return `<circle cx="${x}" cy="${y}" r="5" fill="${i?'cyan':'red'}"/>`;});
-    writeFileSync(resolve(svgDir,id+'.svg'),`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"><rect width="800" height="400" fill="#eef2f5"/><text x="20" y="22">${id}: muzzle right; red trigger, cyan support</text><path fill="#414956" d="${paths.join('')}"/>${dots.join('')}</svg>`);
+    const dots=['hand','fore','reload'].map((key,i)=>{const[x,y]=P(g.sockets[key]);return `<circle cx="${x}" cy="${y}" r="5" fill="${['red','cyan','orange'][i]}"/>`;});
+    writeFileSync(resolve(svgDir,id+'.svg'),`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"><rect width="800" height="400" fill="#eef2f5"/><text x="20" y="22">${id}: muzzle right; red trigger, cyan support, orange reload/feed</text><path fill="#414956" d="${paths.join('')}"/>${dots.join('')}</svg>`);
   }
   console.log(id,JSON.stringify(report));
 }
 // Regression landmarks from the visual audit: not a longest-axis heuristic.
 for(const[id,lo,hi]of[['gm6',-.24,-.14],['m170',-.38,-.30],['pmx',-.05,0],['mp5',-.065,-.025],['lr300',-.14,-.07],['flarepistol',-.14,-.08]])assert.ok(out[id].sockets.hand[2]>=lo&&out[id].sockets.hand[2]<=hi,`${id}: wrong handle region`);
 assert.deepEqual(cfg.lr300.rot,[0,180,0],'LR300 barrel must face forward, not its stock');
-console.log('PASS: all 30 assembled GLB contacts within 2.7cm; corrected handle regions and LR300 direction');
+console.log('PASS: all 30 assembled GLB grip contacts within 2.7cm and reload/feed contacts within 3mm; corrected handle regions and LR300 direction');

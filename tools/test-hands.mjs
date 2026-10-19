@@ -24,7 +24,7 @@ export async function testHands(context, origin) {
     const holder = new THREE.Group(); holder.position.set(0.03, -1.58, -0.18); holder.rotation.y = Math.PI; vm.root.add(holder);
     const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('canvas'), antialias: true });
     renderer.setSize(1000, 750);
-    let poses = 0, usable = 0, maxReachError = 0;
+    let poses = 0, usable = 0, maxReachError = 0, thirdPersonReloadPoses=0;
     const armGeometry = [];
     const hand = new THREE.Vector3(), fore = new THREE.Vector3(), gun = new THREE.Quaternion();
     const previews = [];
@@ -121,6 +121,22 @@ export async function testHands(context, origin) {
         if (mesh.geometry !== original.geometry || mesh.visible !== original.visible) throw Error('Third-person geometry/visibility was not restored');
       }
       await ensureMotions(template);
+      for(const weapon of data.weapons){
+        girl.setWeapon(weapon);
+        for(const p of [0,.2,.4,.6,.8,1]){
+          const state={speed:0,pitch:0,reloading:p>0&&p<1,reloadProgress:p};thirdPersonReloadPoses++;
+          for(let i=0;i<3;i++)girl.update(1/60,state);
+          girl.root.updateMatrixWorld(true);
+          const socket=girl.root.getObjectByName('weapon-hand');socket.getWorldQuaternion(gun);
+          for(const [side,key]of [['R','hand'],['L','fore']]){
+            const grip=wrists[side],contact=girl.root.getObjectByName(`weapon-${key}`).getWorldPosition(new THREE.Vector3());
+            const target=grip.targetFor(contact,gun,weapon.shape);
+            const error=grip.wrist.getWorldPosition(new THREE.Vector3()).distanceTo(target);
+            if(error>.07)throw Error(`${meta.id}/${weapon.id}/${p}/${side}: third-person reload wrist disconnected ${error}`);
+            if(grip.wrist.getWorldQuaternion(new THREE.Quaternion()).normalize().angleTo(grip.rotation.clone().normalize())>1e-5)throw Error('Reload hand faces away from service contact');
+          }
+        }
+      }
       girl.setWeapon(data.weapons[0]);
       for (const state of [{ speed: 0 }, { speed: 3 }, { speed: 0, firing: true }]) {
         for (let i = 0; i < 30; i++) girl.update(1 / 60, state);
@@ -151,7 +167,7 @@ export async function testHands(context, origin) {
     vm.armMeshes.visible = false;
     renderer.render(scene, camera);
     window.handPreview = { vm, holder, girl: previews[0], camera, renderer, scene, hand, fore, gun };
-    return { skins: previews.length, armGeometry, poses, usable, maxReachError };
+    return { skins: previews.length, armGeometry, poses, thirdPersonReloadPoses, usable, maxReachError };
   });
   assert.deepEqual(errors, []);
   assert.equal(result.skins, 4);

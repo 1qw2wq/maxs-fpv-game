@@ -5,6 +5,8 @@
 // Override TEST_DEPS or CHROMIUM_EXECUTABLE when using your own installation.
 import assert from 'node:assert/strict';
 import './test-protection.mjs';
+import './test-reload-motion.mjs';
+import {testCityUpgrade} from './test-city-upgrade.mjs';
 import { testMobile } from './test-mobile.mjs';
 import { testMobileFeatures } from './test-mobile-features.mjs';
 import { testLayouts } from './test-layout.mjs';
@@ -367,6 +369,7 @@ try {
   await testCamera(context, origin);
   await testDeathLoadout(context, origin);
   await testVehicles(context, origin);
+  await testCityUpgrade(context, origin);
   await testArsenal(context, origin);
   await testHands(context, origin);
   await testWeaponHold(context, origin);

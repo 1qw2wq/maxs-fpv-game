@@ -84,8 +84,8 @@
       "id": "proc_city",
       "name": "程序化旧城",
       "nameEn": "Procedural City",
-      "desc": "种子 1942 · 240×240 米 · 132 栋连体建筑 · 1–4 层 · 狭窄巷道",
-      "descEn": "Seed 1942 · 240×240 m · 132 attached buildings, 1–4 floors, narrow alleys",
+      "desc": "种子 1942 · 240×240 米 · 128 栋连体建筑 · 1–4 层 · 狭窄巷道",
+      "descEn": "Seed 1942 · 240×240 m · 128 attached buildings, 1–4 floors, narrow alleys",
       "file": "/shared/maps/proc_city.json",
       "scene": null,
       "controlPoints": [
@@ -114,7 +114,8 @@
           ]
         }
       ],
-      "seed": 1942
+      "seed": 1942,
+      "recommendedBots": 15
     }
   ]
 }

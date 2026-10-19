@@ -104,3 +104,18 @@ Physical-phone ergonomics and deployed-Vercel connectivity still require device/
 - Four portrait/landscape screen sizes passed touch-control overlap checks.
 - No missing game assets or uncaught browser errors in the final expanded browser run. Bare-static-host
   API/WebSocket discovery failures and autoplay/legacy-Chromium warnings are expected, not a required backend.
+
+## Version-7 procedural reload update
+
+Every one of the 30 guns now has a distinct profile in `public/js/reload-motion.js`, with individual
+feed timing, gun tilt, withdrawal direction and recovery reach. The shared choreography drives FP
+borrowed arms/gloves and imported/procedural TP hands. Feed sockets are measured on the actual
+assembled GLBs (offline surface error below 3 mm), including corrected RSC, Federov, BAR, Chauchat
+and flare service points. The authority publishes reload duration/progress; presentation never
+changes ammo, completion time or cancellation rules. Models remain static assemblies: no new moving
+magazine/bolt meshes or baked mechanical clips are claimed.
+
+Fresh reload coverage: 30 unique profiles / 9,030 real VM/glove frames; continuity and cancellation;
+960 FP poses on four imported skeletons; 720 imported TP reload poses; 210 procedural weapon/effects
+poses. See [city validation](proc-city.md) for the matching park, eight-car and lighting/performance revision.
+The earlier counts/results above describe the original arsenal integration, not this new city artifact.

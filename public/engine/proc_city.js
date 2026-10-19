@@ -4,9 +4,11 @@ import {CITY_VEHICLES,cityVehicle} from './vehicles.js';
 export function generateProcCity(seed=1942){
   if(!Number.isSafeInteger(seed))throw new TypeError('Integer seed required');
   let state=seed>>>0;const rand=()=>((state=(Math.imul(state,1664525)+1013904223)>>>0)/4294967296);
-  const base=generateCityTemplates(seed),m={...base,seed:seed>>>0,generatorVersion:6,
+  const base=generateCityTemplates(seed),m={...base,seed:seed>>>0,generatorVersion:7,
     bounds:{minX:-120,maxX:120,minZ:-120,maxZ:120},boxes:[],tiles:[],buildings:[],floor_holes:[],navPoints:[],bot_nav:{nodes:[],edges:[]}};
-  m.style={...base.style,fogNear:60,fogFar:190};
+  m.style={...base.style,skyTop:'#83abc7',skyBottom:'#e2e4d4',ambientColor:'#c2cbd0',sunColor:'#fff0ce',fogNear:65,fogFar:190};
+  m.recommendedBots=15;
+  m.park={x:0,z:0,w:72,d:18,pathWidth:3};
   m.spawns={'0':[-3,0,3].map(z=>({x:-115,y:0,z,yaw:0,team:0})),'1':[-3,0,3].map(z=>({x:115,y:0,z,yaw:180,team:1}))};
   const box=(x,y,z,w,h,d,t='wall',extra={})=>m.boxes.push({x,y,z,w,h,d,t,...extra});
   const tile=(meshName,x,y,z,w,h,d,rotY=0)=>m.tiles.push({meshName,x,y,z,rotY,scale:[w,h,d]});
@@ -28,6 +30,7 @@ export function generateProcCity(seed=1942){
   const pairs=[],plots=[[-106,-76],[-73,-41],[-38,-6],[6,38],[41,73],[76,106]];
   let index=0;
   for(let cz=-100,row=0;cz<=100;cz+=20,row++)for(const [lo,hi]of plots){
+    if(cz===0&&lo>=-38&&hi<=38)continue; // Central pocket park, not another block.
     const split=lo+(hi-lo)*(.45+rand()*.1),depth=14.4+rand()*2.6,sz=depth/12,duo=[];
     for(const [cx,width,side]of[[(lo+split)/2,split-lo,'e'],[(split+hi)/2,hi-split,'w']]){
       const stories=[1,2,3,2,4,3,1][index%7],source=generateCityTemplates((seed+index*7919)>>>0,stories),b=source.buildings[0],r=b.ranges;
@@ -43,7 +46,8 @@ export function generateProcCity(seed=1942){
         if(old.meshName==='wall_solid'&&Math.abs(old.x-sharedX)<1e-6)continue;
         const p=P([old.x,old.y,old.z]),turned=Math.abs(Math.sin(old.rotY))>.5;
         const scale=[Math.min(old.scale[0],12)*(turned?sz:sx),old.scale[1],old.scale[2]*(turned?sx:sz)];
-        m.tiles.push({...old,meshName:old.meshName==='wall_solid'?wall:old.meshName,x:p[0],z:p[2],scale});
+        m.tiles.push({...old,meshName:old.meshName==='wall_solid'?wall:old.meshName,x:p[0],z:p[2],scale,
+          tint:['#ffffff','#e9dfd1','#dce5de','#f0dfc4','#e0d9de','#e1e0d6'][(index+Math.floor(old.y/3))%6]});
       }
       const selected=source.bot_nav.nodes.slice(r.begin.nodes,r.end.nodes).filter(n=>n.id.startsWith(b.id+':')),names=new Set(selected.map(n=>n.id));
       for(const n of selected)node(id+':'+n.id.split(':').slice(1).join(':'),P(n.p),n.kind);
@@ -81,19 +85,25 @@ export function generateProcCity(seed=1942){
   for(let x=-118;x<=118;x+=4)for(let z=-118;z<=118;z+=4){
     if(m.buildings.some(b=>Math.abs(x-b.x)<b.w/2+1&&Math.abs(z-b.z)<b.d/2+1))continue;
     const distance=Math.min(...roads.map(v=>Math.min(Math.abs(x-v),Math.abs(z-v))));
+    if(Math.abs(x)<38&&Math.abs(z)<10)continue;
     const kind=Math.abs(x)<32&&Math.abs(z)<32?'street':distance<5?'pavement':distance<7?'pavement':((Math.floor((x+120)/30)+Math.floor((z+120)/30))%3===0?'dirt':'grass');
     tile(kind,x,-.025,z,4,.02,4);
   }
   // Asphalt is limited to the perimeter and one spine. Alley junctions get
   // curb cuts, not another full-width traffic road between every pair of houses.
   for(const axis of ['x','z'])for(const v of axis==='x'?roadsX:roadsZ){
-    const put=(name,along,y,offset,w,h,d)=>axis==='x'?tile(name,v+offset,y,along,d,h,w):tile(name,along,y,v+offset,w,h,d);
+    const put=(name,along,y,offset,w,h,d)=>{
+      if(axis==='x'&&v===0&&along===0&&w===224){
+        tile(name,offset,y,-62,d,h,100);tile(name,offset,y,62,d,h,100);return;
+      }
+      return axis==='x'?tile(name,v+offset,y,along,d,h,w):tile(name,along,y,v+offset,w,h,d);
+    };
     put('asphalt',0,-.003,0,224,.008,6);
     for(const sign of[-1,1])put('pavement',0,-.001,sign*3.85,224,.006,1.7);
     const cuts=[...new Set(axis==='x'?[...lanesZ,-3,0,3]:[...lanesX,...m.buildings.filter(b=>Math.abs(b.z)===100).flatMap(b=>b.doors.map(d=>d.x))])].sort((a,b)=>a-b);
-    for(let along=-109;along<110;along+=6){if(cuts.some(r=>Math.abs(along-r)<3))continue;put('paint_yellow',along,.008,0,2.5,.004,.12);}
+    for(let along=-109;along<110;along+=6){if(axis==='x'&&v===0&&Math.abs(along)<14)continue;if(cuts.some(r=>Math.abs(along-r)<3))continue;put('paint_yellow',along,.008,0,2.5,.004,.12);}
     for(let i=1;i<cuts.length;i++){
-      const a=cuts[i-1]+2,b=cuts[i]-2,length=b-a;if(length<=0)continue;
+      const a=cuts[i-1]+2,b=cuts[i]-2,length=b-a;if(length<=0||axis==='x'&&v===0&&a<12&&b>-12)continue;
       for(const sign of[-1,1]){
         const x=axis==='x'?v+sign*3.12:(a+b)/2,z=axis==='x'?(a+b)/2:v+sign*3.12,w=axis==='x'?.2:length,d=axis==='x'?length:.2;
         box(x,.05,z,w,.1,d,'curb');tile('curb',x,0,z,w,.1,d);
@@ -104,6 +114,30 @@ export function generateProcCity(seed=1942){
     tile('asphalt',x,.005,z,6,.004,6);
     for(const sign of[-1,1])for(let offset=-2.1;offset<=2.2;offset+=.7){tile('paint_white',x+sign*5,.009,z+offset,1.7,.004,.35);tile('paint_white',x+offset,.010,z+sign*5,.35,.004,1.7);}
   }
+  // Grass, intersecting accessible paths, varied vegetation and low rubble.
+  tile('grass',0,-.009,0,72,.006,18);
+  tile('park_path',0,.001,0,3,.004,18);
+  tile('park_path',0,.002,0,72,.004,2.4);
+  const centre=node('park:centre',[0,0,0]);
+  edge(centre,roadNode(0,-10));edge(centre,roadNode(0,10));
+  for(const sign of [-1,1]){
+    const entry=node(`park:entry${sign}`,[sign*34,0,0]);edge(centre,entry);
+    edge(entry,alleyAttach([sign*34,0,0],-10));edge(entry,alleyAttach([sign*34,0,0],10));
+  }
+  let parkTrees=0;
+  for(const x of [-29,-21,-11,11,21,29])for(const sign of [-1,1]){
+    const z=sign*5.8,h=4.2+(parkTrees%3)*.65;
+    tile(['tree_birch','tree_oak','tree_autumn'][parkTrees%3],x,0,z,h*.55,h,h*.55,parkTrees*.7);
+    box(x,1.2,z,.4,2.4,.4,'tree',{park:true});parkTrees++;
+    tile(parkTrees%2?'flowers_patch':'fern',x+1.2,0,z-sign*.4,1.3,.45,1.1);
+    tile('shrub',x-1.1,0,z+sign*.7,1.3,.8,1.1);
+  }
+  for(const x of [-17,17])for(const sign of [-1,1]){
+    tile('bench',x,0,sign*5,2,.85,.65,sign<0?0:Math.PI);box(x,.425,sign*5,2,.85,.65,'cover',{park:true});
+    tile('lamp',x+3,0,sign*6.8,.55,3.4,.55); // Emissive, no per-lamp shadow pass.
+    tile('rubble',x-3,0,sign*7.5,1.4,.45,1.1);box(x-3,.225,sign*7.5,1.4,.45,1.1,'cover',{park:true});
+  }
+  m.park.trees=parkTrees;
   // Real uploaded canopies overlap the sidewalk, without lowering door clearance.
   for(const b of m.buildings){
     const d=b.doors[0],normal=({n:[0,-1],s:[0,1],e:[1,0],w:[-1,0]})[d.side],x=d.x+normal[0]*.7,z=d.z+normal[1]*.7,turn=normal[0]!==0;
@@ -134,6 +168,7 @@ export function generateProcCity(seed=1942){
   }
   // Park in paired bays along the street edges; always leave door approaches open.
   for(const v of roadsX)for(let along=-100;along<=100;along+=10)for(const sign of[-1,1]){
+    if(v===0||![-90,-30,30,90].includes(along)||sign!==(v<0?-1:1))continue;
     const at=v+sign*2.55,vertical=true;
     const kind=cityVehicle(parkedVehicles),size=CITY_VEHICLES[kind].size;
     const [vw,vh,vd]=size;
@@ -146,6 +181,7 @@ export function generateProcCity(seed=1942){
     m.vehicleCounts[kind]=(m.vehicleCounts[kind]||0)+1;parkedVehicles++;
   }
   const clear=(x,z,r)=>{
+    if(Math.abs(x)<38&&Math.abs(z)<10)return false; // Authored park, never random dumpsters/cars.
     if(Math.abs(x)>116||Math.abs(z)>116||Math.abs(z)<5&&Math.abs(x)>106)return false;
     if(m.buildings.some(b=>Math.abs(x-b.x)<b.w/2+r+.15&&Math.abs(z-b.z)<b.d/2+r+.15))return false;
     for(const [a,b]of m.bot_nav.edges){const p=nodes.get(a).p,q=nodes.get(b).p;if(p[1]>.1||q[1]>.1)continue;const dx=q[0]-p[0],dz=q[2]-p[2],t=Math.max(0,Math.min(1,((x-p[0])*dx+(z-p[2])*dz)/(dx*dx+dz*dz||1)));if(Math.hypot(x-p[0]-t*dx,z-p[2]-t*dz)<r+.8)return false;}
@@ -156,7 +192,7 @@ export function generateProcCity(seed=1942){
   // tree trunks and solid street furniture have explicit AABB collision.
   const decor=['tree_oak','tree_pine','tree_birch','tree_autumn','tree_dead','shrub','berries','fern','flowers_patch','tree_park','tree_small','bush_kit','bench','dumpster','barrier','pallet','rubble','lamp','planter','planter'];
   let placed=0;
-  for(let i=0;i<8000&&placed<500;i++){
+  for(let i=0;i<8000&&placed<240;i++){
     const x=-114+rand()*228,z=-114+rand()*228,k=decor[placed%decor.length],tree=k.startsWith('tree'),solid=tree||['bench','dumpster','barrier','pallet','rubble','truck','planter'].includes(k),r=tree?.6:k==='lamp'?.35:k==='bench'?1.05:k==='planter'?1.3:solid?.9:.4;
     if(!clear(x,z,r))continue;
     const h=tree?4+rand()*4:k==='truck'?2.8:k==='planter'?.18:k==='lamp'?4.5:k==='dumpster'?1.45:k==='bench'?.9:.45+rand()*.6;
@@ -170,5 +206,5 @@ export function generateProcCity(seed=1942){
   for(const x of [-112,112]){edge(roadNode(x,0),roadNode(x,-10));edge(roadNode(x,0),roadNode(x,10));}
   for(const team of ['0','1'])for(const p of m.spawns[team])edge(node(`spawn:${team}:${p.z}`,[p.x,0,p.z]),roadNode(team==='0'?-112:112,0));
   m.navPoints=m.bot_nav.nodes.map(n=>({x:n.p[0],y:n.p[1],z:n.p[2]}));
-  m.districts=66;m.connectedPairs=pairs.length;m.roadsX=roadsX;m.roadsZ=roadsZ;m.footprintCoverage=m.buildings.reduce((a,b)=>a+b.w*b.d,0)/(240*240);m.vegetationAndStreetProps=placed;m.coverRuns=coverRuns;m.parkedVehicles=parkedVehicles;m.roads=roads;return m;
+  m.districts=pairs.length;m.connectedPairs=pairs.length;m.roadsX=roadsX;m.roadsZ=roadsZ;m.footprintCoverage=m.buildings.reduce((a,b)=>a+b.w*b.d,0)/(240*240);m.vegetationAndStreetProps=placed;m.coverRuns=coverRuns;m.parkedVehicles=parkedVehicles;m.roads=roads;return m;
 }

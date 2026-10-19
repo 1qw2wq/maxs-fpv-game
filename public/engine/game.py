@@ -1018,6 +1018,8 @@ class Match:
                 "rv": 1 if p["reveal_until"] > now else 0,
                 "sp": 1 if p["suppress_until"] > now else 0,
                 "sh": int(math.ceil(shield_remaining(p, now))), "life": p["life"],
+                "rt": int(p["reload_total"]) if p["reload_end"] > now else 0,
+                "ri": int(max(0,p["reload_end"]-now)),
                 "sk": p["skin"], "ai": p["bot_skill"],
                 "k": p["kills"], "d": p["deaths"],
             })

@@ -10,15 +10,15 @@ for(let seed=0;seed<32;seed++){
  const m=generateProcCity(seed*1000003);
  assert.equal(JSON.stringify(m),JSON.stringify(generateProcCity(seed*1000003)));
  variants.add(JSON.stringify(m.tiles));
- assert.ok(m.buildings.length===132);
+ assert.ok(m.buildings.length===128);
  for(const b of m.boxes)for(const k of ['x','y','z','w','h','d'])assert.ok(Number.isFinite(b[k]));
  for(const b of m.boxes)assert.ok(b.w>0&&b.h>0&&b.d>0,'No degenerate jambs');
  for(const b of m.buildings){assert.ok(b.stories>=1&&b.stories<=4);assert.equal(b.storyHeight,3);assert.equal(b.doors.length,2);assert.notEqual(b.doors[0].side,b.doors[1].side);for(const d of b.doors){assert.ok(d.width>=1.2&&d.height>=2.1);}}
  const openings=m.buildings.flatMap(b=>b.openings);
  assert.equal(new Set(m.buildings.map(b=>b.facadeStyle)).size,6,'Six facade rhythms');
- assert.equal(openings.filter(o=>o.kind==='door').length,264,'Two escape doors per building');
+ assert.equal(openings.filter(o=>o.kind==='door').length,256,'Two escape doors per building');
  const windows=openings.filter(o=>o.kind==='window');
- const oldWindowCount=132*4+m.buildings.reduce((sum,b)=>sum+(b.stories-1)*9,0);
+ const oldWindowCount=m.buildings.length*4+m.buildings.reduce((sum,b)=>sum+(b.stories-1)*9,0);
  assert.ok(windows.length<oldWindowCount*.6,'At least 40% fewer exterior window apertures');
  const doorOffsets=new Set(),windowShapes=new Set(),rhythms=new Set();
  for(const b of m.buildings){
@@ -40,7 +40,7 @@ for(let seed=0;seed<32;seed++){
  assert.ok(new Set(m.connections.map(c=>c.height)).size===3,'Party-wall lintel heights vary');
  assert.ok(new Set(m.connections.map(c=>c.width.toFixed(3))).size>=9);
  assert.ok(m.coverRuns>=80);
- assert.ok(m.parkedVehicles>=12);
+ assert.ok(m.parkedVehicles===8);
  assert.equal(Object.values(m.vehicleCounts).reduce((a,b)=>a+b,0),m.parkedVehicles);
  for(const key of Object.keys(CITY_VEHICLES))assert.ok(m.vehicleCounts[key]>0,`Missing vehicle ${key}`);
  assert.equal(m.vehicleCounts.car_f1,1,'High-poly landmark budget');
@@ -51,14 +51,18 @@ for(let seed=0;seed<32;seed++){
  }
  assert.ok(m.tiles.some(t=>t.meshName==='paint_yellow'));
  assert.equal(m.roadsX.length+m.roadsZ.length,5);
- assert.equal(m.connectedPairs,66);
- assert.ok(m.footprintCoverage>.54);
- assert.ok(m.connections.length>=66);
+ assert.equal(m.connectedPairs,64);
+ assert.ok(m.footprintCoverage>.53);
+ assert.ok(m.connections.length>=64);
  assert.equal(new Set(m.buildings.map(b=>b.stories)).size,4);
  for(const road of m.roadsZ)assert.ok(m.tiles.some(t=>t.meshName==='asphalt'&&t.x===0&&t.z===road&&t.scale[0]===224&&t.scale[2]===6));
- for(const road of m.roadsX)assert.ok(m.tiles.some(t=>t.meshName==='asphalt'&&t.x===road&&t.z===0&&t.scale[0]===6&&t.scale[2]===224));
+ for(const road of m.roadsX)assert.ok(m.tiles.some(t=>t.meshName==='asphalt'&&t.x===road&&t.scale[0]===6));
+ assert.equal(m.recommendedBots,15);assert.deepEqual([m.park.x,m.park.z],[0,0]);assert.ok(m.park.trees>=10);
+ assert.ok(!m.buildings.some(b=>Math.abs(b.x)<36&&Math.abs(b.z)<9));
+ assert.equal(m.tiles.filter(t=>t.meshName==='park_path').length,2);
+ assert.equal(m.boxes.filter(b=>b.park&&b.t==='tree').length,m.park.trees);
  for(const c of m.connections){const a=m.buildings.find(b=>b.id===c.a),b=m.buildings.find(b=>b.id===c.b);assert.ok(Math.abs(a.x+a.w/2-(b.x-b.w/2))<1e-6,'Attached wall has no gap');assert.ok(c.width>=1.2);}
- assert.equal(m.tiles.filter(t=>t.meshName==='awning').length,132);
+ assert.equal(m.tiles.filter(t=>t.meshName==='awning').length,128);
  assert.equal(m.bounds.maxX-m.bounds.minX,240);
  assert.equal(new Set(m.buildings.map(b=>b.variant)).size,8);
  assert.ok(new Set(m.buildings.map(b=>b.w+','+b.d)).size>=12);
@@ -67,4 +71,4 @@ for(let seed=0;seed<32;seed++){
  assert.equal(m.floor_holes.length,m.buildings.reduce((n,b)=>n+b.stories-1,0));
 }
 assert.equal(variants.size,32);
-console.log('PASS: 32 repeatable seeds, distinct layouts/cover, 132 attached buildings, 1–4 floors, eight interiors, six less-perforated facade styles, offset doors/windows, varied party portals, five roads, ≥1.2m flanking doors, one smooth collider per flight, seven vehicle variants with matching collision and high-poly limits, canonical shared JSON');
+console.log('PASS: 32 repeatable seeds, distinct layouts/cover, 128 attached buildings and a central park, 1–4 floors, eight interiors, six less-perforated facade styles, offset doors/windows, varied party portals, five roads, ≥1.2m flanking doors, one smooth collider per flight, eight vehicles in seven variants with matching collision and high-poly limits, canonical shared JSON');

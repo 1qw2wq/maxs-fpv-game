@@ -77,6 +77,11 @@ export class World {
     // matrices each rendered frame, while keeping their world-space bounds.
     this.group.updateMatrixWorld(true);
     this.group.traverse(o=>{o.matrixAutoUpdate=false;o.matrixWorldAutoUpdate=false;});
+    // The menu may render while GLBs/sky load. Rebake after geometry arrives,
+    // rather than retaining an empty shadow map from that loading frame.
+    if(this.map.procedural==='proc_city')for(const light of this.group.children){
+      if(light.isDirectionalLight&&light.castShadow)light.shadow.needsUpdate=true;
+    }
   }
 
   // ------------------------------------------------------------- collision
@@ -226,18 +231,20 @@ export class World {
     sun.position.set(-38, 46, 26);
     if(this.map.procedural==='proc_city') {
       sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
+      // Static city shadows bake once. Avatars retain cheap contact shadows.
+      sun.shadow.autoUpdate=false;sun.shadow.needsUpdate=true;
       Object.assign(sun.shadow.camera,{left:-36,right:36,top:36,bottom:-36,near:.5,far:120});
       sun.shadow.bias=-.0003;sun.shadow.normalBias=.04;
       if(this.renderer)this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
     }
     this.group.add(sun);
 
-    const rim = new THREE.DirectionalLight(new THREE.Color('#b3d0ff'), 0.55);
+    const rim = new THREE.DirectionalLight(new THREE.Color('#b3d0ff'), this.map.procedural==='proc_city'?.8:.55);
     rim.position.set(40, 18, -34);
     this.group.add(rim);
 
-    this.group.add(new THREE.AmbientLight(new THREE.Color(s.ambientColor), 0.42));
-    this.group.add(new THREE.HemisphereLight(new THREE.Color(s.skyBottom), new THREE.Color(s.mud), 1.25));
+    this.group.add(new THREE.AmbientLight(new THREE.Color(s.ambientColor), this.map.procedural==='proc_city'?.58:.42));
+    this.group.add(new THREE.HemisphereLight(new THREE.Color(s.skyBottom), new THREE.Color(s.mud), this.map.procedural==='proc_city'?1.55:1.25));
   }
 
   /** A model map: the GLB is the visuals, the boxes above are the collision. */

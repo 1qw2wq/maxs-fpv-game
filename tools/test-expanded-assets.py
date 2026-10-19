@@ -3,9 +3,12 @@ Set CHROMIUM_EXECUTABLE and optionally CITY_ORIGIN. Screenshots go to /tmp.
 """
 import os,json
 from playwright.sync_api import sync_playwright
+def capture(page,path):
+    if not os.environ.get('CITY_SKIP_SCREENSHOTS'):page.screenshot(path=path)
+
 origin=os.environ.get('CITY_ORIGIN','http://127.0.0.1:8080')
 with sync_playwright() as p:
-    browser=p.chromium.launch(executable_path=os.environ['CHROMIUM_EXECUTABLE'],headless=True,args=['--no-sandbox','--use-gl=swiftshader','--enable-webgl','--ignore-gpu-blocklist','--experimental-wasm-eh','--experimental-wasm-reftypes','--experimental-wasm-return-call','--js-flags=--experimental-wasm-eh --experimental-wasm-reftypes --experimental-wasm-return-call'])
+    browser=p.chromium.launch(executable_path=os.environ['CHROMIUM_EXECUTABLE'],headless=True,args=['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'])
     context=browser.new_context(viewport={'width':1200,'height':800})
     context.add_init_script("Object.hasOwn ||= ((o,k)=>Object.prototype.hasOwnProperty.call(o,k));")
     page=context.new_page();errors=[];missing=[]
@@ -46,7 +49,7 @@ with sync_playwright() as p:
           for(const c of map.connections){const hit=rayWorld(world,new T.Vector3(c.x-.75,c.y+1.58,c.z),new T.Vector3(1,0,0),1.5);if(hit!==null)throw Error('Connected door blocked');}
           window.qa={scene,renderer,camera,world,data};return{...city.userData,samples,sprints,wallRays,stairRays,drawCalls:renderer.info.render.calls};
         }''')
-        page.screenshot(path='/tmp/expanded-city.png');print('CITY',json.dumps(result),flush=True)
+        capture(page,'/tmp/expanded-city.png');print('CITY',json.dumps(result),flush=True)
         if os.environ.get('CITY_ONLY_MAP'):
             browser.close();raise SystemExit(0)
         result=page.evaluate('''async()=>{
@@ -74,21 +77,30 @@ with sync_playwright() as p:
         print('GUNS',json.dumps(result),flush=True)
         for id in ['g17','m170','gm6','flarepistol']:
             page.evaluate('''async id=>{const w=qa.data.weapons.find(w=>w.id===id);qa.vm.setWeapon(w);await qa.vm.gunMeshes.userData.modelReady;qa.vm.update(.3,{ads:false,moveSpeed:0});qa.renderer.render(qa.scene,qa.gunCamera);}''',id)
-            page.screenshot(path='/tmp/weapon-'+id+'.png')
+            capture(page,'/tmp/weapon-'+id+'.png')
     page.goto(origin+'/');page.wait_for_selector('#btn-mode-solo',timeout=90000)
+    if os.environ.get('CITY_LIVE'):page.locator('.map-btn[data-id=proc_city]').click()
     page.click('#btn-mode-solo');page.wait_for_selector('#secondary-row .weapon-card')
     assert page.locator('#secondary-row .weapon-card').count()==4
     page.locator('#secondary-row .weapon-card').nth(2).click()
     selected=page.evaluate('window.__trench.app.hud.selected')
     assert selected['secondary']=='deagle',selected
-    page.screenshot(path='/tmp/expanded-loadout.png')
+    capture(page,'/tmp/expanded-loadout.png')
     if os.environ.get('CITY_LIVE'):
-        page.evaluate("()=>{const a=window.__trench.app;a.mapPick='proc_city';a.hud.el.name.value='Sidearm QA';a.renderer.setPixelRatio(.25);}")
+        assert page.locator('#bot-count button.on').get_attribute('data-n')=='15'
+        page.evaluate("()=>{const a=window.__trench.app;a.hud.el.name.value='Sidearm QA';a.renderer.setPixelRatio(.25);a.controls.pitch=89;}")
+        if os.environ.get('CITY_SOFTWARE_GPU'):
+            # Keep the full production loop, but look skyward on software GPUs.
+            # Detailed city rendering has its own isolated WebGL regression.
+            page.evaluate("()=>{const c=window.__trench.app.controls,reset=c.reset.bind(c);c.reset=(...args)=>{reset(...args);c.pitch=89;};}")
         page.click('#btn-deploy')
         # This section tests controls/inventory, not combat. Stop autonomous
         # opponents as soon as the real Solo engine exists, so slow software
         # WebGL asset compilation cannot turn it into a spawn-death race.
         page.wait_for_function("window.__trench.app.net?._engine?.py&&window.__trench.app.net.lastMe",timeout=180000)
+        population=page.evaluate("window.__trench.app.net._engine.py.runPython('sum(bool(p[\"bot\"]) for p in _host.room.match.players.values())')")
+        assert population==15,population
+        print('PASS: real map picker defaults city to 15 bots; Solo/Pyodide spawned all 15',flush=True)
         page.evaluate("window.__trench.app.net._engine.py.runPython('_host.room.match.drop_bots();_host.room.bots_on=False')")
         page.wait_for_function("window.__trench.app.playing&&window.__trench.app.mapId==='proc_city'&&window.__trench.app.net.lastMe?.alive",timeout=180000)
         page.wait_for_function("window.__trench.app.net.lastMe?.secondary==='deagle'",timeout=15000)
@@ -171,7 +183,7 @@ with sync_playwright() as p:
               const a=window.__trench.app,cls=document.querySelector('#death-loadout [data-cls="scout"]'),panel=document.querySelector('.panel.death-panel');
               return{phase:a.net.lastState?.phase,playing:a.playing,paused:a.paused,deathShown:a.deathShown,me:a.net.lastMe,body:document.body.className,cls:cls?.getBoundingClientRect().toJSON(),panel:panel?.getBoundingClientRect().toJSON(),overlay:document.querySelector('#death-panel').className,loadout:document.querySelector('#death-loadout').getBoundingClientRect().toJSON()};
             }"""),flush=True)
-            page.screenshot(path='/tmp/death-picker-live-failed.png')
+            capture(page,'/tmp/death-picker-live-failed.png')
             raise
         page.locator('#death-loadout [data-weapon="m170"]').click()
         page.locator('#death-loadout [data-secondary="g17"]').click()

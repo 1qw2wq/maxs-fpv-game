@@ -744,7 +744,15 @@ function setupMenu() {
     setSensitivity(Number(slider.value));
     profile.save({ sensitivity: app.controls.sensitivity });
   });
-  let botCount = saved.soloBots;
+  let botChoices={};
+  try{const raw=JSON.parse(store.get('tf.mapBots')||'{}');if(raw&&typeof raw==='object'&&!Array.isArray(raw))botChoices=raw;}catch{};
+  const selectBotCount=id=>{
+    const picked=Number(botChoices[id]);
+    const n=[0,4,6,8,12,15,16].includes(picked)?picked:(app.data.mapById[id]?.recommendedBots??saved.soloBots);
+    for(const b of document.querySelectorAll('#bot-count button'))b.classList.toggle('on',Number(b.dataset.n)===n);
+    return n;
+  };
+  let botCount = selectBotCount(app.mapPick);
   let mode = 'multi';
   app.roomMode = saved.roomMode;
   app.roomCode = saved.room;
@@ -805,7 +813,7 @@ function setupMenu() {
       app.sfx.resume();
       app.settings.open();
     },
-    onBotCount: (n) => { botCount = n; profile.save({ soloBots: n }); },
+    onBotCount: (n) => { botCount = n; botChoices[app.mapPick]=n; store.set('tf.mapBots',JSON.stringify(botChoices)); profile.save({ soloBots: n }); },
     onRoomMode: (m) => {
       app.roomMode = m;
       app.hud.menuError('');
@@ -847,6 +855,7 @@ function setupMenu() {
     onMap: (id) => {
       app.sfx.ui();
       app.mapPick = id;
+      botCount=selectBotCount(id);
       app.hud.setMapPick(id);
       store.set('tf.mapId', id);
     },
@@ -2340,6 +2349,7 @@ function loop(now) {
   app.objectiveView?.update(app.controls, now, app.playing);
   updateSmokeVision();
   if (app.settings?.visible) app.settings.render(dt);
+  app.world?.group.getObjectByName('proc-city')?.userData.updateDetail?.(app.camera.position);
   app.renderer.render(app.scene, app.camera);
 }
 
@@ -2569,6 +2579,7 @@ function syncSelfAvatar(dt, alive) {
     crouch: c.crouch,
     pitch: c.pitch,
     reloading: !!(me && me.reloading),
+    reloadProgress: app.vm.reloadT>=0?app.vm.reloadT/app.vm.reloadMs:1,
     firing: alive && tnow - app.fireAt < 150,
     ability: alive && (!!app.charge || tnow - app.throwAt < 700),
   });
@@ -2732,6 +2743,7 @@ function updateRemotePlayers(dt, me) {
         girl.update(girl.poseElapsed, {
           speed: p.speed, sprint: (p.flags & 2) !== 0,
           crouch: (p.flags & 1) !== 0, pitch: p.pitch,
+          reloading:p.reloading,reloadProgress:p.reloadProgress,
         });
         girl.poseElapsed=0;app.performance.stats.poseUpdates++;
       } else app.performance.stats.poseSkips++;

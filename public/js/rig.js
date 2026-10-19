@@ -7,6 +7,7 @@
 // unknown bone axes. So every driven rotation is applied as a delta on top of
 // the captured rest quaternion, which is the only thing that works across rigs.
 
+import { weaponReloadPose } from './reload-motion.js';
 import { mountedGrips } from './weaponpose.js';
 import { prepareHandGrip } from './handpose.js';
 import * as THREE from 'three';
@@ -773,11 +774,13 @@ export function createExternalGirl({ template, meta, data, team }) {
       _chest.copy(chestBindPoint);
     }
     // No accumulated Euler increments or procedural circular side/forward sway.
-    holdRotation.setFromEuler(_euler.set(-.08-THREE.MathUtils.degToRad(s.pitch || 0),0,-.03));
+    const reload=st.reloadPose;
+    holdRotation.setFromEuler(_euler.set(-.08-THREE.MathUtils.degToRad(s.pitch || 0)+(reload?.rotation[0]||0),reload?.rotation[1]||0,-.03+(reload?.rotation[2]||0)));
     weaponMount.quaternion.copy(carryRotation).multiply(holdRotation);
     weaponMount.scale.setScalar(k);
     carryContact.copy(CARRY_HAND);
     if(st.weapon?.shape==='pistol'){carryContact.y-=.025;carryContact.z+=.20;}
+    if(reload){carryContact.x+=reload.position[0];carryContact.y+=reload.present*.045;}
     carryContact.multiplyScalar(k).applyQuaternion(carryRotation).add(_chest);
     _grip.fromArray(st.grips.hand).multiplyScalar(k).applyQuaternion(weaponMount.quaternion);
     weaponMount.position.copy(carryContact).sub(_grip);
@@ -789,7 +792,8 @@ export function createExternalGirl({ template, meta, data, team }) {
     const g = st.grips;
     _grip.set(g.hand[0], g.hand[1], g.hand[2]);
     weaponMount.localToWorld(_grip);
-    _fore.set(g.fore[0], g.fore[1], g.fore[2]);
+    if(st.reloadPose){const v=st.reloadPose.fore;_fore.set(v[0]+.04,v[1]-.03,v[2]+.06);}
+    else _fore.set(g.fore[0], g.fore[1], g.fore[2]);
     weaponMount.localToWorld(_fore);
 
     // elbows splay outwards and down; the left-to-right axis comes from the
@@ -813,10 +817,12 @@ export function createExternalGirl({ template, meta, data, team }) {
     // frozen/crossfaded clips do not rewrite every wrist, causing feedback and
     // an orbiting rifle. Use the animated torso bind frame, including rotation,
     // not just its position with the unanimated root's orientation.
+    st.reloadPose=s.reloading?weaponReloadPose(st.weapon,s.reloadProgress||0,st.foreBase):null;
+    if(st.foreAnchor)st.foreAnchor.position.fromArray(st.reloadPose?.fore||st.foreBase);
     placeWeapon(s);
     // The weapon hand NEVER follows the throw/reload clip away from its grip.
     // Only the support hand may leave for the gesture.
-    solveArms(upperKey !== 'reload' && upperKey !== 'toss');
+    solveArms(upperKey !== 'toss');
   }
 
   /**
@@ -1071,7 +1077,9 @@ export function createExternalGirl({ template, meta, data, team }) {
       const span = new THREE.Vector3().fromArray(grips.fore).sub(hand);
       if (span.length() > supportSpan) span.setLength(supportSpan);
       st.grips = { hand: grips.hand, fore: hand.add(span).toArray() };
-      built.anchors.fore.position.fromArray(st.grips.fore).sub(built.group.position);
+      st.foreBase=st.grips.fore.map((v,i)=>v-[.04,-.03,.06][i]);
+      st.foreAnchor=built.anchors.fore;
+      built.anchors.fore.position.fromArray(st.foreBase);
       built.group.traverse((o) => { o.frustumCulled = false; });
       // Same contract as the built-in girl: this is where her shots flash from.
       st.muzzle = built.muzzle;
