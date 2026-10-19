@@ -284,6 +284,8 @@ const EN = {
   '遭受爆炸冲击': 'Blast wave',
   '爆头击杀！': 'Headshot kill!',
   '击杀 +1': 'Kill +1',
+  '击杀确认': 'Elimination confirmed',
+  '连续击杀': 'Kill streak',
   'AI 机器人已加入战场': 'AI bots have joined the battle',
   '第三人称视角': 'Third-person view',
   '第一人称视角': 'First-person view',

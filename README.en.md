@@ -1071,3 +1071,21 @@ change matches or first-person placement. No npm/build/backend is required.
 
 See [the full lab guide](docs/gun-placement-lab.md) for coordinates, recording/import semantics,
 storage/error handling, the export format and developer tests.
+
+## Kill feedback and death animation
+
+Confirmed eliminations now have an animated gold hit marker, a compact victim-name card,
+a separate headshot treatment and a short multi-kill counter. Feedback follows the authoritative
+kill event, not a predicted hit, and never shakes the killer's camera or interrupts aiming.
+
+Characters no longer disappear instantly: both the four imported rigs and the procedural avatar
+react to the impact, buckle, fall away from the attacker when its position is available, and settle.
+Bodies remain briefly visible (up to 4.2 seconds, or until respawn). Being killed hides first-person
+hands immediately, transitions to a collision-checked view of your collapse, then reveals the
+existing class/primary/pistol redeploy panel after roughly one second. The real respawn countdown
+starts immediately; camera/UI timing uses real elapsed time so low frame rates do not extend it.
+Reduced-motion preferences remove the camera roll/animated travel and simplify kill feedback.
+
+These are bounded **keyframed visual effects, not a physics ragdoll**: they do not change health,
+ballistics, movement, hitboxes, scoring, spawn protection or networking. See
+[implementation, limitations and regression tests](docs/combat-animation.md).

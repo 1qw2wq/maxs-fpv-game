@@ -24,6 +24,7 @@ import { Controls } from './controls.js';
 import { updateSpawnShield } from './spawn-shield.js';
 import { MobileControls } from './mobile-controls.js';
 import { requestMobileFullscreen } from './mobile-fullscreen.js';
+import { smooth } from './death-motion.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
@@ -572,6 +573,7 @@ function togglePause(on) {
  * back), and a guest simply says goodbye.
  */
 function leaveMatch() {
+  clearDeathPresentation();deathImpacts.clear();app.killedBy=null;app.hud.resetCombatFeedback();
   app.leaving = true;
   app.paused = false;
   app.hud.hidePause();
@@ -1441,6 +1443,7 @@ async function installMap(meta) {
 // ------------------------------------------------------------------ welcome
 
 async function onWelcome(m) {
+  clearDeathPresentation();deathImpacts.clear();app.killedBy=null;app.hud.resetCombatFeedback();
   const meBeforeLoad=app.net?.lastMe;
   app.lastRecoverySeq = 0;
   app.shieldUntil = 0;
@@ -1817,17 +1820,19 @@ async function onMessage(m) {
       break;
     }
     case 'kill': {
+      rememberDeath(m);
       app.hud.addKill(m.k, m.v, m.w, m.head, app.myId);
       if (m.v.id === app.myId) {
         app.killedBy = { name: m.k.n, weaponName: nameOf(data.weaponById[m.w] || data.grenadeById[m.w] || { name: m.w }) };
         app.sfx.death();
       } else if (m.k.id === app.myId) {
         app.sfx.kill();
-        app.hud.toast(m.head ? t('爆头击杀！') : t('击杀 +1'), 1100);
+        app.hud.confirmKill(m.v.n,!!m.head);
       }
       break;
     }
     case 'spawn': {
+      clearDeathPresentation();deathImpacts.delete(app.myId);app.killedBy=null;app.hud.resetCombatFeedback();
       app.controls.reset(m.p, m.yaw);
       app.hud.hideDeath();
       app.deathShown = false;
@@ -2357,10 +2362,59 @@ function loop(now) {
 // third-person view on release. Shoulder-height zoom alone misses the aim ray.
 function thirdPersonView() { return app.cameraMode === 'tp' && !app.controls.ads; }
 
+const deathImpacts=new Map();
+const reducedDeathMotion=matchMedia('(prefers-reduced-motion: reduce)');
+function rememberDeath(m){
+  const victim=m.v.id===app.myId?app.self:app.remotes.get(m.v.id);
+  const killer=m.k.id===app.myId?app.self:app.remotes.get(m.k.id);
+  let direction=0;
+  if(victim&&killer&&victim!==killer){
+    const away=victim.root.position.clone().sub(killer.root.position);
+    away.applyAxisAngle(new THREE.Vector3(0,1,0),-victim.root.rotation.y);
+    if(away.lengthSq()>.001)direction=Math.atan2(away.x,away.z);
+  }
+  const side=String(m.v.id).split('').reduce((n,c)=>n+c.charCodeAt(0),0)%2?1:-1;
+  deathImpacts.set(m.v.id,{headshot:!!m.head,side,direction,at:performance.now()});
+  // Bound history even when players disconnect before their final snapshot.
+  for(const [id,info] of deathImpacts)if(performance.now()-info.at>6000)deathImpacts.delete(id);
+}
+function clearDeathPresentation(){
+  app.deathCamera=null;
+  document.body.classList.remove('player-dead','death-sequence');
+  document.getElementById('death-veil')?.classList.remove('show');
+}
+function updateDeathCamera(dt){
+  if(!app.deathCamera){
+    const position=app.controls.pos.clone(),direction=app.controls.aim();direction.y=0;
+    if(direction.lengthSq()<.01)direction.set(0,0,1);direction.normalize();
+    const side=new THREE.Vector3().crossVectors(direction,new THREE.Vector3(0,1,0));
+    app.deathCamera={elapsed:0,started:performance.now(),position,from:app.camera.position.clone(),
+      look:app.camera.position.clone().addScaledVector(app.controls.aim(),4),
+      desired:position.clone().addScaledVector(direction,-2.6).addScaledVector(side,.65).add(new THREE.Vector3(0,1.35,0))};
+    document.body.classList.add('player-dead');
+    document.getElementById('death-veil')?.classList.add('show');
+  }
+  const d=app.deathCamera;d.elapsed=(performance.now()-d.started)/1000;
+  const blend=reducedDeathMotion.matches?1:smooth(d.elapsed/.95);
+  document.body.classList.toggle('death-sequence',!reducedDeathMotion.matches&&d.elapsed<1.05);
+  const anchor=d.position.clone().add(new THREE.Vector3(0,.85,0));
+  const desired=d.from.clone().lerp(d.desired,blend);
+  resolveCamera(app.world,anchor,desired,app.camera,app.camera.position);
+  const focus=d.position.clone().add(new THREE.Vector3(0,THREE.MathUtils.lerp(1.15,.36,blend),0));
+  app.camera.lookAt(d.look.clone().lerp(focus,blend));
+  if(!reducedDeathMotion.matches)app.camera.rotateZ(Math.sin(Math.PI*Math.min(1,d.elapsed/.95))*.045);
+  app.camera.fov=THREE.MathUtils.lerp(app.camera.fov,78,Math.min(1,dt*9));
+  if(app.self){
+    app.self.root.visible=!!app.self.deathState?.visible&&app.camera.position.distanceTo(focus)>.70;
+    app.self.cameraBodyVisible=false;
+  }
+}
+
 function tick(dt, now) {
   const me = app.net.lastMe;
   const alive = me ? !!me.alive : true;
   const suppressed = app.suppressed;
+  if(alive&&app.deathCamera)clearDeathPresentation();
 
   const w = app.data.weaponById[me?.w || app.loadout.weapon];
   app.controls.update(dt, alive, suppressed, !!me?.reloading);
@@ -2387,6 +2441,7 @@ function tick(dt, now) {
     app.self.root.visible = visible;
   }
   app.camera.lookAt(app.camera.position.clone().add(dir));
+  if(!alive)updateDeathCamera(dt);
   // in third person the character body replaces the viewmodel
   const scoped = alive && app.controls.ads && w.scope === true;
   document.getElementById('scope-overlay').classList.toggle('hidden', !scoped);
@@ -2443,8 +2498,10 @@ function tick(dt, now) {
   }
   // Recoil moves the real aim, not a disconnected camera-only animation.
   // Updating here makes even a single shot visible in its first rendered frame.
-  app.camera.lookAt(app.camera.position.clone().add(app.controls.aim()));
-  if (app.gunfx?.punchRoll) app.camera.rotateZ(app.gunfx.punchRoll * Math.PI / 180);
+  if(alive){
+    app.camera.lookAt(app.camera.position.clone().add(app.controls.aim()));
+    if(app.gunfx?.punchRoll)app.camera.rotateZ(app.gunfx.punchRoll*Math.PI/180);
+  }
   const shield = document.getElementById('spawn-shield-status');
   const shieldMs = alive ? Math.max(0, (app.shieldUntil || 0) - now) : 0;
   shield.classList.toggle('hidden', shieldMs <= 0);
@@ -2545,25 +2602,32 @@ function syncSelfAvatar(dt, alive) {
   const cls = app.data.classById[app.loadout.cls];
   const skinId = app.loadout.skin || DEFAULT_CLASS_SKIN[cls.id] || '';
   const renderKey = `${cls.id}|${skinId}|${skinId && app.charTemplates.has(skinId) ? 'ext' : 'builtin'}`;
-  if (app.self && app.self.renderKey !== renderKey) {
+  if (alive && app.self && app.self.renderKey !== renderKey) {
     app.self.destroy();
     app.self = null;
   }
   if (!app.self) {
     app.self = makeRemoteGirl(cls, app.data.teamById[app.myTeam], skinId);
     app.self.renderKey = renderKey;
+    app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
     app.self.marker.visible = false;   // never mark the player for themselves
     app.scene.add(app.self.root);
   }
 
   const c = app.controls;
-  app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
-  app.self.setAlive(alive);
-  app.self.root.visible = alive && thirdPersonView();
-  app.self.root.position.copy(c.pos);
-  app.self.root.rotation.y = yawToRotation(c.yaw);
-  updateContactShadow(app.self, app.world, alive && app.self.root.visible);
+  if(alive)app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
+  app.self.setAlive(alive,deathImpacts.get(app.myId));
+  app.self.root.visible = alive ? thirdPersonView() : app.self.deathState.visible;
+  if(alive||!app.deathCamera)app.self.root.position.copy(c.pos);
+  if(alive)app.self.root.rotation.y = yawToRotation(c.yaw);
+  updateContactShadow(app.self, app.world, app.self.root.visible);
   updateSpawnShield(app.self, alive && (app.shieldUntil || 0) > performance.now());
+  if(!alive){
+    const pos=app.self.root.position;
+    app.self.setDeathGround(app.world.floorAt(pos.x,pos.z,pos.y)-pos.y);
+    app.self.update(dt,{speed:0});
+    return;
+  }
   // First person already solves a separate pair of arms. Do not animate a
   // second, invisible full-body rig every frame as well.
   if (!app.self.root.visible) return;
@@ -2707,10 +2771,11 @@ function updateRemotePlayers(dt, me) {
       app.remotes.set(id, girl);
     }
     const rw = app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0];
-    girl.setWeapon(rw);
-    girl.setAlive(!!p.alive);
+    if(p.alive||!girl.seenAlive)girl.setWeapon(rw);
+    if(p.alive)girl.seenAlive=true;
+    girl.setAlive(!!p.alive,deathImpacts.get(id));
     updateSpawnShield(girl, !!p.alive && p.shieldMs > 0);
-    girl.marker.visible = true;
+    girl.marker.visible = !!p.alive;
     girl.marker.material.color.set(p.team === app.myTeam ? 0x3ddc6a : 0xff3b30);
 
     // A flare marks enemies for the whole enemy team: the marker blinks and
@@ -2747,8 +2812,14 @@ function updateRemotePlayers(dt, me) {
         });
         girl.poseElapsed=0;app.performance.stats.poseUpdates++;
       } else app.performance.stats.poseSkips++;
+    } else if(girl.seenAlive){
+      const pos=girl.root.position;
+      girl.setDeathGround(app.world.floorAt(pos.x,pos.z,pos.y)-pos.y);
+      girl.update(dt,{speed:0});
+      remoteSphere.center.copy(pos);remoteSphere.center.y+=.5;
+      girl.root.visible=girl.deathState.visible&&remoteFrustum.intersectsSphere(remoteSphere);
     } else girl.root.visible=false;
-    updateContactShadow(girl, app.world, !!p.alive && girl.root.visible);
+    updateContactShadow(girl, app.world, girl.root.visible);
     // Read sockets AFTER the live avatar pose. Accepted-shot sequences avoid
     // missing bolt shots between snapshots or repeating one shot's flag pulse.
     if (remoteShotDue(girl, p, rw, performance.now()) && girl.muzzleWorld?.(_shotFrom)) {

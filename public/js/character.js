@@ -16,6 +16,7 @@
 // little — the visible head has to stay where the server says it is.
 
 import * as THREE from 'three';
+import { DeathAnimation } from './death-animation.js';
 import { placement } from './third-person-placement.js';
 import { mountedGrips } from './weaponpose.js';
 import {weaponReloadPose} from './reload-motion.js';
@@ -457,6 +458,18 @@ export function createGirl(cls, team, data) {
     dead: false,
   };
 
+  const death=new DeathAnimation(root,[bob],{
+    joints:[headG,torsoG,...Object.values(legs).flatMap(l=>[l.hip,l.knee]),arms.L.sh,arms.L.el],
+    pose(p){
+      headG.rotation.x+=-p.impact*.8+p.limp*.08;
+      torsoG.rotation.x+=p.buckle*.06;
+      for(const [side,leg] of Object.entries(legs)){
+        leg.hip.rotation.x-=p.limp*(side==='L'?.20:.12);
+        leg.knee.rotation.x+=p.limp*(side==='L'?.38:.24);
+      }
+      arms.L.el.rotation.x+=p.limp*.24;
+    },
+  });
   const girl = {
     root, marker, headG, shadow,
     height: 1.70,
@@ -501,10 +514,13 @@ export function createGirl(cls, team, data) {
       return true;
     },
 
-    setAlive(alive) {
-      st.dead = !alive;
-      root.visible = alive;
+    setAlive(alive,impact) {
+      st.dead=!alive;death.setAlive(alive,impact);
+      root.visible=alive||death.visible;
+      if(!alive)marker.visible=false;
     },
+    setDeathGround(offset){death.setGround(offset);},
+    get deathState(){return {visible:death.visible,elapsed:death.elapsed};},
 
     destroy() {
       shadow.geometry.dispose();shadow.material.dispose();
@@ -517,6 +533,7 @@ export function createGirl(cls, team, data) {
      * @param {{speed:number, sprint:boolean, crouch:boolean, pitch:number, yaw:number}} s
      */
     update(dt, s) {
+      if(st.dead){death.update(dt);root.visible=death.visible;marker.visible=false;return;}
       st.lastPlacementPose=s;
       st.t += dt;
       const speed = s.speed || 0;

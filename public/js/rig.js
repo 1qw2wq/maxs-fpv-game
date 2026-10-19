@@ -7,6 +7,7 @@
 // unknown bone axes. So every driven rotation is applied as a delta on top of
 // the captured rest quaternion, which is the only thing that works across rigs.
 
+import { DeathAnimation } from './death-animation.js';
 import { placement } from './third-person-placement.js';
 import { weaponReloadPose } from './reload-motion.js';
 import { mountedGrips } from './weaponpose.js';
@@ -1066,6 +1067,22 @@ export function createExternalGirl({ template, meta, data, team }) {
     }
   }
 
+  const death=new DeathAnimation(root,[holder,weaponMount],{
+    height:TARGET_HEIGHT*k,
+    joints:[...Object.values(driven).map(d=>d.bone),...Object.values(legs).flatMap(l=>[l.thigh,l.knee,l.ankle])],
+    pose(p){
+      // World-space axes also work for uploaded rigs with different bone rolls.
+      rotateSide(driven.head?.bone,-p.impact*.8+p.limp*.08);
+      rotateSide(driven.spine?.bone,p.buckle*.06);
+      for(const [side,leg] of Object.entries(legs)){
+        rotateSide(leg.thigh,-p.limp*(side==='L'?.20:.12));
+        rotateSide(leg.knee,p.limp*(side==='L'?.38:.24));
+      }
+      rotateSide(driven.elbowL?.bone,p.limp*.24);
+      mirrorSecondary();
+    },
+  });
+
   return {
     root, marker, shadow,
     skinId: '',
@@ -1121,10 +1138,13 @@ export function createExternalGirl({ template, meta, data, team }) {
       return true;
     },
 
-    setAlive(alive) {
-      st.dead = !alive;
-      root.visible = alive;
+    setAlive(alive,impact) {
+      st.dead=!alive;death.setAlive(alive,impact);
+      root.visible=alive||death.visible;
+      if(!alive)marker.visible=false;
     },
+    setDeathGround(offset){death.setGround(offset);},
+    get deathState(){return {visible:death.visible,elapsed:death.elapsed};},
 
     // Hide torso, legs, head, capes and static accessories by their actual skin
     // influences, not by hoping they stay behind the camera's near plane.
@@ -1216,6 +1236,7 @@ export function createExternalGirl({ template, meta, data, team }) {
     },
 
     update(dt, s) {
+      if(st.dead){death.update(dt);root.visible=death.visible;marker.visible=false;return;}
       st.lastWeaponPose = s;
       st.t += dt;
       const speed = s.speed || 0;

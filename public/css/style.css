@@ -1266,3 +1266,52 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
   .death-panel { max-height:calc(100dvh - 32px); }
   .mobile-mode .death-panel { max-height:calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Confirmed eliminations: visual feedback only, never interrupts aim or time. */
+#kill-confirm {
+  position:fixed; z-index:32; left:50%; top:57%; transform:translate(-50%,0);
+  display:flex; align-items:center; gap:12px; max-width:min(360px,80vw);
+  padding:10px 20px 10px 13px; border-left:2px solid #d7b579; border-radius:4px;
+  color:#f4ead6; background:linear-gradient(90deg,rgba(17,21,25,.91),rgba(17,21,25,.5));
+  box-shadow:0 8px 24px #0004; opacity:0; pointer-events:none;
+}
+#kill-confirm.show { animation:kill-confirm 1.5s ease-out both; }
+#kill-confirm > div { display:flex; flex-direction:column; min-width:0; gap:3px; }
+#kill-label { color:#d7b579; font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+#kill-victim { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; }
+#kill-streak { color:#e2be79; font-size:10px; }
+#kill-streak:empty { display:none; }
+.kill-emblem { font-size:34px; line-height:1; color:#d7b579; }
+#kill-confirm.headshot { border-color:#f4cf77; }
+#kill-confirm.headshot .kill-emblem { color:#ffdb8f; text-shadow:0 0 13px #ffcd7155; }
+#hitmarker.kill.show { animation:kill-marker .48s ease-out both; stroke:#e6bd76; }
+@keyframes kill-confirm {
+  0% { opacity:0; transform:translate(-50%,12px) scale(.96); }
+  12%,72% { opacity:1; transform:translate(-50%,0) scale(1); }
+  100% { opacity:0; transform:translate(-50%,-6px) scale(1); }
+}
+@keyframes kill-marker {
+  0% { opacity:1; transform:scale(.55) rotate(-8deg); }
+  22% { opacity:1; transform:scale(1.25) rotate(0); }
+  65% { opacity:.9; transform:scale(1); }
+  100% { opacity:0; transform:scale(1.15); }
+}
+/* Allow the one-second collapse to read before revealing the existing picker.
+   The authoritative countdown starts immediately and is never delayed here. */
+#death-veil { position:fixed; inset:0; z-index:30; opacity:0; pointer-events:none;
+  background:radial-gradient(ellipse at 50% 44%,transparent 25%,rgba(42,8,9,.42) 100%); }
+#death-veil.show { animation:death-veil 1.15s ease-out both; }
+@keyframes death-veil { 0% {opacity:0;} 12%,40% {opacity:1;} 100% {opacity:.28;} }
+.player-dead #crosshair, .player-dead #kill-confirm { visibility:hidden; }
+.death-sequence #death-panel { background:transparent; backdrop-filter:none; }
+.death-sequence #death-panel .death-panel { opacity:0; pointer-events:none; }
+#death-panel .death-panel { transition:opacity .2s ease-out; }
+.mobile-mode #kill-confirm { top:48%; padding:8px 12px; }
+@media (prefers-reduced-motion:reduce) {
+  #kill-confirm.show { animation:kill-confirm-reduced 1.5s linear both; }
+  #hitmarker.kill.show { animation:kill-confirm-reduced .48s linear both; }
+  #death-veil.show { animation:none; opacity:.2; }
+  #death-panel .death-panel { transition:none; }
+  .death-sequence #death-panel .death-panel { opacity:1; pointer-events:auto; }
+  @keyframes kill-confirm-reduced { 0%,80% {opacity:1;} 100% {opacity:0;} }
+}

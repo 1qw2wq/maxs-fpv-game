@@ -34,6 +34,7 @@ export class Hud {
       tbTimer: $('tb-timer'), tbLimit: $('tb-limit'),
       crosshair: $('crosshair'), hitmarker: $('hitmarker'), dmgPops: $('dmg-pops'),
       vignette: $('damage-vignette'), suppress: $('suppress-blur'), hitDir: $('hit-dir'),
+      killConfirm: $('kill-confirm'), killLabel: $('kill-label'), killVictim: $('kill-victim'), killStreak: $('kill-streak'),
       killfeed: $('killfeed'), chatLog: $('chat-log'),
       hpFill: $('hp-fill'), hpNum: $('hp-num'), hpCls: $('hp-cls'), hpBar: document.querySelector('.hp-bar'),
       ammoMag: $('ammo-mag'), ammoMax: $('ammo-max'), ammoReserve: $('ammo-reserve'),
@@ -610,6 +611,25 @@ export class Hud {
     h.classList.toggle('kill', !!killed);
     void h.offsetWidth;
     h.classList.add('show');
+  }
+
+  confirmKill(victim,headshot=false) {
+    const now=performance.now();
+    this._killChain=now-(this._lastKillAt??-Infinity)<3000?(this._killChain||0)+1:1;
+    this._lastKillAt=now;
+    this.hitmarker(true);
+    const el=this.el.killConfirm;if(!el)return;
+    this.el.killLabel.textContent=headshot?t('爆头击杀！'):t('击杀确认');
+    this.el.killVictim.textContent=String(victim||'').slice(0,64);
+    this.el.killStreak.textContent=this._killChain>1?`${this._killChain} × ${t('连续击杀')}`:'';
+    el.classList.remove('show');el.classList.toggle('headshot',headshot);
+    void el.offsetWidth;el.classList.add('show');
+  }
+
+  resetCombatFeedback(){
+    this._killChain=0;this._lastKillAt=-Infinity;
+    this.el.killConfirm?.classList.remove('show','headshot');
+    this.el.hitmarker?.classList.remove('show','kill');
   }
 
   /** Floating damage number shown to the shooter on every confirmed hit. */
