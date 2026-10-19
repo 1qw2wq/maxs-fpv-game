@@ -6,7 +6,9 @@
 import assert from 'node:assert/strict';
 import './test-protection.mjs';
 import './test-reload-motion.mjs';
+import './test-stairs.mjs';
 import {testCityUpgrade} from './test-city-upgrade.mjs';
+import {testStairs} from './test-stairs-browser.mjs';
 import { testMobile } from './test-mobile.mjs';
 import { testMobileFeatures } from './test-mobile-features.mjs';
 import { testLayouts } from './test-layout.mjs';
@@ -367,6 +369,7 @@ try {
   await testGameplay(context, origin);
   await testGrenades(context, origin);
   await testCamera(context, origin);
+  await testStairs(context, origin);
   await testDeathLoadout(context, origin);
   await testVehicles(context, origin);
   await testCityUpgrade(context, origin);

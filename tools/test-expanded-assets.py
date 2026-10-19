@@ -102,6 +102,18 @@ with sync_playwright() as p:
         assert population==15,population
         print('PASS: real map picker defaults city to 15 bots; Solo/Pyodide spawned all 15',flush=True)
         page.evaluate("window.__trench.app.net._engine.py.runPython('_host.room.match.drop_bots();_host.room.bots_on=False')")
+        page.evaluate("""()=>window.__trench.app.net._engine.py.runPython(`
+import combat, game
+_r=next(b for b in combat.MAP_DATA['buildings'] if b['ramps'])['ramps'][0]
+_x,_y,_z=_r['start'];_length=_r['end'][2]-_z
+_old=[_x,_y+1.5/_length,_z+.5];_target=[_x,_y+9.9/_length,_z+3.3]
+_m=game.Match();_p=_m.add_player('Stair regression',None)
+_p.update(pos=_old[:],safe_pos=_old[:],last_input=game.now_ms()-500)
+_m._on_input(_p,dict(p=_target,s=dict(move=True,ground=True)))
+assert max(abs(a-b) for a,b in zip(_p['pos'],_target))<1e-7,(_p['pos'],_target)
+del _m,_p
+`)""")
+        print('PASS: real Pyodide authority traverses a delayed 500ms stair packet without stalling',flush=True)
         page.wait_for_function("window.__trench.app.playing&&window.__trench.app.mapId==='proc_city'&&window.__trench.app.net.lastMe?.alive",timeout=180000)
         page.wait_for_function("window.__trench.app.net.lastMe?.secondary==='deagle'",timeout=15000)
         page.evaluate("()=>{const a=window.__trench.app;document.activeElement?.blur();a.controls.setMobileMode(true);a.controls.requestLock();}")

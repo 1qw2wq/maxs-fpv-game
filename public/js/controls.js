@@ -486,7 +486,8 @@ export class Controls {
 
     const nx = this.pos.x + this.vel.x * dt;
     const nz = this.pos.z + this.vel.z * dt;
-    const [rx, rz] = this.world.resolveMove(this.pos.x, this.pos.z, nx, nz, this.pos.y, this.bodyHeight);
+    const [rx, rz, supportY = this.pos.y] = this.world.resolveMove(this.pos.x, this.pos.z, nx, nz, this.pos.y, this.bodyHeight,
+      {returnHeight:true,followGround:this.grounded});
     const [cx, cz] = this.world.clampToBounds(rx, rz);
     // if a wall ate the motion, drop the velocity so we do not stick to it
     if (Math.abs(cx - nx) > 1e-4) this.vel.x = 0;
@@ -494,12 +495,11 @@ export class Controls {
     this.pos.x = cx;
     this.pos.z = cz;
 
-    let ny = this.pos.y + this.vy * dt;
-    // Query the surface under the *new* spot with the body's current height
-    // every frame -- nothing is cached, so a surface that has just dropped away
-    // can never keep the old height. The query height is the feet themselves, so
-    // a low surface is offered as the floor the moment the body is over it.
-    const floor = this.world.floorAt(this.pos.x, this.pos.z, this.pos.y);
+    let ny = (this.grounded ? supportY : this.pos.y) + this.vy * dt;
+    // Query the new spot using the support height reached by the sweep. Using
+    // the frame's old height here would undo a longer stair traversal. In the
+    // air, keep the real foot height; cliffs still fall under normal gravity.
+    const floor = this.world.floorAt(this.pos.x, this.pos.z, this.grounded ? supportY : this.pos.y);
     if (ny <= floor + 0.001) {
       ny = floor;
       this.vy = 0;
@@ -517,14 +517,9 @@ export class Controls {
     // Sweep the head upward too. Horizontal collision alone lets a jump put
     // the eyes inside a ceiling before the next frame can reject movement.
     if (this.vy > 0) {
-      const oldTop = this.pos.y + this.bodyHeight;
-      for (const b of this.world._near(this.pos.x, this.pos.z, 0.35)) {
-        if (Math.abs(this.pos.x - b.x) >= b.w / 2 + 0.35 || Math.abs(this.pos.z - b.z) >= b.d / 2 + 0.35) continue;
-        const underside = b.y - b.h / 2;
-        if (underside >= oldTop - 0.001 && ny + this.bodyHeight >= underside) {
-          ny = Math.min(ny, underside - this.bodyHeight - 0.002);
-          this.vy = 0;
-        }
+      const ceiling=this.world.ceilingAt(this.pos.x,this.pos.z,this.pos.y,this.bodyHeight);
+      if(ny+this.bodyHeight>=ceiling){
+        ny=Math.min(ny,ceiling-this.bodyHeight-.002);this.vy=0;
       }
     }
     this.pos.y = ny;

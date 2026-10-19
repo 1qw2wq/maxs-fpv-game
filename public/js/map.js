@@ -146,17 +146,28 @@ export class World {
   }
 
   /** Full move first, then slide along each axis separately, else stay put. */
-  resolveMove(ox, oz, nx, nz, y, height) {
-    // Match the authority: sweep the whole travel, not just the endpoint.
+  resolveMove(ox, oz, nx, nz, y, height, options = {}) {
+    // Follow supported surfaces at every swept sample, not one stale height
+    // for an entire delayed packet/frame. Airborne bodies do not climb steps.
     const steps = Math.max(1, Math.ceil(Math.hypot(nx-ox,nz-oz)/(PLAYER_RADIUS*.5)));
     const dx=(nx-ox)/steps, dz=(nz-oz)/steps;
-    let x=ox, z=oz;
+    let x=ox, z=oz, feet=y;
+    let supported=options.followGround!==false && Math.abs(this.floorAt(x,z,feet)-feet)<=.05;
+    const attempt=(px,pz)=>{
+      if(this.blocked(px,pz,feet,height))return false;
+      let next=feet, grounded=supported;
+      if(supported){
+        const floor=this.floorAt(px,pz,feet);
+        if(feet-floor<=STEP_UP_MAX)next=floor;
+        else grounded=false; // A cliff is a fall, not an instant downward snap.
+        if(next!==feet && this.blocked(px,pz,next,height))return false;
+      }
+      x=px;z=pz;feet=next;supported=grounded;return true;
+    };
     for(let i=0;i<steps;i++) {
-      if(!this.blocked(x+dx,z+dz,y,height)){x+=dx;z+=dz;}
-      else if(!this.blocked(x+dx,z,y,height))x+=dx;
-      else if(!this.blocked(x,z+dz,y,height))z+=dz;
+      if(!attempt(x+dx,z+dz) && !attempt(x+dx,z))attempt(x,z+dz);
     }
-    return [x,z];
+    return options.returnHeight?[x,z,feet]:[x,z];
   }
 
   /**
@@ -182,6 +193,17 @@ export class World {
       if (top <= limit && bot <= limit && top > best) best = top;
     }
     return best;
+  }
+
+  /** Lowest actual underside above the head, including sloped stair slabs. */
+  ceilingAt(x,z,feetY,height=this.combat.playerHeight){
+    let ceiling=Infinity;
+    for(const b of this._near(x,z,PLAYER_RADIUS)){
+      if(Math.abs(x-b.x)>b.w/2+PLAYER_RADIUS || Math.abs(z-b.z)>b.d/2+PLAYER_RADIUS)continue;
+      const underside=b.t==='ramp'&&b.thickness?rampHeight(b,x,z)-b.thickness:b.y-b.h/2;
+      if(underside>=feetY+height-.001)ceiling=Math.min(ceiling,underside);
+    }
+    return ceiling;
   }
 
   // Model maps have an invisible emergency slab, not rendered walkable terrain.

@@ -209,3 +209,15 @@ See [arsenal-and-sidearms.md](arsenal-and-sidearms.md) for the weapon additions 
   layouts and two RelayHostNet/RelayNet seats passed without missing assets or uncaught errors.
   Bots were removed after population verification to keep the control/death test deterministic;
   this was not a sustained 15-bot FPS benchmark.
+
+### Stair reliability follow-up (2026-10-19)
+
+Map geometry/counts remain version 7. Long movement sweeps now carry support height between samples
+and reject a rise without full-body headroom. Client and authority use actual local sloped undersides
+for jump ceilings, not a ramp’s flat AABB base. See the detailed stair sections in both READMEs.
+
+`STAIR_JS_PARITY=1 python tools/test-stairs.py` adds seven tests, including 978 real-city delayed
+sweeps/authoritative packets and direct Python/browser parity. `node tools/test-stairs.mjs` covers
+20,864 actual Controls traversals; `tools/test-stairs-browser.mjs` adds 1,630 browser traversals,
+including touch movement/sprint. Combined native coverage is now **126 tests across ten suites**
+(with Node parity enabled). No new artifact, geometry/build dependency or regenerated seed is required.

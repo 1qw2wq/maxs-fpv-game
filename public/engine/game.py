@@ -339,13 +339,15 @@ class Match:
 
         target[0] = clamp(target[0], combat.BOUNDS["minX"] + 1.5, combat.BOUNDS["maxX"] - 1.5)
         target[2] = clamp(target[2], combat.BOUNDS["minZ"] + 1.5, combat.BOUNDS["maxZ"] - 1.5)
-        nx, nz = resolve_move(p["pos"], target, oy, body_height(p))
+        nx, nz, support_y = resolve_move(p["pos"], target, oy, body_height(p), return_height=True)
         # Anchor the vertical clamp to the surface under the new spot rather than
         # to a constant street height: a stair tread then carries the player up
         # (and a landing carries them down) instead of the body sinking through
-        # the geometry. oy caps how far one tick can climb, so walls still block.
-        floor = combat.floor_at(nx, nz, oy)
+        # geometry. Each swept sample caps the rise and verifies headroom; a
+        # delayed packet can traverse a slope without treating it as one tall step.
+        floor = combat.floor_at(nx, nz, support_y)
         ny = clamp(target[1], floor, floor + 1.6)
+        ny = min(ny, combat.ceiling_at(nx, nz, support_y, body_height(p))-body_height(p)-.002)
         cap = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * COMBAT.get("sprintMult", 1.35)
         p["velocity"] = [clamp((nx-ox)/dt, -cap, cap), clamp((ny-oy)/dt, -cap, cap), clamp((nz-oz)/dt, -cap, cap)]
         p["pos"] = [nx, ny, nz]

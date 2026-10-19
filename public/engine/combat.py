@@ -294,26 +294,51 @@ def blocked(x, z, y, height=None):
     return False
 
 
-def resolve_move(old, target, y, height=None):
-    """Slide the move along walls: full move, then X-only, then Z-only, else stay.
+def resolve_move(old, target, y, height=None, return_height=False, follow_ground=True):
+    """Sweep and slide in XZ while following supported walkable surfaces.
 
-    ``old`` and ``target`` are both full [x, y, z] positions; only X and Z are
-    used here, so the Z component must come from index 2 (index 1 is the feet
-    height and would collapse every body onto the map's centre line).
+    Old/target are [x,y,z]. Keep the pair return for existing callers; movement
+    authority requests the sampled support height as a third result. Each step
+    still obeys STEP_UP_MAX and checks headroom at the raised foot height.
     """
-    # Endpoint-only collision can tunnel through a thin wall on a late packet.
     steps = max(1, math.ceil(math.hypot(target[0]-old[0], target[2]-old[2]) / (PLAYER_RADIUS * 0.5)))
     dx, dz = (target[0]-old[0])/steps, (target[2]-old[2])/steps
-    x, z = old[0], old[2]
+    x, z, feet = old[0], old[2], y
+    supported = follow_ground and abs(floor_at(x, z, feet)-feet) <= .05
+
+    def attempt(px, pz):
+        nonlocal x, z, feet, supported
+        if blocked(px, pz, feet, height):
+            return False
+        next_y, grounded = feet, supported
+        if supported:
+            floor = floor_at(px, pz, feet)
+            if feet-floor <= STEP_UP_MAX:
+                next_y = floor
+            else:
+                grounded = False
+            if next_y != feet and blocked(px, pz, next_y, height):
+                return False
+        x, z, feet, supported = px, pz, next_y, grounded
+        return True
+
     for _ in range(steps):
-        nx, nz = x+dx, z+dz
-        if not blocked(nx, nz, y, height):
-            x, z = nx, nz
-        elif not blocked(nx, z, y, height):
-            x = nx
-        elif not blocked(x, nz, y, height):
-            z = nz
-    return x, z
+        if not attempt(x+dx, z+dz) and not attempt(x+dx, z):
+            attempt(x, z+dz)
+    return (x, z, feet) if return_height else (x, z)
+
+
+def ceiling_at(x, z, feet_y, height=None):
+    """Lowest real underside above the head; mirrors World.ceilingAt."""
+    h = COMBAT["playerHeight"] if height is None else height
+    ceiling = math.inf
+    for b in _near(x, z, PLAYER_RADIUS):
+        if abs(x-b["x"]) > b["w"]/2+PLAYER_RADIUS or abs(z-b["z"]) > b["d"]/2+PLAYER_RADIUS:
+            continue
+        underside = ramp_height(b,x,z)-b["thickness"] if b["t"] == "ramp" and b.get("thickness") else b["y"]-b["h"]/2
+        if underside >= feet_y+h-.001:
+            ceiling = min(ceiling, underside)
+    return ceiling
 
 
 def is_void_floor(x, z, y):

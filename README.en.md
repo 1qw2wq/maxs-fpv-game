@@ -1,7 +1,7 @@
 # Trench Front 堑壕前线
 
 A WW1-themed browser FPS with team deathmatch and point control, four classes (Assault / Medic /
-Support / Scout), 15 weapons (three each for Assault/Medic/Support and six for Scout), and every
+Support / Scout), **30 weapons: 26 class primaries and four universal sidearms**, and every
 playable character is an **anime-style girl**
 (semi-realistic proportions, roughly 5.7 heads tall).
 
@@ -12,6 +12,19 @@ browser with **Pyodide**, so solo-with-bots matches run exactly as they do again
 server — see *Deployment → Vercel*.
 
 > 中文说明见 [README.md](README.md)。
+
+### Current version at a glance
+
+- **Three maps**: Somme, Italy and the 240×240 m Procedural City. The city has 128 enterable buildings,
+  a central park, eight vehicles in seven variants and **15 Solo bots by default**.
+- Primaries per class: **Assault 6 / Medic 5 / Support 6 / Scout 9**. Every class can choose APX Carry,
+  G17, Desert Eagle or Flare Pistol as a separate secondary; each slot keeps its own ammunition.
+- Desktop uses native pointer lock; mobile is an explicit joystick/button mode. No cursor/edge steering.
+- The latest stair fix follows walkable surfaces during each collision substep and uses real sloped
+  undersides for headroom. See [stair behavior and tests](#stair-reliability-and-headroom).
+
+**Guide:** [Run locally](#running-it) · [Controls](#controls) · [Deploy](#deployment) ·
+[Map details](docs/proc-city.md) · [Arsenal and reloads](docs/arsenal-and-sidearms.md).
 
 ---
 
@@ -204,9 +217,82 @@ The game needs no plugins, but two browser environments restrict pages and both 
   position, including holes leading to a model map's invisible backstop. Real basement floors and
   ramps remain playable. Host recovery is replicated without refilling health/ammo or renewing immunity.
 
+### Stair reliability and headroom
+
+**Fixed:** intermittent stalls/rubber-banding when a delayed movement packet spans a longer part of a
+flight. Previously, every collision sample used the packet’s original foot height: a continuous slope
+could look like a step higher than 0.65 m. Horizontal movement stopped early while the authority could
+still accept the requested vertical position. Jumping under stacked stairs also tested the bottom of
+an axis-aligned bounding box instead of the actual inclined underside, sometimes missing a head hit.
+
+**How movement works now**
+
+1. Client `World.resolveMove` and Python/Pyodide `combat.resolve_move` sweep the full horizontal path
+   in samples no longer than **0.175 m** (half the 0.35 m player radius).
+2. Grounded movement updates its supported foot height at every accepted sample. The **0.65 m step
+   limit applies per sample**, not to the whole packet; this does not remove speed validation or allow
+   climbing a tall wall. The caller uses the resulting support height rather than querying from stale Y.
+3. Every rise checks the whole standing/crouched body at the new height. A step beneath a low ceiling
+   is rejected if the body cannot fit; crouching only helps where its actual shorter body fits.
+4. Drops larger than one step become falls. Airborne sweeps keep their real foot height instead of
+   accumulating a ground-following rise. Grounded descent follows the ramp without briefly floating over each tread.
+5. `World.ceilingAt` / `combat.ceiling_at` evaluate a stair slab’s **local slope height minus thickness**.
+   Upward motion is capped just below that underside on both client and authority. Legacy solid wedge
+   ramps still use their base underside; ordinary flat floors/ceilings keep their flat bounds.
+
+**Map geometry is unchanged:** city stories are 3 m, standing characters 1.70 m, and all **163 stair
+flights** use continuous 22 cm sloped collision slabs with 2.78 m separation/headroom between stacked
+flights. Treads remain visual, not individual plank colliders; upper floors keep real stairwell openings.
+No map regeneration, physics engine, npm install or frontend build is needed for this runtime fix.
+
+**Walking the stairs / troubleshooting**
+
+- Enter at the low end and walk or sprint up; no jump is required. On upper levels, use the landing
+  and side hall to reach the next flight’s low end. Walking into a wall, guard rail or the high side of
+  a flight is still blocked intentionally. The side hall is not another sloped flight.
+- If an older room still exhibits the problem, leave the match, refresh **all** participants (especially
+  the browser host) and create a fresh room so its Pyodide engine loads the new Python/JS files.
+  A Python-backed host must also restart `server/server.py`; refreshing only a guest cannot update it.
+- Browser and authority must load the same deployment. This change does not rewrite the seed-1942
+  map artifact. If a specific spot still fails, report the map, building/location, direction, stance,
+  input mode and whether it happens only with latency; a screenshot/video helps locate it.
+
+**Reproducible checks** (Node is test-only, not a game/deployment requirement):
+
+```sh
+# Python stdlib; Node >=22.15 adds exact Python/browser-math parity for 978 sweeps.
+STAIR_JS_PARITY=1 python tools/test-stairs.py
+# Actual shipped Controls + World, using inert event wiring only; Node >=22.15.
+node tools/test-stairs.mjs
+# Existing geometry/ray/route checks remain available.
+python tools/test-proc-city.py
+node tools/test-city-openings.mjs
+```
+
+On Windows without shell-style environment assignment, run `python tools/test-stairs.py` for the
+six standalone Python cases; set `STAIR_JS_PARITY=1` in your shell to enable the seventh parity case.
+`tools/test-stairs.mjs` checks **20,864 traversals** across every city flight, both directions, three
+lateral lanes plus diagonals, walking/sprinting/crouching/jumping and 10/20/60/144 Hz simulation steps.
+These rates are movement-test inputs, not measured rendering FPS; the production frame loop still
+caps its movement delta. All 978 delayed sweeps match Python results. Head/body overlap is checked
+every frame, not only arrival at the destination.
+
+`tools/test-stairs-browser.mjs` (in `node tools/test-vercel.mjs`) checks **1,630 actual browser
+traversals**, including joystick movement and automatic touch sprint after 1.5 s. With external Python
+Playwright and `CHROMIUM_EXECUTABLE` configured, `CITY_ONLY_LIVE=1 CITY_LIVE=1 python tools/test-expanded-assets.py`
+also checks a real **500 ms delayed packet in Pyodide**, before the usual Solo/sidearm/death/multiplayer
+checks. `CITY_SKIP_SCREENSHOTS=1` and `CITY_SOFTWARE_GPU=1` are optional test-only switches for headless
+software rendering. No physical-phone, deployed-Vercel/cross-NAT or FPS claim is implied.
+
+**Verified for this fix (2026-10-19):** 126 native Python tests across ten suites (parity enabled),
+20,864 Controls traversals, 1,630 browser traversals, 162 camera collision checks, and the real
+Pyodide delayed-packet test passed. The live Solo/sidearm/death/mobile-layout/two-seat Relay smoke
+also passed. This is focused verification, not a claim that the entire optional browser runner or
+physical devices were rerun for every README feature.
+
 ### Three uploaded scoped rifles
 
-Scout now offers six rifles. **Only `scope: true` weapons use the circular scope effect**,
+Scout now offers **nine primary weapons**. The following table documents three of the uploaded scoped rifles. **Only `scope: true` weapons use the circular scope effect**,
 not the whole Scout class. The original SMLE, M95 and Springfield have no optic on their models;
 they retain visible iron-sight ADS with modest zoom instead of the scope mask.
 
@@ -223,16 +309,17 @@ Model authors, sources and embedded license restrictions are in
 [`public/models/guns/CREDITS.md`](public/models/guns/CREDITS.md). The AWP's embedded license is non-commercial;
 verify the supplied licenses/permissions before commercial redistribution.
 
-`python tools/test-snipers.py` verifies all six Scout loadouts, exactly three scoped weapons,
-firing/ammo/reload and the actual uploaded files. Browser checks exercise all six scopes/iron sights
-on desktop and touch, all 15 imported models and the six-card Scout selection layout.
+`python tools/test-snipers.py` verifies all nine Scout loadouts and the seven optic-equipped models across the arsenal,
+firing/ammo/reload and the actual uploaded files. Scope overlays are limited to `sentinel`, `awp`,
+`longbow`, `ar15`, `gm6`, `m170` and `pgm`. Browser checks cover all thirty imported models, their
+ADS anchors and the current Scout selection layout on desktop/touch; SMLE/M95/Springfield keep iron sights.
 
 ### Weapon presentation and smoke
 
 - Guns share gun-local trigger/support grips, reload/feed points and receiver-ejection sockets across
   first-person arms and third-person IK. Imported models calibrate their muzzle to the actual front
   geometry instead of retaining a procedural gun's placeholder barrel length.
-- Each of the 15 imported guns has mesh-measured hand contacts. Imported character hands use a
+- Each of the 30 imported guns has mesh-measured hand contacts. Imported character hands use a
   calibrated palm/wrist frame, opposed thumbs and curled finger joints (with a lighter trigger-index
   curl), rather than putting an open wrist directly on the grip. The same orientation follows ADS,
   recoil and reloads. Fallback gloves have rounded palms and separate bent fingers, with sleeves
@@ -310,7 +397,7 @@ collision checks, rotation and sanitized persistence), and fullscreen success/de
 It is part of `node tools/test-vercel.mjs`; live mobile tests also exercise actual touch editing, sprint and
 scoping. `python tools/test-movement.py` checks engine sprint/ADS/crouch authority. Third-person stability
 checks run through hold, run, fire, reload, throw and sprint on all four shipped skeletons.
-`tools/test-weapon-hold.mjs` measures **11,520 animated frames** (4 skins × 15 guns), all eight translated
+`tools/test-weapon-hold.mjs` measures **23,040 animated frames** (4 skins × 30 guns), all eight translated
 run directions, turning, crouch and ±89° pitch against the anatomical chest and both hand contacts.
 The previous root-local test missed visible torso-relative drift; this regression fails the previous
 implementation. `tools/test-live-weapon-hold.mjs` also observes actual local and interpolated remote
@@ -378,7 +465,7 @@ regressions (distribution, respawn/state recovery, reaction gates, turn rates, a
   floors and ceilings. TP retracts at walls; FP resolves near-plane overlap, including wide screens.
   Jumping also stops at ceilings. A fully contracted TP camera hides the local body, not other players.
   Camera correction never moves the player's body or authoritative shooting ray.
-- All 15 guns retain flashes for at least one rendered frame, even at low frame rates. Local and remote
+- All 30 guns retain flashes for at least one rendered frame, even at low frame rates. Local and remote
   flashes follow the posed muzzle; brass keeps its per-gun size and smoke fades independently. Remote
   sounds now use the actual gun's decoded sample. Accepted-shot sequence numbers prevent duplicate or
   missed remote effects from short firing flags and repeated/out-of-order snapshots (older hosts retain
@@ -526,7 +613,7 @@ look scheme; there is no drag or cursor steering fallback.
   and undersides are solid, but rays above the actual slope still pass. No wall penetration is added;
   shooting remains continuous hitscan, preserving range/damage/lag compensation and normal open shots.
 
-Validation: `python tools/test-shooting.py` adds 10 cover/security cases, including all 15 guns and
+Validation: `python tools/test-shooting.py` adds 10 cover/security cases, including all 30 guns and
 bots. The full `node tools/test-vercel.mjs` runner adds **612 Python/JS ray parity cases**, grid-vs-linear
 checks (15,281 vs 1,135,260 candidate tests), batching/quality-budget regressions, and actual-game
 wall-blocked damage/tracers, rejected origin hops, open hits and off-screen pose skipping.
@@ -671,7 +758,7 @@ body and remote players all share the same `buildWeapon` path).
 
 ### How each weapon fires
 
-The fifteen guns differ in more than numbers: muzzle flash, sound, recoil, ejected casings and
+The thirty guns differ in more than numbers: muzzle flash, sound, recoil, ejected casings and
 tracers all have their own character, all of it in the `fx` block of
 `public/shared/weapons.json` (**presentation only — the server never reads it**, and a bad edit is
 clamped back into range by `gunfx.js` instead of breaking a match).
@@ -819,7 +906,7 @@ FPS web game demo/
     │   └── host.py             # in-page host: collects room output as JSON for js/local.js,
     │                           #   plus RelayHost: a multi-player room that tags every frame
     ├── shared/                 # the single data source shared by Python and JS
-    │   ├── weapons.json        # 15 weapons + 4 classes + the global combat constants
+    │   ├── weapons.json        # 30 weapons + 4 classes + the global combat constants
     │   ├── map.json            # map A collision boxes / cover / spawns / navigation points
     │   ├── maps.json           # map list (default map, per-map scene settings)
     │   ├── maps/cs_italy.json  # the second map
@@ -941,7 +1028,7 @@ The arsenal now includes **all 30 uploaded gun models** (26 primaries and 4 side
 mobile **Switch weapon** button. Ammunition is independent; pistols have close two-handed poses,
 and long guns have individual model/grip/hip/ADS calibration rather than a shared placement.
 
-City generator version 7 retains the repeated opening grid with **six facade rhythms** and
+City generator version 7 avoids the old repeated opening grid with **six facade rhythms** and
 **1,044 exterior windows**. Door positions, window widths/sills,
 and shared-wall portal positions/heights vary. All **256 exterior doors** and **109 internal
 connections** remain; visible closed bays now provide more solid cover. Entrances, lookout routes,
