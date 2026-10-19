@@ -1056,3 +1056,18 @@ For a running static preview, set `CITY_ORIGIN` and `CHROMIUM_EXECUTABLE`, then 
 `python tools/test-map-shields.py` with test-only Python Playwright installed. It waits a real five
 seconds on **all three maps**, checks authoritative damage before/after expiry, remote countdowns,
 position recovery without renewal, and a new protection grant only after respawning.
+
+## Third-person gun placement tool
+
+Open **`/gun-lab.html`** (also linked in the main menu as **Gun Lab**). Select any catalog gun and one
+of the four actual character rigs or the procedural fallback; adjust XYZ position in metres and XYZ
+rotation in degrees while the real third-person hands follow. Orbit/zoom, camera presets, animation
+poses, aim pitch, freeze and hold-to-compare make placement easy to inspect.
+
+Click **Record this gun** for each gun you tune, then **Download JSON** or **Copy recorded** and send
+the complete JSON file/text to me. Per-gun drafts/records survive reloads when local storage works;
+you can import exported files to continue later. The tool previews only: it does not automatically
+change matches or first-person placement. No npm/build/backend is required.
+
+See [the full lab guide](docs/gun-placement-lab.md) for coordinates, recording/import semantics,
+storage/error handling, the export format and developer tests.

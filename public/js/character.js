@@ -16,6 +16,8 @@
 // little — the visible head has to stay where the server says it is.
 
 import * as THREE from 'three';
+import { placement } from './third-person-placement.js';
+import { mountedGrips } from './weaponpose.js';
 import {weaponReloadPose} from './reload-motion.js';
 import {weaponSockets} from './weaponpose.js';
 import { buildGripGlove, gripRotation, gloveWrist, GLOVE_WRIST, setWorldRotation } from './handpose.js';
@@ -411,6 +413,18 @@ export function createGirl(cls, team, data) {
   const weaponMount = new THREE.Group();
   weaponMount.rotation.x = -0.08;
   hands.add(weaponMount);
+  let weaponPlacement=placement();
+  const placementRotation=new THREE.Quaternion(),placementEuler=new THREE.Euler();
+  const placementGrip=new THREE.Vector3(),placementPivot=new THREE.Vector3(),placementOffset=new THREE.Vector3();
+  function applyWeaponPlacement(){
+    if(!st.weapon)return;
+    // Compose after the current reload/hold pose, preserving its trigger pivot.
+    placementGrip.fromArray(mountedGrips(st.weapon).hand);
+    placementPivot.copy(placementGrip).applyQuaternion(weaponMount.quaternion);
+    weaponMount.quaternion.multiply(placementRotation);
+    weaponMount.position.add(placementPivot).sub(placementGrip.applyQuaternion(weaponMount.quaternion));
+    weaponMount.position.add(placementOffset.fromArray(weaponPlacement.position));
+  }
 
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
 
@@ -450,6 +464,7 @@ export function createGirl(cls, team, data) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      weaponPlacement=placement();placementRotation.identity();
       hands.position.z=weapon.shape==='pistol'?.315:.115;
       weaponMount.clear();
       const built = buildWeapon(weapon);
@@ -464,6 +479,14 @@ export function createGirl(cls, team, data) {
       st.eject = built.anchors.eject;
       st.anchors = built.anchors;
     },
+
+    setWeaponPlacement(value) {
+      weaponPlacement=placement(value);
+      placementEuler.set(weaponPlacement.rotation[0]*Math.PI/180,weaponPlacement.rotation[1]*Math.PI/180,weaponPlacement.rotation[2]*Math.PI/180);
+      placementRotation.setFromEuler(placementEuler);
+      girl.update(0,st.lastPlacementPose||{speed:0,pitch:0});
+    },
+    getWeaponPlacement() { return placement(weaponPlacement); },
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {
@@ -494,6 +517,7 @@ export function createGirl(cls, team, data) {
      * @param {{speed:number, sprint:boolean, crouch:boolean, pitch:number, yaw:number}} s
      */
     update(dt, s) {
+      st.lastPlacementPose=s;
       st.t += dt;
       const speed = s.speed || 0;
       const run = speed > 0.6;
@@ -537,6 +561,7 @@ export function createGirl(cls, team, data) {
         st.anchors.hand.position.fromArray(weaponSockets(st.weapon).hand);
         weaponMount.rotation.set(-.08+reload.rotation[0],reload.rotation[1],reload.rotation[2]);
         weaponMount.position.fromArray(reload.position);
+        applyWeaponPlacement();
       }
       root.updateMatrixWorld(true);
       if (st.anchors) {

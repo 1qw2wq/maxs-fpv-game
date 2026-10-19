@@ -7,6 +7,7 @@
 // unknown bone axes. So every driven rotation is applied as a delta on top of
 // the captured rest quaternion, which is the only thing that works across rigs.
 
+import { placement } from './third-person-placement.js';
 import { weaponReloadPose } from './reload-motion.js';
 import { mountedGrips } from './weaponpose.js';
 import { prepareHandGrip } from './handpose.js';
@@ -754,6 +755,9 @@ export function createExternalGirl({ template, meta, data, team }) {
   if (weaponChest) weaponChest.worldToLocal(chestBindPoint);
   const carryRotation = new THREE.Quaternion(), rootRotation = new THREE.Quaternion();
   const holdRotation = new THREE.Quaternion(), carryContact = new THREE.Vector3();
+  let weaponPlacement=placement();
+  const placementRotation=new THREE.Quaternion();
+  const placementReach={right:0,left:0};
   // A short character must grip nearer the receiver rather than stretch the
   // support arm off the gun. This selects another point along the fore-stock;
   // it does not shrink the weapon to fit or change FP sockets/ballistics.
@@ -776,11 +780,13 @@ export function createExternalGirl({ template, meta, data, team }) {
     // No accumulated Euler increments or procedural circular side/forward sway.
     const reload=st.reloadPose;
     holdRotation.setFromEuler(_euler.set(-.08-THREE.MathUtils.degToRad(s.pitch || 0)+(reload?.rotation[0]||0),reload?.rotation[1]||0,-.03+(reload?.rotation[2]||0)));
+    holdRotation.multiply(placementRotation);
     weaponMount.quaternion.copy(carryRotation).multiply(holdRotation);
     weaponMount.scale.setScalar(k);
     carryContact.copy(CARRY_HAND);
     if(st.weapon?.shape==='pistol'){carryContact.y-=.025;carryContact.z+=.20;}
     if(reload){carryContact.x+=reload.position[0];carryContact.y+=reload.present*.045;}
+    carryContact.add(_grip.fromArray(weaponPlacement.position));
     carryContact.multiplyScalar(k).applyQuaternion(carryRotation).add(_chest);
     _grip.fromArray(st.grips.hand).multiplyScalar(k).applyQuaternion(weaponMount.quaternion);
     weaponMount.position.copy(carryContact).sub(_grip);
@@ -806,8 +812,8 @@ export function createExternalGirl({ template, meta, data, team }) {
     _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
 
     weaponMount.getWorldQuaternion(gripGunRotation);
-    solveGrip('R', _grip, _poleR, gripGunRotation);
-    if (support) solveGrip('L', _fore, _poleL, gripGunRotation);
+    placementReach.right=solveGrip('R', _grip, _poleR, gripGunRotation);
+    placementReach.left=support?solveGrip('L', _fore, _poleL, gripGunRotation):null;
   }
 
   /** Put the gun where the current body/arm pose wants it. */
@@ -1068,6 +1074,7 @@ export function createExternalGirl({ template, meta, data, team }) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      weaponPlacement=placement();placementRotation.identity();
       weaponMount.clear();
       const built = buildWeapon(weapon);
       built.group.position.set(0.04, -0.03, 0.06);
@@ -1090,6 +1097,16 @@ export function createExternalGirl({ template, meta, data, team }) {
       layWeapon(pose, pose.ability ? 'toss' : pose.reloading ? 'reload' : null);
       mirrorSecondary();
     },
+
+    // Developer preview only: no global overrides or first-person changes.
+    setWeaponPlacement(value) {
+      weaponPlacement=placement(value);
+      placementRotation.setFromEuler(_euler.set(weaponPlacement.rotation[0]*DEG,weaponPlacement.rotation[1]*DEG,weaponPlacement.rotation[2]*DEG));
+      const s=st.lastWeaponPose;
+      layWeapon(s,s.ability?'toss':s.reloading?'reload':null);
+    },
+    getWeaponPlacement() { return placement(weaponPlacement); },
+    get weaponPlacementReach() { return {...placementReach}; },
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {

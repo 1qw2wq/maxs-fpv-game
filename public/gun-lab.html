@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Third-person Gun Lab · Trench Front</title>
+<link rel="stylesheet" href="css/gun-lab.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+<header><div><span class="eyebrow">TRENCH FRONT / DEVELOPER TOOLS</span><h1>Third-person Gun Lab <small>持枪位置调校</small></h1></div><a href="./">← Back to game</a></header>
+<main>
+<aside class="panel controls">
+<section><h2>01 / Choose a setup</h2><label for="gun">Weapon / 枪械</label><select id="gun" disabled></select><label for="skin">Character / 角色</label><select id="skin" disabled></select><label for="pose">Preview pose</label><select id="pose"><option value="idle">Idle / 站立</option><option value="walk">Walk / 行走</option><option value="run">Sprint / 冲刺</option><option value="crouch">Crouch / 蹲下</option><option value="fire">Fire pose / 开火姿态</option></select><label for="pitch">Aim pitch <output id="pitch-value">0°</output></label><input id="pitch" type="range" min="-60" max="60" step="1" value="0"><label class="check"><input id="paused" type="checkbox"> Freeze animation / 暂停动画</label></section>
+<section><h2>02 / Adjust placement</h2><p class="muted">Offsets from the game’s current third-person hold. Hands follow through the real rig IK.</p><h3>Position <small>metres / 米</small></h3><div id="position-controls"></div><h3>Rotation <small>degrees / 度 · local XYZ</small></h3><div id="rotation-controls"></div><div class="buttons"><button id="reset" disabled>Reset this gun</button><button id="baseline" disabled aria-pressed="false">Hold: compare baseline</button></div><button id="record" class="primary" disabled>Record this gun / 记录这把枪</button><p id="dirty" class="muted">Loading…</p></section>
+</aside>
+<div class="stage" id="stage-wrap"><canvas id="stage" aria-label="Orbitable third-person character and weapon preview"></canvas><div class="stage-top"><span class="pill" id="load-status" role="status">Loading catalog…</span><label class="pill"><input id="axes" type="checkbox" checked> Gun axes</label></div><div class="view-buttons" aria-label="Camera views"><button data-view="front">Front</button><button data-view="back">Back</button><button data-view="left">Left</button><button data-view="right">Right</button><button data-view="hands">Hands</button></div><div class="stage-bottom"><span>Drag to orbit · Scroll to zoom · No pointer lock</span><span id="reach">Loading rig…</span></div></div>
+<aside class="panel export">
+<section><h2>03 / Send the numbers</h2><p>Adjust → <b>Record this gun</b> → repeat for other guns → <b>Download JSON</b>. Send that file or paste its contents into our chat.</p><p class="muted">Recorded values are per gun, shared across characters. Check the same gun on several rigs before sending.</p><div class="buttons"><button id="copy" disabled>Copy recorded</button><button id="download" class="primary" disabled>Download JSON</button></div><p id="record-count">0 guns recorded</p><label for="notes">Notes / 备注</label><textarea id="notes" rows="3" maxlength="2000" placeholder="e.g. Rifle clips coat on Navia; tuned in idle and sprint."></textarea><label for="json">Recorded placement JSON</label><textarea id="json" rows="14" spellcheck="false" readonly aria-label="Exported placement JSON"></textarea><p class="muted">Preview only. This tool does not change live matches, first-person placement, gun sockets or gameplay. I can apply your exported values to the game later.</p></section>
+<section><h2>Resume a previous session</h2><label class="file-button">Import JSON<input id="import" type="file" accept=".json,application/json"></label><p class="muted">Import merges valid gun records. Missing guns are untouched. Unknown IDs, non-finite values and incompatible formats are rejected.</p><p id="storage-status" class="muted"></p><p id="message" role="status" aria-live="polite"></p></section>
+<section><h2>Coordinate guide</h2><p class="muted">Position uses the animated chest frame: X / Y / Z, with +Y up and +Z forward at neutral stance. Rotation uses local gun XYZ about the trigger grip, relative to the existing pose, not absolute world angles. Red / green / blue show gun X / Y / Z.</p><p class="muted">Large offsets can exceed arm reach. An amber warning means the wrists cannot follow exactly; inspect from multiple angles.</p></section>
+</aside>
+</main>
+<script type="module" src="js/gun-lab.js"></script>
+</body></html>
