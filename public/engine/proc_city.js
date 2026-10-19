@@ -4,7 +4,7 @@ import {CITY_VEHICLES,cityVehicle} from './vehicles.js';
 export function generateProcCity(seed=1942){
   if(!Number.isSafeInteger(seed))throw new TypeError('Integer seed required');
   let state=seed>>>0;const rand=()=>((state=(Math.imul(state,1664525)+1013904223)>>>0)/4294967296);
-  const base=generateCityTemplates(seed),m={...base,seed:seed>>>0,generatorVersion:5,
+  const base=generateCityTemplates(seed),m={...base,seed:seed>>>0,generatorVersion:6,
     bounds:{minX:-120,maxX:120,minZ:-120,maxZ:120},boxes:[],tiles:[],buildings:[],floor_holes:[],navPoints:[],bot_nav:{nodes:[],edges:[]}};
   m.style={...base.style,fogNear:60,fogFar:190};
   m.spawns={'0':[-3,0,3].map(z=>({x:-115,y:0,z,yaw:0,team:0})),'1':[-3,0,3].map(z=>({x:115,y:0,z,yaw:180,team:1}))};
@@ -51,7 +51,8 @@ export function generateProcCity(seed=1942){
       const doors=b.doors.map(d=>{const p=P([d.x,0,d.z]);return {...d,x:p[0],z:p[2],width:d.width*sx};});
       for(const [key,line]of[['northDoor',lanesZ[row]],['southDoor',lanesZ[row+1]]])edge(id+':'+key,alleyAttach(nodes.get(id+':'+key).p,line));
       const ramps=Array.from({length:stories-1},(_,i)=>({start:P([b.ramp.x,i*3,b.ramp.z0]),end:P([b.ramp.x,(i+1)*3,b.ramp.z1]),w:2.2*sx}));
-      const nb={id,x:cx,z:cz,w:width,d:depth,stories,storyHeight:3,height:stories*3+.2,scale:[sx,sz],variant:b.variant,type:['Apartment','Cafe','Office','Warehouse','Library','Lounge','Workshop','Vacant'][b.variant],doors,rooms:b.rooms.map(room=>{const p=P([room.x,room.y,room.z]);return{x:p[0],y:p[1],z:p[2]};}),ramp:ramps[0]||{start:P([b.ramp.x,0,b.ramp.z0]),end:P([b.ramp.x,3,b.ramp.z1]),w:2.2*sx},ramps,orientation:q,attachedSide:side};
+      const openings=b.openings.filter(o=>o.side!==side).map(o=>{const p=P([o.x,o.y,o.z]);return {...o,x:p[0],y:p[1],z:p[2],width:o.width*(o.side==='n'||o.side==='s'?sx:sz)};});
+      const nb={facadeStyle:b.facadeStyle,openings,id,x:cx,z:cz,w:width,d:depth,stories,storyHeight:3,height:stories*3+.2,scale:[sx,sz],variant:b.variant,type:['Apartment','Cafe','Office','Warehouse','Library','Lounge','Workshop','Vacant'][b.variant],doors,rooms:b.rooms.map(room=>{const p=P([room.x,room.y,room.z]);return{x:p[0],y:p[1],z:p[2]};}),ramp:ramps[0]||{start:P([b.ramp.x,0,b.ramp.z0]),end:P([b.ramp.x,3,b.ramp.z1]),w:2.2*sx},ramps,orientation:q,attachedSide:side};
       m.buildings.push(nb);duo.push(nb);
       for(const hole of source.floor_holes.filter(h=>h.building===b.id)){const hp=P([hole.x,hole.y,hole.z]);m.floor_holes.push({...hole,building:id,x:hp[0],z:hp[2],w:hole.w*sx,d:hole.d*sz});}
     }
@@ -59,17 +60,21 @@ export function generateProcCity(seed=1942){
   }
   m.connections=[];
   for(const [left,right]of pairs){
-    const x=left.x+left.w/2,z=left.z,d=left.d,sz=left.scale[1],doorZ=z+1.5*sz,opening=1.8*sz,common=Math.min(left.stories,right.stories),height=Math.max(left.stories,right.stories);
+    const x=left.x+left.w/2,z=left.z,d=left.d,sz=left.scale[1],common=Math.min(left.stories,right.stories),height=Math.max(left.stories,right.stories);
     const wall=(cz,y,depth,h)=>{box(x,y,cz,.28,h,depth,'wall',{partyWall:true});tile('wall_stone',x,y-h/2,cz,.28,h,depth);};
     for(let floor=0;floor<height;floor++){
-      const y=floor*3;
+      const y=floor*3,pattern=(seed+Number(left.id.slice(5))*7+floor*11)>>>0;
+      const doorZ=z+[1.2,1.45,1.7][pattern%3]*sz,opening=[1.4,1.6,1.8][Math.floor(pattern/3)%3]*sz,doorHeight=[2.2,2.35,2.5][Math.floor(pattern/9)%3];
       if(floor>=common){wall(z,y+1.5,d,3);continue;}
       const lower=z-d/2,upper=z+d/2,a=doorZ-opening/2,b=doorZ+opening/2;
-      wall((lower+a)/2,y+1.5,a-lower,3);wall((b+upper)/2,y+1.5,upper-b,3);wall(doorZ,y+2.75,opening,.5);
+      wall((lower+a)/2,y+1.5,a-lower,3);wall((b+upper)/2,y+1.5,upper-b,3);wall(doorZ,y+(3+doorHeight)/2,opening,3-doorHeight);
       const Lkey=floor===0?'hall':floor===1?'landing':`L${floor}:landing`,Rkey=floor===0?'roomDoor':floor===1?'upperMid':`L${floor}:upperMid`;
       const hall=node(`${left.id}:partyHall${floor}`,[left.x+5.2*left.scale[0],y,z+3.7*sz]),aNode=node(`${left.id}:partyDoor${floor}`,[left.x+5.2*left.scale[0],y,doorZ]),bNode=node(`${right.id}:partyDoor${floor}`,[right.x-5*right.scale[0],y,doorZ]);
-      edge(left.id+':'+Lkey,hall);edge(hall,aNode);edge(aNode,bNode);edge(bNode,right.id+':'+Rkey);
-      m.connections.push({a:left.id,b:right.id,x,z:doorZ,y,width:opening,height:2.5});
+      // Turn toward the room door only after clearing the partition corner.
+      // A diagonal from the party portal clips the jamb on narrower footprints.
+      const approach=node(`${right.id}:partyHall${floor}`,[right.x-3*right.scale[0],y,doorZ]);
+      edge(left.id+':'+Lkey,hall);edge(hall,aNode);edge(aNode,bNode);edge(bNode,approach);edge(approach,right.id+':'+Rkey);
+      m.connections.push({a:left.id,b:right.id,x,z:doorZ,y,width:opening,height:doorHeight});
     }
   }
   // Continuous asphalt/cobblestone avenues, paved walks, grassy gardens and dirt yards.
@@ -85,7 +90,7 @@ export function generateProcCity(seed=1942){
     const put=(name,along,y,offset,w,h,d)=>axis==='x'?tile(name,v+offset,y,along,d,h,w):tile(name,along,y,v+offset,w,h,d);
     put('asphalt',0,-.003,0,224,.008,6);
     for(const sign of[-1,1])put('pavement',0,-.001,sign*3.85,224,.006,1.7);
-    const cuts=[...new Set(axis==='x'?[...lanesZ,-3,0,3]:[...lanesX,...m.buildings.filter(b=>Math.abs(b.z)===100).map(b=>b.doors[0].x)])].sort((a,b)=>a-b);
+    const cuts=[...new Set(axis==='x'?[...lanesZ,-3,0,3]:[...lanesX,...m.buildings.filter(b=>Math.abs(b.z)===100).flatMap(b=>b.doors.map(d=>d.x))])].sort((a,b)=>a-b);
     for(let along=-109;along<110;along+=6){if(cuts.some(r=>Math.abs(along-r)<3))continue;put('paint_yellow',along,.008,0,2.5,.004,.12);}
     for(let i=1;i<cuts.length;i++){
       const a=cuts[i-1]+2,b=cuts[i]-2,length=b-a;if(length<=0)continue;
@@ -102,8 +107,9 @@ export function generateProcCity(seed=1942){
   // Real uploaded canopies overlap the sidewalk, without lowering door clearance.
   for(const b of m.buildings){
     const d=b.doors[0],normal=({n:[0,-1],s:[0,1],e:[1,0],w:[-1,0]})[d.side],x=d.x+normal[0]*.7,z=d.z+normal[1]*.7,turn=normal[0]!==0;
-    tile('awning',x,2.68,z,3.4,.32,1.6,turn?Math.PI/2:0);
-    box(x,2.94,z,turn?1.6:3.4,.12,turn?3.4:1.6,'cover');
+    const width=d.width+.9;
+    tile('awning',x,2.68,z,width,.32,1.6,turn?Math.PI/2:0);
+    box(x,2.94,z,turn?1.6:width,.12,turn?width:1.6,'cover');
   }
   const graphSegments=m.bot_nav.edges.map(([a,b])=>[nodes.get(a).p,nodes.get(b).p]).filter(([a,b])=>a[1]<=.1&&b[1]<=.1);
   function rectClear(x,z,w,d){

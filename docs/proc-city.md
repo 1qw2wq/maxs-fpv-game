@@ -1,6 +1,6 @@
 # Expanded Procedural City (`proc_city`)
 
-Select **Procedural City** in the main-menu map picker. The committed seed is **1942**.
+Select **Procedural City** in the main-menu map picker. The committed seed is **1942**, using city generator **version 6** (template grammar version 2).
 
 ## Size and variety
 
@@ -15,16 +15,49 @@ Select **Procedural City** in the main-menu map picker. The committed seed is **
   Footprints vary independently within each pair, approximately 13.5–17.6 m on each axis.
 - **Eight interior uses**: apartments, cafes, offices, warehouses, libraries, lounges, workshops and
   vacant units. Room contents and omissions vary by seed, room and floor; pallets/rubble, seating,
-  cabinets, tables, rugs, pictures and lighting do not appear in every unit. 2,044 furniture/decor
+  cabinets, tables, rugs, pictures and lighting do not appear in every unit. 2,043 furniture/decor
   placements in the tracked furnishing aliases, compared with 1,275 in the previous version.
-- 140 staggered low-wall cover runs, 82 parked vehicles in seven variants (including all three new car uploads), 132 shop awnings and 299 additional
+- 156 staggered low-wall cover runs, 82 parked vehicles in seven variants (including all three new car uploads), 132 shop awnings and 292 additional
   vegetation/street placements. Uploaded birch, broadleaf, pine, autumn/dead trees, bushes, berries,
   plants and flowers are mixed with the original street kit. Foliage has no canopy-sized invisible wall.
 
 The eight interior uses share a structural grammar; these are not 132 individually hand-authored floor
-plans. Story height remains 3 m and characters remain 1.70 m tall. Exterior doors are at least 1.8 m
-wide (minimum contract: 1.2 m) and 2.5 m tall. Shared-wall portals are real walkable/shootable openings;
+plans. Story height remains 3 m and characters remain 1.70 m tall. Exterior doors remain at least 1.2 m
+wide and now vary from 2.2 to 2.5 m tall. Shared-wall portals are real walkable/shootable openings;
 all other party-wall sections are solid, including where the neighbouring building is shorter.
+
+## Less repetitive doors, windows and passages
+
+The previous grammar cut a window into every upper-floor facade bay. Version 6 keeps more solid
+masonry and varies openings instead of repeating the same large-hole grid throughout the city:
+
+- **1,080 exterior windows**, down from **2,067** in version 5: approximately **48% fewer**.
+  These counts exclude the wall removed between attached units; they are real exterior apertures,
+  not painted window textures or a count of all wall meshes.
+- **Six seeded facade rhythms**: masonry, narrow, paired, offset, tall and mixed. Each side and floor
+  selects its window bays; narrow, taller and mixed-width profiles vary the silhouette. Widths, sill
+  heights and lintel heights vary independently of the eight interior uses.
+- **Two usable ground-floor exterior doors per building** remain. Doors move between the left and
+  middle facade bays, with additional offsets and different widths/heights; front and rear doors need
+  not line up. Each ground front/rear facade has only one window beside its door.
+- **114 shared-wall connections** remain across 66 pairs. Portal offsets, widths and lintel heights
+  now vary by pair/floor rather than repeating the exact same doorway up the whole wall. All other
+  party-wall portions stay solid, and unused template windows are excluded from opening metadata.
+- Jambs, sills, headers and closed bays have matching visible geometry and collision. Central-bay
+  apertures are moved to one side of the interior partition, not cut across its solid end. Real visible
+  furniture behind a window can still block a shot; a window is not a promise of an empty room.
+- Entrance approaches, upper-floor lookout positions and perimeter curb cuts follow the actual
+  openings. Added inside and party-hall approach nodes prevent diagonal routes from clipping narrow
+  doorways, internal partition corners or room furniture. Canopy widths follow their entrance widths.
+
+This is still a seeded structural grammar, not 132 bespoke floor plans. The size, building count,
+story heights, five-street layout, stairs, eight interior uses and seven vehicle variants are preserved.
+Facade choices use an independent deterministic hash and do not consume the furnishing RNG. Each building
+records `facadeStyle` and world-space `openings` (bottom-centre `x/y/z`, width, height, side, floor
+and template bay). Party portals are recorded separately in `connections`. Regenerate the geometry
+and metadata together with the authoring command; editing metadata alone cannot create an opening.
+Refresh the page and start a **new Procedural City match** to load this artifact; an existing room
+keeps its host's previously loaded map rather than changing collision under active players.
 
 ## Assets and rendering
 
@@ -44,8 +77,9 @@ textures rather than smearing the whole kit atlas over a door jamb or ground til
 retain their uploaded geometry. Interiors are double-sided. Thin ground passes are front-sided with
 explicit ground/decal depth offsets, preventing distant top/bottom-face flickering. Existing lighting/smoke/disposal behavior stays.
 
-Canonical seed: **20,241 visual placements, 57 instanced aliases, 14,213 collision boxes**. Multiple source
-materials may require more than one draw per instance batch; the test overview rendered in 118 draw calls.
+Canonical seed: **17,265 visual placements, 57 instanced aliases, 11,254 collision boxes**. Multiple source
+materials may require more than one draw per instance batch. No new WebGL draw-call benchmark was
+run for this facade revision.
 These are scene counts, not a mobile frame-rate guarantee. Original asset licenses still apply.
 
 ## Shared authority, collision and navigation
@@ -76,8 +110,11 @@ Vercel-only host architecture are unchanged.
 ## Validation
 
 ```sh
-node tools/test-proc-city.mjs       # 32 seeds, dimensions/variety/doors/ramps, exact artifact
-python tools/test-proc-city.py     # every graph edge both ways, transformed opening rays,
+node tools/test-proc-city.mjs       # 32 seeds, facade diversity/density, doors/ramps, exact artifact
+node tools/test-city-openings.mjs   # Node 22.15+: shipped JS collision, aperture rays, matching visuals
+# Optional: also check routes/opening rays on all 32 generated seeds:
+CITY_COLLISION_SEEDS=32 node tools/test-city-openings.mjs
+python tools/test-proc-city.py     # every graph edge both ways, actual opening/closed-bay rays,
                                   # furniture/floors, runouts, bot ascent and authoritative room
 python tools/test-secondaries.py  # inventory, equip/reload security, utility flare, host/guest
 ```
@@ -89,20 +126,30 @@ CHROMIUM_EXECUTABLE=/path/to/chromium CITY_ORIGIN=http://127.0.0.1:8080 \
   CITY_LIVE=1 python tools/test-expanded-assets.py
 ```
 
-The browser suite checks real uploaded assets, 454,970 JS collision-edge samples, 513 ramp sprint cases
-at 20/60/144 FPS, 22,472 solid-wall bullet rays and 513 stair-volume rays, all thirty model loads/dimensions, pistol support-grip spacing, per-model placement,
+The optional browser suite checks real uploaded assets, every JS graph edge in both directions,
+ramp sprints at 20/60/144 FPS, solid-wall bullet rays and stair-volume rays, all thirty model
+loads/dimensions, pistol support-grip spacing, per-model placement,
 loadout selection, and (with `CITY_LIVE=1`) actual Solo/Pyodide and two-seat RelayHostNet/RelayNet.
 `CITY_ONLY_LIVE=1` skips the isolated asset pass for faster transport iteration.
 
-The sandbox browser is Chromium 92. Its isolated test fixture rewrites only vendored Pyodide class
-static-block syntax and enables experimental Wasm flags; **production/vendor files are not modified**.
+Earlier sandbox browser runs used Chromium 92 with a test-only fixture for vendored Pyodide class
+static-block syntax and experimental Wasm flags; **production/vendor files were not modified**.
+That browser fixture is not a production requirement or a newly rerun check for version 6.
 Optional `/api/*` probes fail normally on a bare Python static server and are not missing game assets.
 Physical phones and a deployed Vercel instance have not been tested.
 
 See [arsenal-and-sidearms.md](arsenal-and-sidearms.md) for the weapon additions and controls.
 
-### Latest completed run
+### Opening-layout revision verification (2026-10-19)
 
-111 Python tests, 32 seed/artifact cases, the full WebGL asset/collision/sprint suite, Solo/Pyodide
-sidearm controls, every bullet weapon against every shared-floor wall/doorway, four mobile layouts, and two-player Relay synchronization all passed. The separate
-imported-hand suite also passed 960 poses and 23,040 third-person animated frames; see the arsenal notes.
+The **116 native Python tests across nine gameplay suites**, 32 deterministic layout/artifact cases
+and shipped JavaScript collision checks passed for version 6. On the canonical seed, the direct JS test covers **562,880
+movement samples**, **6,720 aperture rays** and **16,550 solid-wall rays**, plus correspondence between
+every wall collider and its rendered box. The expanded collision command checks the canonical seed
+and 32 additional seeds, not just their metadata. Python independently checks every graph edge in
+both directions, routes from both teams to every upper lookout, real bot ascent, closed facade bays,
+window/door jambs, stairs, and every bullet weapon against every shared-floor wall/doorway.
+
+Previous version-5 WebGL, Solo/Pyodide, mobile-layout, imported-hand and two-player Relay runs are
+historical coverage, **not** fresh browser/visual validation of this facade revision. A new WebGL run,
+physical-phone test and deployed-Vercel check have not been performed for version 6.

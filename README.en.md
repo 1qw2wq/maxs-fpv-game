@@ -930,8 +930,8 @@ Select **Procedural City** in the map picker. The expanded seed **1942** is **24
 four times the previous width/depth and **16× its area**. Its 132 buildings form 66 attached pairs,
 with 114 internal door connections, eight interior uses and 1–4 stories. Building coverage is now
 56.5% (previously 22.8%); vehicle streets are reduced from 18 to five, with narrow pedestrian alleys
-between blocks instead. It includes 140 low-wall cover sections, 82 parked trucks, 132 shop awnings,
-295 other vegetation/street placements and varied furniture/room contents. Smooth stacked stair slabs,
+between blocks instead. It includes 156 low-wall cover sections, 82 parked vehicles in seven variants (including the three
+uploaded cars), 132 shop awnings, 292 other vegetation/street placements and varied furniture/room contents. Smooth stacked stair slabs,
 openings, bullet-blocking walls and three-dimensional bot routes use the same committed collision JSON
 in Python, Pyodide and the browser.
 No npm, frontend build or new physics dependency is required.
@@ -940,6 +940,12 @@ The arsenal now includes **all 30 uploaded gun models** (26 primaries and 4 side
 **APX Carry, G17, Desert Eagle or Flare Pistol** as your secondary. Switch with **1 / 2 / X**, or the
 mobile **Switch weapon** button. Ammunition is independent; pistols have close two-handed poses,
 and long guns have individual model/grip/hip/ADS calibration rather than a shared placement.
+
+City generator version 6 replaces the repeated opening grid with **six facade rhythms** and
+**1,080 exterior windows instead of 2,067** (about 48% fewer). Door positions, window widths/sills,
+and shared-wall portal positions/heights vary. All **264 exterior doors** and **114 internal
+connections** remain; visible closed bays now provide more solid cover. Entrances, lookout routes,
+and curb cuts follow the real openings. Refresh and start a new city match to load the changed map.
 
 See [map generation and validation](docs/proc-city.md) and
 [arsenal, secondary inventory and controls](docs/arsenal-and-sidearms.md).

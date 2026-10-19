@@ -41,17 +41,40 @@ class CityTests(unittest.TestCase):
                 self.walk([p['x'],0,p['z']],[p['x']+(5 if team=='0' else -5),0,p['z']])
 
     def test_door_and_window_rays_are_not_whole_mesh_aabbs(self):
+        normal={'n':(0,-1),'s':(0,1),'w':(-1,0),'e':(1,0)}
         for b in self.m['buildings']:
-            c,s=round(math.cos(b['orientation']*math.pi/2)),round(math.sin(b['orientation']*math.pi/2))
+            walls=[w for w in combat.SOLID if w['t']=='wall' and w.get('building')==b['id']]
+            for o in b['openings']:
+                nx,nz=normal[o['side']]
+                direction=[-nx,0,-nz]
+                centre=[o['x']+nx,o['y']+o['height']/2,o['z']+nz]
+                # Visible furniture behind a window may legitimately block a
+                # world ray. The facade itself must leave the full aperture open.
+                axis=0 if nx==0 else 2
+                for u,v in [(0,.5),(-.45,.1),(.45,.1),(-.45,.9),(.45,.9)]:
+                    point=list(centre);point[axis]+=o['width']*u;point[1]=o['y']+o['height']*v
+                    self.assertFalse(any(combat.ray_box(point,direction,w,1.3) is not None for w in walls),(b['id'],o,point))
+                if o['kind']=='door':self.assertIsNone(combat.ray_world(centre,direction,1.3),(b['id'],o))
+                # Solid jambs must remain beside every real aperture.
+                jamb=list(centre)
+                axis=0 if nx==0 else 2
+                jamb[axis]+=o['width']/2+.18
+                self.assertIsNotNone(combat.ray_world(jamb,direction,1.3),(b['id'],o))
+                if o['kind']=='window':
+                    sill=[centre[0],o['y']-.2,centre[2]]
+                    self.assertIsNotNone(combat.ray_world(sill,direction,1.3),(b['id'],o))
+
+    def test_closed_facade_bays_are_solid_not_hidden_openings(self):
+        for b in self.m['buildings']:
             sx,sz=b['scale']
-            def P(x,y,z):return [b['x']+c*x*sx+s*z*sz,y,b['z']-s*x*sx+c*z*sz]
-            for sign in (-1,1):
-                direction=[-s*sign,0,-c*sign]
-                self.assertIsNone(combat.ray_world(P(-4,1.58,7*sign),direction,2*sz))
-                self.assertIsNotNone(combat.ray_world(P(-2.5,1.58,7*sign),direction,2*sz))
-            if b['stories']>1 and b.get('attachedSide')!='e':
-                self.assertIsNone(combat.ray_world(P(7,4.58,0),[-c,0,s],2*sx))
-                self.assertIsNotNone(combat.ray_world(P(7,3.5,0),[-c,0,s],2*sx))
+            for floor in range(b['stories']):
+                for side,(nx,nz) in {'n':(0,-1),'s':(0,1),'e':(1,0),'w':(-1,0)}.items():
+                    if side==b['attachedSide']:continue
+                    bays={o['bay'] for o in b['openings'] if o['floor']==floor and o['side']==side}
+                    for bay in set((-4,0,4))-bays:
+                        x=b['x']+(bay*sx if nx==0 else nx*6*sx)+nx
+                        z=b['z']+(bay*sz if nz==0 else nz*6*sz)+nz
+                        self.assertIsNotNone(combat.ray_world([x,floor*3+1.58,z],[-nx,0,-nz],1.3),(b['id'],floor,side,bay))
 
     def test_furniture_and_roof_collide(self):
         low=[b for b in combat.SOLID if b['t']=='cover'and .8<=b['h']<=1.1]

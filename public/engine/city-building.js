@@ -1,10 +1,17 @@
 // Pure deterministic map authoring. No DOM, npm, clock or Math.random.
 // The checked-in JSON is the SAME artifact consumed by Python and Pyodide.
+// Independent facade hashes do not consume the furnishing/layout RNG.
+const facadeHash = value => {
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  return (value ^ (value >>> 16)) >>> 0;
+};
+const FACADE_STYLES = ['masonry','narrow','paired','offset','tall','mixed'];
 export function generateCityTemplates(seed=1942,stories=2) {
   if(!Number.isInteger(seed))throw new TypeError('City seed must be an integer');
   let state=seed>>>0;
   const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
-  const m={id:'proc_city',name:'程序化旧城',nameEn:'Procedural City',seed:seed>>>0,generatorVersion:1,
+  const m={id:'proc_city',name:'程序化旧城',nameEn:'Procedural City',seed:seed>>>0,generatorVersion:2,
     bounds:{minX:-30,maxX:30,minZ:-30,maxZ:30},groundY:0,
     style:{skyTop:'#7094b5',skyBottom:'#ccd7dd',fog:'#bec9ca',fogNear:42,fogFar:125,sunColor:'#fff1d5',ambientColor:'#aabed0',mud:'#77776c'},
     skybox:'/models/maps/Skyboxes/skybox-day.png',procedural:'proc_city',
@@ -31,24 +38,55 @@ export function generateCityTemplates(seed=1942,stories=2) {
     const begin={boxes:m.boxes.length,tiles:m.tiles.length,nodes:m.bot_nav.nodes.length,edges:m.bot_nav.edges.length};
     const variant=(seed>>>0)%8;
     const levels=Array.from({length:stories},(_,i)=>i*3);
-    const b={id,variant,x:cx,z:cz,w:12,d:12,stories,storyHeight:3,doors:[],ramp:{x:cx+3,z:cz-.5,z0:cz-3.5,z1:cz+2.5,w:2.2},rooms:[]};m.buildings.push(b);
+    const facadeSeed=facadeHash(seed ^ Math.imul(bi,104729)), facadeStyle=facadeSeed%FACADE_STYLES.length;
+    const pick=(salt,n)=>facadeHash(facadeSeed ^ Math.imul(salt+1,8191))%n;
+    const b={id,variant,facadeStyle:FACADE_STYLES[facadeStyle],openings:[],x:cx,z:cz,w:12,d:12,stories,storyHeight:3,doors:[],ramp:{x:cx+3,z:cz-.5,z0:cz-3.5,z1:cz+2.5,w:2.2},rooms:[]};m.buildings.push(b);
     const S=(x,y,z,w,h,d,kind)=>solid(cx+x,y,cz+z,w,h,d,kind);
-    // 4 m facade modules, 3 m stories. Door/window geometry is split into jambs,
-    // sill and lintel: neither rendering nor collision bridges an opening.
-    for(const y of levels)for(const side of ['n','s','e','w'])for(const c of [-4,0,4]){
-      const door=y===0&&(side==='n'||side==='s')&&c===-4;
-      const win=!door&&(y>0||c!==0);
-      const wall=(u,v,width,height)=>{
-        if(side==='n'||side==='s')S(u,y+v,side==='n'?-6:6,width,height,.24);
-        else S(side==='w'?-6:6,y+v,u,.24,height,width);
-      };
-      if(door||win){
-        const opening=door?1.8:2.2,lo=door?0:1.05,hi=door?2.5:2.5,jamb=(4-opening)/2;
-        wall(c-(opening+jamb)/2,1.5,jamb,3);wall(c+(opening+jamb)/2,1.5,jamb,3);
-        if(lo)wall(c,lo/2,opening,lo);
-        wall(c,(hi+3)/2,opening,3-hi);
-        if(door)b.doors.push({x:cx+c,y:0,z:cz+(side==='n'?-6:6),width:opening,height:hi,side});
-      }else wall(c,1.5,4,3);
+    // Mostly solid masonry, not an opening in almost every module. Six facade
+    // rhythms, independently offset doors and floor-by-floor window changes.
+    // Both collider and visual jamb/sill/lintel pieces use the same rectangles.
+    for(const y of levels)for(const [si,side]of ['n','s','e','w'].entries()){
+      const floor=y/3, salt=floor*61+si*13;
+      const doorBay=pick(salt+7,3)===0?0:-4;
+      const primary=side==='n'&&floor>0?[-4,0][pick(salt+8,2)]:[-4,0,4][pick(salt,3)];
+      const secondary=[-4,0,4].filter(c=>c!==primary)[pick(salt+1,2)];
+      const paired=facadeStyle===2 || (floor>0&&[3,5].includes(facadeStyle)&&pick(salt+2,2)===0);
+      const windows=new Set([primary,...(paired?[secondary]:[])]);
+      // Each ground front/rear has just one window and one offset door.
+      if(floor===0&&(side==='n'||side==='s')){
+        const available=[-4,0,4].filter(c=>c!==doorBay);
+        windows.clear();windows.add(available[pick(salt+3,2)]);
+      }
+      for(const c of [-4,0,4]){
+        const door=y===0&&(side==='n'||side==='s')&&c===doorBay;
+        const win=!door&&windows.has(c);
+        const wall=(u,v,width,height)=>{
+          if(side==='n'||side==='s')S(u,y+v,side==='n'?-6:6,width,height,.24);
+          else S(side==='w'?-6:6,y+v,u,.24,height,width);
+        };
+        if(!door&&!win){wall(c,1.5,4,3);continue;}
+        let opening=door?[1.4,1.6,1.8][pick(salt+4,3)]
+          :facadeStyle===1 ? .95 : facadeStyle===4 ? 1.15
+          :facadeStyle===5 ? ((floor+si)%2 ? .95 : 1.8)
+          :[1.25,1.5,1.8][pick(salt+c+10,3)];
+        // The central room partition meets the facade at coordinate zero.
+        // Offset the whole opening into one room, not across that solid wall.
+        if(c===0)opening=Math.min(opening,door?1.6:1.5);
+        const offset=door&&c===0?-1.05:!door&&c===0?(side==='n'&&floor>0?-1:pick(salt+6,2)?1:-1)*(opening/2+.25)
+          :[-.45,-.2,.15,.45][pick(salt+c+9,4)];
+        const centre=c+offset;
+        const lo=door?0:[1.05,1.2,1.35][pick(salt+c+11,3)];
+        const hi=door?[2.2,2.35,2.5][pick(salt+5,3)]:facadeStyle===4?2.7:[2.25,2.4,2.55][pick(salt+c+12,3)];
+        const left=centre-opening/2,right=centre+opening/2;
+        wall((c-2+left)/2,1.5,left-(c-2),3);
+        wall((right+c+2)/2,1.5,c+2-right,3);
+        if(lo)wall(centre,lo/2,opening,lo);
+        wall(centre,(hi+3)/2,opening,3-hi);
+        const x=cx+(side==='n'||side==='s'?centre:side==='w'?-6:6);
+        const z=cz+(side==='e'||side==='w'?centre:side==='n'?-6:6);
+        b.openings.push({kind:door?'door':'window',side,floor,bay:c,x,y:y+lo,z,width:opening,height:hi-lo});
+        if(door)b.doors.push({x,y:0,z,width:opening,height:hi,side});
+      }
     }
     // Ground floor is at zero. Slab top at Y=3; the entire flight stays open.
     S(0,-.1,0,12,.2,12,'floor');
@@ -91,11 +129,15 @@ export function generateCityTemplates(seed=1942,stories=2) {
       for(const x of [1.5,4.5]){box(cx+x,y+3.5,cz-.5,.10,1,6,'cover');tile('rail',cx+x,y+3,cz-.5,.10,1,6);}
     }
     const N=(key,x,y,z,kind)=>node(prefix+key,cx+x,y,cz+z,kind);
-    const dn=N('northDoor',-4,0,-7),rn=N('northRoom',-3,0,-3),rm=N('roomDoor',-3,0,0),rs=N('southRoom',-3,0,3),ds=N('southDoor',-4,0,7);
-    edge(dn,rn);edge(rn,rm);edge(rm,rs);edge(rs,ds);
+    const northX=b.doors.find(d=>d.side==='n').x-cx,southX=b.doors.find(d=>d.side==='s').x-cx;
+    const dn=N('northDoor',northX,0,-7),rn=N('northRoom',-3,0,-3),rm=N('roomDoor',-3,0,0),rs=N('southRoom',-3,0,3),ds=N('southDoor',southX,0,7);
+    const northEntry=N('northEntry',northX,0,-5.1),southEntry=N('southEntry',southX,0,5.1);
+    const northHall=N('northHall',-3,0,-5.1),southHall=N('southHall',-3,0,5.1);
+    edge(dn,northEntry);edge(northEntry,northHall);edge(northHall,rn);edge(rn,rm);edge(rm,rs);edge(rs,southHall);edge(southHall,southEntry);edge(southEntry,ds);
     for(const [n,z]of [[dn,cz-7],[ds,cz+7]]){
       const line=Math.abs(z)<14?0:Math.sign(z)*24;
-      edge(n,street(cx-4,line));edge(street(cx-4,line),street(0,line));
+      const x=m.bot_nav.nodes.find(p=>p.id===n).p[0];
+      edge(n,street(x,line));edge(street(x,line),street(0,line));
     }
     const hall=N('hall',1,0,3),entry=N('entry',1,0,-4.4),start=N('stairStart',3,0,-4.4),foot=N('stairFoot',3,0,-3.5);
     edge(rs,hall);edge(hall,entry);edge(entry,start);edge(start,foot);
@@ -104,8 +146,10 @@ export function generateCityTemplates(seed=1942,stories=2) {
       const y=floor*3,K=key=>floor===1?key:`L${floor}:`+key;
       let prev=currentFoot;
       for(let k=1;k<=12;k++){const n=N(K('ramp'+k),3,y-3+k/4,-3.5+k/2);edge(prev,n);prev=n;}
-      const landing=N(K('landing'),3,y,3.7),upperDoor=N(K('upperDoor'),-1,y,4),upperSouth=N(K('upperSouth'),-3,y,3),upperMid=N(K('upperMid'),-3,y,0),upperNorth=N(K('upperNorth'),-3,y,-3),look=N(K('lookout'),-3,y,-4.8,'lookout');
-      edge(prev,landing);edge(landing,upperDoor);edge(upperDoor,upperSouth);edge(upperSouth,upperMid);edge(upperMid,upperNorth);edge(upperNorth,look);
+      const lookoutX=b.openings.find(o=>o.side==='n'&&o.floor===floor&&o.x<cx).x-cx;
+      const landing=N(K('landing'),3,y,3.7),upperDoor=N(K('upperDoor'),-1,y,4),upperSouth=N(K('upperSouth'),-3,y,3),upperMid=N(K('upperMid'),-3,y,0),upperNorth=N(K('upperNorth'),-3,y,-3),look=N(K('lookout'),lookoutX,y,-4.8,'lookout');
+      const viewApproach=N(K('viewApproach'),-3,y,-4.8);
+      edge(prev,landing);edge(landing,upperDoor);edge(upperDoor,upperSouth);edge(upperSouth,upperMid);edge(upperMid,upperNorth);edge(upperNorth,viewApproach);edge(viewApproach,look);
       if(floor<stories-1){
         const side=N(K('sideHall'),5.2,y,3.7),back=N(K('backHall'),5.2,y,-4.4),start=N(K('nextStairStart'),3,y,-4.4),foot=N(K('nextStairFoot'),3,y,-3.5);
         edge(landing,side);edge(side,back);edge(back,start);edge(start,foot);currentFoot=foot;
