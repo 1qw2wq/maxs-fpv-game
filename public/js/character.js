@@ -11,11 +11,12 @@
 //   * a light "highlight band" arcing across the hair (the single strongest cue)
 //   * four unmistakable silhouettes: short bob / long curls / high ponytail / long straight
 //
-// Engineering note: the hit capsule on the server is 1.70 m and never includes
-// hair, so hair volumes are kept thin and a crouch only lowers the body a
-// little — the visible head has to stay where the server says it is.
+// Engineering note: the standing hit capsule is 1.70 m and never includes
+// hair, so hair volumes are kept thin. Crouch animation follows the shorter
+// capsule and eye height shared with the authoritative engine.
 
 import * as THREE from 'three';
+import {crouchBlend,crouchPose} from './stance.js';
 import { DeathAnimation } from './death-animation.js';
 import { placement } from './third-person-placement.js';
 import { mountedGrips } from './weaponpose.js';
@@ -429,6 +430,7 @@ export function createGirl(cls, team, data) {
 
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
 
+  const stanceFoot=new THREE.Vector3();
   const down = new THREE.Vector3(0, -1, 0);
   const target = new THREE.Vector3(), direction = new THREE.Vector3(), pole = new THREE.Vector3(), elbow = new THREE.Vector3();
   function fitHand(arm, anchor, side) {
@@ -500,6 +502,7 @@ export function createGirl(cls, team, data) {
       girl.update(0,st.lastPlacementPose||{speed:0,pitch:0});
     },
     getWeaponPlacement() { return placement(weaponPlacement); },
+    get crouchAmount(){return crouchPose(st.crouch).amount;},
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {
@@ -542,32 +545,37 @@ export function createGirl(cls, team, data) {
       if (run) st.phase += dt * rate * Math.min(1.25, speed / 5.0 + 0.35);
       else st.phase += dt * 1.15;
 
-      // crouch is a partial crouch only: the server capsule never shrinks, so a
-      // big visual drop would put the rendered head inside the torso hitbox.
-      st.crouch += ((s.crouch ? 1 : 0) - st.crouch) * Math.min(1, dt * 12);
+      // Match the real crouched capsule; flex hips forward and keep soles planted.
+      st.crouch=crouchBlend(st.crouch,s.crouch,dt);
+      const crouch=crouchPose(st.crouch);
 
       st.gait += ((run ? 1 : 0)-st.gait)*(1-Math.exp(-12*dt));
-      const swing = .06 + ((s.sprint ? .78 : .5)-.06)*st.gait;
+      const swing = (.06 + ((s.sprint ? .78 : .5)-.06)*st.gait)*crouch.gait;
       const ph = st.phase;
       const breathe = Math.sin(st.t * 1.9) * 0.012;
 
-      legs.L.hip.rotation.x = Math.sin(ph) * swing;
-      legs.R.hip.rotation.x = -Math.sin(ph) * swing;
-      legs.L.knee.rotation.x = Math.max(0, -Math.sin(ph - 0.6)) * swing * 1.9 + st.crouch * 0.7;
-      legs.R.knee.rotation.x = Math.max(0, Math.sin(ph - 0.6)) * swing * 1.9 + st.crouch * 0.7;
+      legs.L.hip.rotation.x = Math.sin(ph) * swing+crouch.hip;
+      legs.R.hip.rotation.x = -Math.sin(ph) * swing+crouch.hip;
+      legs.L.knee.rotation.x = Math.max(0, -Math.sin(ph - 0.6)) * swing * 1.9 + crouch.knee;
+      legs.R.knee.rotation.x = Math.max(0, Math.sin(ph - 0.6)) * swing * 1.9 + crouch.knee;
       legs.L.hip.rotation.z = 0.045;
       legs.R.hip.rotation.z = -0.045;
       // ankle roll: heel-first as the leg swings forward, toe-off as it trails
-      legs.L.foot.rotation.x = Math.sin(ph) * swing * 0.55;
-      legs.R.foot.rotation.x = -Math.sin(ph) * swing * 0.55;
+      legs.L.foot.rotation.x = Math.sin(ph) * swing * 0.55+crouch.ankle;
+      legs.R.foot.rotation.x = -Math.sin(ph) * swing * 0.55+crouch.ankle;
 
-      bob.position.y = -st.crouch * 0.20
-        + Math.abs(Math.sin(ph)) * st.gait * (s.sprint ? 0.045 : 0.028)
-        + breathe * 0.25;
+      bob.position.y = (Math.abs(Math.sin(ph)) * st.gait * (s.sprint ? 0.045 : 0.028)
+        + breathe * 0.25)*crouch.bob;
+      if(st.crouch>.001){
+        root.updateMatrixWorld(true);
+        const footY=Math.min(root.worldToLocal(legs.L.foot.getWorldPosition(stanceFoot)).y,
+          root.worldToLocal(legs.R.foot.getWorldPosition(stanceFoot)).y);
+        bob.position.y+=THREE.MathUtils.clamp(.015-footY,-.90,.15)*crouch.amount;
+      }
       bob.rotation.z = Math.sin(ph) * swing * 0.035;
       bob.rotation.y = -Math.sin(ph) * swing * 0.10;
 
-      torsoG.rotation.x = st.crouch * 0.28 + (.02 + st.gait*.08) + Math.sin(st.t * 1.9) * 0.008;
+      torsoG.rotation.x = crouch.spine + (.02 + st.gait*.08) + Math.sin(st.t * 1.9) * 0.008;
       torsoG.rotation.z = Math.sin(ph) * swing * 0.05;
 
       // Read the same gun-local sockets as first person instead of a fixed
@@ -576,7 +584,7 @@ export function createGirl(cls, team, data) {
         const reload=weaponReloadPose(st.weapon,s.reloading?s.reloadProgress||0:0);
         st.anchors.fore.position.fromArray(reload.fore);
         st.anchors.hand.position.fromArray(weaponSockets(st.weapon).hand);
-        weaponMount.rotation.set(-.08+reload.rotation[0],reload.rotation[1],reload.rotation[2]);
+        weaponMount.rotation.set(-.08-crouch.spine+reload.rotation[0],reload.rotation[1],reload.rotation[2]);
         weaponMount.position.fromArray(reload.position);
         applyWeaponPlacement();
       }
@@ -587,13 +595,13 @@ export function createGirl(cls, team, data) {
       }
 
       const pitch = Math.max(-70, Math.min(70, s.pitch || 0));
-      headG.rotation.x = -(pitch * Math.PI) / 180 * 0.55;
+      headG.rotation.x = -crouch.amount*.28-(pitch * Math.PI) / 180 * 0.55;
       headG.rotation.y = Math.sin(st.t * 0.6) * 0.05;
 
       const capeG = torsoG.userData.cape;
       if (capeG) capeG.rotation.x = -0.05 - Math.min(0.55, speed * 0.055) + Math.sin(st.t * 2.6) * 0.04;
 
-      marker.position.y = HEAD_Y + 0.40;
+      marker.position.y = HEAD_Y-.85*st.crouch + 0.40;
     },
   };
 

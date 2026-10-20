@@ -1089,3 +1089,40 @@ Reduced-motion preferences remove the camera roll/animated travel and simplify k
 These are bounded **keyframed visual effects, not a physics ragdoll**: they do not change health,
 ballistics, movement, hitboxes, scoring, spawn protection or networking. See
 [implementation, limitations and regression tests](docs/combat-animation.md).
+
+## Crouch correction and multiplayer reliability
+
+Crouching now uses a deep, balanced squat rather than a shallow standing pose with backwards
+thighs: shared eased hip/knee/ankle motion, grounded feet, shorter crouched steps, a lowered pelvis,
+and a level weapon with the existing hand IK. All four imported characters and the procedural
+fallback are covered. Standing/running transitions are smoothed; the authoritative capsule,
+eye height, speed and hit rules have not changed. The deeper pose also revealed and fixed stale
+skinned-mesh matrices during crouched death floor-clearance checks.
+
+Three important multiplayer lifecycle issues are corrected:
+
+- **Paired RTC survives Deploy.** An explicitly created/paired room wins over a remembered
+  optional backend address. Previously that address could close a working RTC connection before
+  falling back to a fresh, unpaired channel; even malformed saved addresses are now bypassed.
+- **Authority does not need rendering.** The host ticks independently of animation frames;
+  incoming relay activity also advances it when timers throttle. Catch-up is bounded, and close
+  cancels the tick timer. Explicit Esc pause remains a real host pause. This cannot prevent an OS
+  from suspending the host browser entirely: keep the host page open and active when possible.
+- **Pause is coordinated.** Guest heartbeats preserve their seat while their local pause menu is
+  open. Host pause/resume is signalled, movement/fire are blocked while paused, and authority
+  rejects paused gameplay commands. Sending chat during a pause does not falsely resume guests.
+
+**Vercel-only is preserved:** no build, required backend, broker, or signalling service.
+The 8-digit code works between same-origin tabs in the same browser storage partition.
+**Independent browsers/devices must exchange the invite and answer codes first.** Optional STUN
+is not TURN; restrictive NAT/firewalls may still block direct RTC. These fixes do not claim
+universal internet connectivity.
+
+A complete local-browser run of `node tools/test-multiplayer.mjs` checks the actual menu pairing
+flow with BroadcastChannel/WebSocket/external requests disabled, keyboard crouch/walk replication,
+pause/heartbeat handling, both directions of kill/death/redeploy, ammo/reload, departure and
+fresh menu-based pairing/rejoining without resetting the host.
+Somme, Italy and Procedural City also pass early-join, host-rule, private-ammo, chat, shield-expiry
+and host-close checks with host rendering disabled. These are local RTC tests, not a two-network
+or deployed-Vercel certification. Full procedures, regression commands and exact limitations:
+[crouch and multiplayer checks](docs/crouch-and-multiplayer-checks.md).

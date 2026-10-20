@@ -7,6 +7,7 @@
 // unknown bone axes. So every driven rotation is applied as a delta on top of
 // the captured rest quaternion, which is the only thing that works across rigs.
 
+import {crouchBlend,crouchPose} from './stance.js';
 import { DeathAnimation } from './death-animation.js';
 import { placement } from './third-person-placement.js';
 import { weaponReloadPose } from './reload-motion.js';
@@ -780,7 +781,7 @@ export function createExternalGirl({ template, meta, data, team }) {
     }
     // No accumulated Euler increments or procedural circular side/forward sway.
     const reload=st.reloadPose;
-    holdRotation.setFromEuler(_euler.set(-.08-THREE.MathUtils.degToRad(s.pitch || 0)+(reload?.rotation[0]||0),reload?.rotation[1]||0,-.03+(reload?.rotation[2]||0)));
+    holdRotation.setFromEuler(_euler.set(-.08-crouchPose(st.crouch).spine-THREE.MathUtils.degToRad(s.pitch || 0)+(reload?.rotation[0]||0),reload?.rotation[1]||0,-.03+(reload?.rotation[2]||0)));
     holdRotation.multiply(placementRotation);
     weaponMount.quaternion.copy(carryRotation).multiply(holdRotation);
     weaponMount.scale.setScalar(k);
@@ -1063,7 +1064,7 @@ export function createExternalGirl({ template, meta, data, team }) {
       if (_ankleLocal.y < low) low = _ankleLocal.y;
     }
     if (low < Infinity) {
-      holder.position.y = baseY + THREE.MathUtils.clamp(groundAnkleY - low, -0.055, 0.030);
+      holder.position.y = baseY + THREE.MathUtils.clamp(groundAnkleY - low, -0.055-crouchPose(st.crouch).dropLimit*k, 0.030);
     }
   }
 
@@ -1124,6 +1125,7 @@ export function createExternalGirl({ template, meta, data, team }) {
     },
     getWeaponPlacement() { return placement(weaponPlacement); },
     get weaponPlacementReach() { return {...placementReach}; },
+    get crouchAmount(){return crouchPose(st.crouch).amount;},
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {
@@ -1264,7 +1266,7 @@ export function createExternalGirl({ template, meta, data, team }) {
         : s.reloading ? 'reload'
           : s.ability ? 'toss'
             : s.firing ? 'fire'
-              : run ? 'runHold'
+              : run && !s.crouch && st.crouch<.01 ? 'runHold'
                 : motion.upper ? 'hold' : null;
 
       // Cadence rises with speed but is clamped to a human band. The game drives
@@ -1274,7 +1276,8 @@ export function createExternalGirl({ template, meta, data, team }) {
       const stepHz = THREE.MathUtils.clamp(0.85 + speed * 0.20, 0.85, 3.2);
       st.phase += dt * TAU * stepHz * 0.5 * (run ? (sprint ? 1.1 : 1) : 0.18);
 
-      st.crouch += ((s.crouch ? 1 : 0) - st.crouch) * Math.min(1, dt * 12);
+      st.crouch=crouchBlend(st.crouch,s.crouch,dt);
+      const crouch=crouchPose(st.crouch);
       st.gait += ((run ? 1 : 0) - st.gait) * Math.min(1, dt * 8);
 
       // ---- clip-driven run ---------------------------------------------------
@@ -1282,7 +1285,7 @@ export function createExternalGirl({ template, meta, data, team }) {
       // spine, head and legs come from the clip, so the procedural joint writes
       // below are skipped. The arms are handed to the upper layer when it is
       // active and to the gun IK otherwise.
-      if (motion.ready && run && !st.dead) {
+      if (motion.ready && run && st.crouch < .01 && !s.crouch && !st.dead) {
         const dx = root.position.x - motion.prev.x;
         const dz = root.position.z - motion.prev.z;
         const len = Math.hypot(dx, dz);
@@ -1299,16 +1302,6 @@ export function createExternalGirl({ template, meta, data, team }) {
         dampSway(dt);
 
         root.updateMatrixWorld(true);
-        if (st.crouch > 0.01) {
-          const c = st.crouch;
-          for (const sfx of ['L', 'R']) {
-            const ch = legs[sfx];
-            if (!ch) continue;
-            rotateSide(ch.thigh, c * 0.22);
-            rotateSide(ch.knee, c * 0.95);
-            rotateSide(ch.ankle, -c * 0.55);
-          }
-        }
         // Pull the step in. +Y turns a limb toward +X (the character's left), so
         // the right leg takes the positive angle and the left the negative one,
         // which tucks both feet toward the centre line instead of splaying out.
@@ -1317,7 +1310,7 @@ export function createExternalGirl({ template, meta, data, team }) {
           if (ch && ch.thigh) rotateUp(ch.thigh, (sfx === 'R' ? 1 : -1) * STEP_TOE_IN[sfx]);
         }
         groundFeet();
-        marker.position.y = TARGET_HEIGHT * k + 0.40;
+        marker.position.y = (TARGET_HEIGHT-.85*st.crouch) * k + 0.40;
         layWeapon(s, upperKey);
         mirrorSecondary();
         motion.active = true;
@@ -1348,7 +1341,7 @@ export function createExternalGirl({ template, meta, data, team }) {
       // walk -> run blend, plus the crouch offsets folded into the same joints
       const t = THREE.MathUtils.clamp((speed - 1.2) / 6, 0, 1);
       const amp = {
-        gait: st.gait,
+        gait: st.gait*crouch.gait,
         // Amplitudes are kept modest on purpose. The avatar always travels at
         // 9.5 m/s (13 m/s sprinting), so a full-length stride would swing the
         // legs so far that the grounded foot would drag the pelvis through a
@@ -1357,17 +1350,17 @@ export function createExternalGirl({ template, meta, data, team }) {
         knee: THREE.MathUtils.lerp(0.60, 0.90, t),
         push: THREE.MathUtils.lerp(12, 20, t) * DEG,
         toe: THREE.MathUtils.lerp(14, 22, t) * DEG,
-        cHip: st.crouch * 0.22,
-        cKnee: st.crouch * 0.95,
-        cAnkle: -st.crouch * 0.55,
+        cHip: crouch.hip,
+        cKnee: crouch.knee,
+        cAnkle: crouch.ankle,
       };
 
       const ph = st.phase;
       // pelvis and thorax twist in opposite directions; the head stays put
       const twist = Math.sin(ph) * 0.10 * st.gait;
-      apply('spine', st.crouch * 0.26 + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008,
+      apply('spine', crouch.spine + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008,
         -twist * 1.5, Math.sin(ph) * 0.035 * st.gait);
-      apply('head', -THREE.MathUtils.degToRad(Math.max(-70, Math.min(70, s.pitch || 0))) * 0.55,
+      apply('head', -crouch.amount*.28-THREE.MathUtils.degToRad(Math.max(-70, Math.min(70, s.pitch || 0))) * 0.55,
         twist * 0.6, 0);
       apply('hips', 0, twist, Math.sin(ph) * 0.03 * st.gait);
 
@@ -1376,7 +1369,7 @@ export function createExternalGirl({ template, meta, data, team }) {
 
       groundFeet();
 
-      marker.position.y = TARGET_HEIGHT * k + 0.40;
+      marker.position.y = (TARGET_HEIGHT-.85*st.crouch) * k + 0.40;
 
       updateUpper(upperKey, dt);
       layWeapon(s, upperKey);

@@ -51,8 +51,8 @@ with sync_playwright() as p:
                 if(!mesh.isMesh||!mesh.geometry?.attributes.position||mesh===girl.shadow||mesh===girl.marker)return;
                 if(mesh.isSkinnedMesh)mesh.skeleton.update();
                 const count=mesh.geometry.attributes.position.count,v=new T.Vector3();
-                for(let j=0;j<Math.min(384,count);j++){
-                  mesh.getVertexPosition(Math.floor(j*(count-1)/Math.max(1,Math.min(384,count)-1)),v).applyMatrix4(mesh.matrixWorld).applyMatrix4(inverse);
+                for(let j=0;j<Math.min(512,count);j++){
+                  mesh.getVertexPosition(Math.floor(j*(count-1)/Math.max(1,Math.min(512,count)-1)),v).applyMatrix4(mesh.matrixWorld).applyMatrix4(inverse);
                   if(!Number.isFinite(v.y))throw Error('Non-finite corpse vertices');
                   minimum=Math.min(minimum,v.y);
                   if(v.y<-.08)throw Error('Body penetrates support floor '+JSON.stringify({y:v.y,case:cases,i,name:mesh.name,type:mesh.geometry.type,visible:mesh.visible,parents:(()=>{let a=[];for(let n=mesh;n;n=n.parent)a.push([n.name,n.visible]);return a;})()}));

@@ -152,10 +152,10 @@ try {
   assert.equal(await other.evaluate(() => net.status().humans), 1);
   console.log('PASS: simultaneous rooms remain isolated');
 
-  // Real WebRTC handshake across separate browser contexts: BroadcastChannel
-  // cannot cross these contexts, so a successful exchange proves the P2P path.
+  // Real WebRTC handshake across separate browser contexts. Disable the remote
+  // BroadcastChannel explicitly so it cannot mask a broken P2P path.
   const remoteContext = await browser.newContext();
-  await remoteContext.addInitScript(() => { window.WebSocket = class { constructor() { throw new Error('WebSocket disabled by test'); } }; });
+  await remoteContext.addInitScript(() => { window.BroadcastChannel=undefined; window.WebSocket = class { constructor() { throw new Error('WebSocket disabled by test'); } }; });
   await remoteContext.route('**/*', (route) => route.request().url().startsWith(origin) ? route.continue() : route.abort());
   const remote = await page(remoteContext);
   await setup(remote, 'guest', '12345678');

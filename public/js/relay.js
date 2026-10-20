@@ -51,10 +51,9 @@ const BROKER_TIMEOUT_MS = 4000;
 // coming back is normal, not a disconnect -- and the seat is worth keeping,
 // because the room then has the player's name, class and score when they return.
 const GUEST_TIMEOUT_MS = 30000;
-// A browser stops animating a background tab, and the host's whole match --
-// its 30 Hz loop included -- rides on requestAnimationFrame. So silence from
-// the host usually means "the host switched tabs", not "the host left": wait a
-// good while before believing the latter.
+// The authority uses a timer plus incoming network activity, not rendering.
+// Browsers/operating systems can still suspend a background page completely;
+// do not interpret an ordinary throttle or sleep as an immediate departure.
 const PAUSE_MS = 8000;
 const HOST_GONE_MS = 45000;     // quiet this long: the world is frozen, say so
 const HOST_LOST_MS = 120000;    // quiet this long: the host is not coming back
@@ -510,7 +509,10 @@ export class RelayNet extends Net {
     }
     if (msg.k !== 'b') return;
     this._lastHostAt = performance.now();
-    if (this._paused || this._away) {
+    if (msg.paused === true) {
+      if(!this._paused)this.h.onNote?.(t('房主那边暂停了（可能切走了标签页）…恢复后会自动继续'));
+      this._paused=true;
+    } else if (this._paused || this._away) {
       this._paused = false;
       this._away = false;
       this.h.onNote?.(t('房主回来了，继续战斗'));
@@ -534,6 +536,8 @@ export class RelayNet extends Net {
    */
   _checkHost() {
     if (this._closed || !this.connected || (this.id === null && !this._joinArgs)) return;
+    // Rendering stops in a guest's pause menu; its transport must stay alive.
+    this.channel?.send(roomTopic(this.code),JSON.stringify({v:PROTO,k:'hi',sid:this.sid}));
     const quiet = performance.now() - this._lastHostAt;
     if (quiet >= HOST_LOST_MS) {
       // Two possibilities: the host really is gone (tab closed), or this side
@@ -567,6 +571,8 @@ export class RelayNet extends Net {
       this.h.onNote?.(t('房主那边暂停了（可能切走了标签页）…恢复后会自动继续'));
     }
   }
+
+  get hostPaused(){return this._paused;}
 
   /** The join is an ordinary message; the welcome comes back from the host. */
   join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
@@ -701,6 +707,13 @@ export class RelayHostNet extends LocalNet {
     return this.channel.kind;
   }
 
+  get peers(){return this.channel?.peerCount||0;}
+  get paused(){return !!this._hostPaused;}
+  set paused(value){
+    this._hostPaused=!!value;
+    if(this._joined)this.channel?.send(roomTopic(this.code),JSON.stringify({v:PROTO,k:'b',b:[],p:{},paused:this._hostPaused}));
+  }
+
   /** An invite for one friend on another computer (their answer completes it). */
   async createInvite() {
     return this.channel.createInvite(this.code);
@@ -802,7 +815,7 @@ export class RelayHostNet extends LocalNet {
       else if (sid !== HOST_SEAT) (p[sid] = p[sid] || []).push(frame);
     }
     if (!b.length && !Object.keys(p).length) return;
-    this.channel.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b, p }));
+    this.channel.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b, p, paused:this.paused }));
   }
 
   /** One guest message: a join, a game message, a goodbye or a hello. */
@@ -812,14 +825,17 @@ export class RelayHostNet extends LocalNet {
     if (!msg || msg.v !== PROTO || !msg.sid) return;
     const sid = String(msg.sid);
     this._seen.set(sid, performance.now());
+    if(this._engine&&this._joined)this._advance();
     if (msg.k === 'bye') { this._dropGuest(sid); return; }
     // A hello is answered at once: the guest then knows the host is alive
     // before the room has even finished welcoming it.
     if (msg.k === 'hi') {
-      this.channel?.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b: [], p: {} }));
+      this.channel?.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b: [], p: {}, paused: this.paused }));
       return;
     }
     if (msg.k !== 'm' || !this._engine || !this._joined) return;
+    // A paused authority must not process shots or movement between ticks.
+    if(this.paused&&!['join','chat','ping'].includes(msg.m?.t))return;
     try {
       if (this._guestSids.has(sid)) {
         this._eat(this._engine.relayCmd(sid, JSON.stringify(msg.m)));
@@ -845,7 +861,7 @@ export class RelayHostNet extends LocalNet {
   /** One frame to one guest, without running the room. */
   _reply(sid, frame) {
     this.channel?.send(roomTopic(this.code), JSON.stringify({
-      v: PROTO, k: 'b', b: [], p: { [sid]: [JSON.stringify(frame)] },
+      v: PROTO, k: 'b', b: [], p: { [sid]: [JSON.stringify(frame)] }, paused:this.paused,
     }));
   }
 
@@ -854,7 +870,7 @@ export class RelayHostNet extends LocalNet {
     try {
       const rows = JSON.parse(taggedText);
       return rows.some((row) => Array.isArray(row) && row[0] === sid
-        && String(row[1]).includes('"t":"welcome"'));
+        && (()=>{try{return JSON.parse(row[1]).t==='welcome';}catch{return false;}})());
     } catch { return false; }
   }
 

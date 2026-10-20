@@ -59,7 +59,12 @@ export async function testWeaponHold(context, origin) {
           if(!reference){reference=relative.clone();rotationReference=relativeRotation.clone();}
           const drift=relative.distanceTo(reference);maxBodyDrift=Math.max(maxBodyDrift,drift);
           if(drift>.001)throw new Error(`${meta.id}/${weapon.id}/${phase}: grip drifts ${(drift*100).toFixed(1)}cm around animated chest`);
-          if(!pitch && relativeRotation.angleTo(rotationReference)>.001)throw new Error(`${meta.id}/${weapon.id}/${phase}: rifle rotates independently of torso`);
+          // Crouch counter-rotates the gun against torso lean to retain aim.
+          const correctedRotation=relativeRotation.clone()
+            .multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,0,1),.03))
+            .multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(1,0,0),.58*girl.crouchAmount))
+            .multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,0,1),-.03));
+          if(!pitch && correctedRotation.angleTo(rotationReference)>.001)throw new Error(`${meta.id}/${weapon.id}/${phase}: rifle rotation does not match torso/crouch aim compensation`);
           for(const [side,socket] of [['R',hand],['L',fore]]) {
             if(side==='L' && (state.reloading||state.ability))continue;
             const target=hands[side].targetFor(socket.getWorldPosition(vec()),gunRotation,weapon.shape).clone();

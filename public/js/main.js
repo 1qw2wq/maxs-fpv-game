@@ -1302,9 +1302,16 @@ async function hostNow() {
 async function deploy(opts) {
   app.hud.menuError('');
 
+  // An explicit invite/created room wins over a remembered backend address.
+  // Trying connectNet first closes the working RTC channel irreversibly.
+  const pairedRoom=!opts.solo&&!!opts.room&&app.net?.code===String(opts.room).replace(/\D/g,'')
+    &&app.net?.channel?.peerCount>0;
+  const createdRoom=!opts.solo&&!opts.room&&app.relayHostCode&&app.roomChannel?.connected;
+  const pinnedRelay=pairedRoom||createdRoom;
+
   let primary;
   try {
-    primary = normalizeServer(app.hud.serverAddress);
+    primary = normalizeServer(pinnedRelay?'':app.hud.serverAddress);
   } catch (err) {
     app.hud.menuError(err.message);
     return;
@@ -1322,10 +1329,10 @@ async function deploy(opts) {
   const here = { host: location.host, secure: location.protocol === 'https:' };
   const typed = !!(app.hud.serverAddress || '').trim();
   const candidates = [];
-  if (typed) candidates.push(primary);
+  if (typed&&!pinnedRelay) candidates.push(primary);
   // A static origin cannot also be a game server, so it is skipped rather than
   // waited on: the health probe has already said what this origin is.
-  if (!app.localEngine) candidates.push(here);
+  if (!app.localEngine&&!pinnedRelay) candidates.push(here);
   // Solo plays itself; multiplayer needs other people, and on a static upload
   // the only way to reach them is a room hosted by one of the players.
   candidates.push(opts.solo
@@ -1350,7 +1357,7 @@ async function deploy(opts) {
             : t('房主模式：这一局在你这里运行——把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑直连'))
           : (app.net.peers
             ? t('已直连房主（跨电脑点对点，没有经过任何服务器）')
-            : t('已加入房间：对局在房主的浏览器里运行（同一浏览器的标签页之间直通）')));
+            : t('正在加入房间：等待房主确认；跨浏览器或跨设备需要先完成邀请码与回答码配对')));
         if (opts.room) app.hud.setRoomMode('join', String(opts.room).replace(/\D/g, ''));
       } else if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
@@ -2417,7 +2424,7 @@ function tick(dt, now) {
   if(alive&&app.deathCamera)clearDeathPresentation();
 
   const w = app.data.weaponById[me?.w || app.loadout.weapon];
-  app.controls.update(dt, alive, suppressed, !!me?.reloading);
+  app.controls.update(dt, alive&&!app.net.hostPaused, suppressed, !!me?.reloading);
 
   syncSelfAvatar(dt, alive);
 
@@ -2485,7 +2492,7 @@ function tick(dt, now) {
   // one trigger edge, not an entire extra burst; canceled gestures clear it.
   const trigger = app.controls.mouse.left || app.controls.touchFirePending;
   const wantShot = w.auto ? trigger : (app.clickPending && trigger);
-  if (alive && !me?.equipIn && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
+  if (alive && !app.net.hostPaused && !me?.equipIn && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
       if (me.reserve > 0) app.net.reload();

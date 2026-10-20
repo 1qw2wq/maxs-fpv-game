@@ -1,6 +1,28 @@
 import * as THREE from 'three';
 import {DeathClock,DEATH_SETTLE} from './death-motion.js';
 
+// Uniform samples alone can miss the toes when a death starts in a deep squat.
+// Retain each skin region's geometry extrema too; cache against shared geometry.
+const skinProbeCache=new WeakMap();
+function skinProbes(geometry){
+  if(skinProbeCache.has(geometry))return skinProbeCache.get(geometry);
+  const position=geometry.attributes.position,skin=geometry.attributes.skinIndex,weights=geometry.attributes.skinWeight;
+  const count=position.count,indices=new Set(),regions=new Map();
+  for(let i=0;i<Math.min(192,count);i++)indices.add(Math.floor(i*(count-1)/Math.max(1,Math.min(192,count)-1)));
+  if(skin&&weights)for(let i=0;i<count;i++)for(let channel=0;channel<4;channel++){
+    if(weights.getComponent(i,channel)<.1)continue;
+    const bone=skin.getComponent(i,channel);let region=regions.get(bone);
+    if(!region){region=[i,i,i,i,i,i];regions.set(bone,region);}
+    for(let axis=0;axis<3;axis++){
+      const value=position.getComponent(i,axis);
+      if(value<position.getComponent(region[axis*2],axis))region[axis*2]=i;
+      if(value>position.getComponent(region[axis*2+1],axis))region[axis*2+1]=i;
+    }
+  }
+  for(const region of regions.values())for(const i of region)indices.add(i);
+  const result=[...indices];skinProbeCache.set(geometry,result);return result;
+}
+
 /** Bounded keyframed collapse, not a physics ragdoll. Owns no shared materials.
  * The gameplay root stays fixed; only its presentation children fall.
  * A small deformed-vertex probe keeps the visible body above its support floor.
@@ -31,9 +53,7 @@ export class DeathAnimation {
         for(const x of [min.x,max.x])for(const y of [min.y,max.y])for(const z of [min.z,max.z])points.push(new THREE.Vector3(x,y,z));
         this.probes.push({mesh,points});return;
       }
-      const count=mesh.geometry.attributes.position.count,indices=[];
-      for(let i=0;i<Math.min(192,count);i++)indices.push(Math.floor(i*(count-1)/Math.max(1,Math.min(192,count)-1)));
-      this.probes.push({mesh,indices});
+      this.probes.push({mesh,indices:skinProbes(mesh.geometry)});
     });
   }
   setAlive(alive,impact) {
@@ -58,7 +78,7 @@ export class DeathAnimation {
     const p=this.clock.update(elapsed);this.content.visible=p.visible;
     if(!p.visible||wasSettled)return;
     this.pivot.quaternion.identity();this.pivot.position.set(0,this.centre,0);
-    this.root.updateWorldMatrix(true,true);
+    this.root.updateWorldMatrix(true,false);this.root.updateMatrixWorld(true);
     for(const {bone,q} of this.saved)bone.quaternion.copy(q);
     this.poseJoints(p);
     const direction=this.clock.impact.direction;
@@ -67,7 +87,9 @@ export class DeathAnimation {
     this.pivot.quaternion.copy(this.rotation);
     this.pivot.rotateZ(p.roll);
     this.pivot.position.set(0,this.centre*(1-p.drop),0);
-    this.root.updateWorldMatrix(true,true);
+    // SkinnedMesh.updateMatrixWorld refreshes bindMatrixInverse; the generic
+    // updateWorldMatrix traversal alone leaves stale skin transforms here.
+    this.root.updateWorldMatrix(true,false);this.root.updateMatrixWorld(true);
     this.inverse.copy(this.root.matrixWorld).invert();
     let minimum=Infinity;
     this.content.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.update();});
