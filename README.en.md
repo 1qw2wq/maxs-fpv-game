@@ -1126,3 +1126,26 @@ Somme, Italy and Procedural City also pass early-join, host-rule, private-ammo, 
 and host-close checks with host rendering disabled. These are local RTC tests, not a two-network
 or deployed-Vercel certification. Full procedures, regression commands and exact limitations:
 [crouch and multiplayer checks](docs/crouch-and-multiplayer-checks.md).
+
+### Missing / flashing first-person character arms
+
+First-person shoulder placement now accounts for the uploaded rigs' actual arm reach, rather
+than using standing/hat height as a shoulder calibration. A bounded, camera-only mount fit keeps
+the character's own sleeves/hands on the gun through bob, recoil, sprint and reload; it does not
+stretch bones or move the third-person/gameplay body. Unsupported/missing custom rigs still have
+the connected procedural fallback. Reload presentation keeps its service contacts within view
+instead of lowering both hands completely below the screen.
+
+The gun and arms now share a small dedicated depth pass after the world, so close walls cannot
+alternately clip them away. They still depth-test against each other, use the map's lighting and
+pooled muzzle-flash lights, and are hidden in third person, an actual scope, death and after leaving.
+Wall collision, hitboxes and authoritative eye-based bullet obstruction are unchanged. Discarded
+character instances also release their own skeleton GPU textures without disposing shared art.
+
+`tools/test-first-person-arms.py` checks **rendered pixels**, not just visible flags or bone counts:
+all four imported characters plus the procedural fallback, all 30 guns, desktop/portrait framing,
+29,160 fitted poses at 20/60/144 Hz, 2,100 rendered samples and 120 close-wall cases. It also runs
+the real game entry point through character changes, authoritative primary/pistol switching,
+third-person/scope transitions, pause/resume, missing-skin fallback/recovery and leave cleanup.
+Run with `public/` served on port 8080, test-only Python Playwright installed, and
+`CHROMIUM_EXECUTABLE=/path/to/chromium python tools/test-first-person-arms.py`.

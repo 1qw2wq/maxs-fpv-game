@@ -372,6 +372,20 @@ export class ViewModel {
       }
       this.anchors.fore.position.fromArray(reload.fore);
     }
+    // Keep both service contacts inside the lower viewport during a reload.
+    // The per-gun drop/roll used to put whole arms below the near-screen edge;
+    // bone reach tests alone cannot detect that. Do not disturb ADS calibration.
+    if(reload.present>0&&this.anchors){
+      this.gunMount.updateMatrix();this.gunMeshes.updateMatrix();
+      const matrix=this._armMatrix.multiplyMatrices(this.gunMount.matrix,this.gunMeshes.matrix);
+      const tangent=Math.tan(THREE.MathUtils.degToRad(st.viewFov||78)*.5)*.72;
+      let lift=0;
+      for(const anchor of [this.anchors.hand,this.anchors.fore]){
+        const contact=this._armTarget.copy(anchor.position).applyMatrix4(matrix);
+        lift=Math.max(lift,-Math.max(.12,-contact.z)*tangent-contact.y);
+      }
+      this.gunMount.position.y+=lift*reload.present;
+    }
     this._updateArms();
   }
 }

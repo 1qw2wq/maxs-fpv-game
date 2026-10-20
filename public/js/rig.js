@@ -408,6 +408,8 @@ export function createExternalGirl({ template, meta, data, team }) {
   }
 
   let lastArmReachError = Infinity;
+  let fpMountOrigin = null;
+  const fpMountDelta = new THREE.Vector3();
   let armsOnly = false;
   let hasArmGeometry = false;
   const fullBodyMeshes = new Map();
@@ -1170,6 +1172,7 @@ export function createExternalGirl({ template, meta, data, team }) {
           } else mesh.visible = false;
         });
       } else {
+        if(fpMountOrigin){root.position.copy(fpMountOrigin);fpMountOrigin=null;}
         for (const [mesh, original] of fullBodyMeshes) {
           mesh.geometry = original.geometry;
           mesh.visible = original.visible;
@@ -1216,9 +1219,33 @@ export function createExternalGirl({ template, meta, data, team }) {
      * Returns false for missing arms or unreachable contacts so the caller can
      * keep the shaped glove pair instead of showing a disconnected hand.
      */
-    poseArms(handTarget, foreTarget, gunRotation, shape) {
+    poseArms(handTarget, foreTarget, gunRotation, shape, fitMount = false) {
       lastArmReachError = Infinity;
       if (!driven.elbowR || !driven.handR || !driven.elbowL || !driven.handL) return false;
+      if(!Number.isFinite(handTarget.x+handTarget.y+handTarget.z+foreTarget.x+foreTarget.y+foreTarget.z))return false;
+      // Only the dedicated camera rig may move its shoulder mount. A hat's
+      // height is not an eye/shoulder calibration; short arms otherwise fail
+      // reach and switch to unrelated gloves as soon as a gun bobs or reloads.
+      if(fitMount&&armsOnly){
+        fpMountOrigin ||= root.position.clone();
+        root.position.copy(fpMountOrigin);root.updateMatrixWorld(true);
+        const constraints=[];
+        for(const [side,contact] of [['R',handTarget],['L',foreTarget]]){
+          const up=upperArm(side),el=driven['elbow'+side].bone,hand=driven['hand'+side].bone;
+          if(!up)return false;
+          const shoulder=up.getWorldPosition(new THREE.Vector3()),elbow=el.getWorldPosition(new THREE.Vector3());
+          constraints.push({shoulder,contact,radius:(shoulder.distanceTo(elbow)+elbow.distanceTo(hand.getWorldPosition(new THREE.Vector3())))*.97});
+        }
+        fpMountDelta.set(0,0,0);
+        for(let pass=0;pass<8;pass++)for(const {shoulder,contact,radius} of constraints){
+          const to=contact.clone().sub(shoulder).sub(fpMountDelta),distance=to.length();
+          if(distance>radius)fpMountDelta.addScaledVector(to,(distance-radius)/distance);
+        }
+        // Presentation only: never stretch bones or move an authoritative body.
+        fpMountDelta.clampLength(0,.24);
+        const position=root.getWorldPosition(new THREE.Vector3()).add(fpMountDelta);
+        root.position.copy(root.parent?root.parent.worldToLocal(position):position);
+      }
       root.updateMatrixWorld(true);
       const eL = driven.elbowL.bone.getWorldPosition(_sA).clone();
       const eR = driven.elbowR.bone.getWorldPosition(_sB).clone();
@@ -1232,6 +1259,10 @@ export function createExternalGirl({ template, meta, data, team }) {
     },
 
     destroy() {
+      // Clones own their skeleton GPU textures, but share immutable art. Release
+      // only the former on skin changes/respawns instead of leaking every rig.
+      const skeletons=new Set();rig.traverse(o=>{if(o.isSkinnedMesh)skeletons.add(o.skeleton);});
+      for(const skeleton of skeletons)skeleton.dispose();
       shadow.geometry.dispose();shadow.material.dispose();
       marker.geometry.dispose();marker.material.dispose();
       root.removeFromParent();

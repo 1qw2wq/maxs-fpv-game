@@ -21,7 +21,7 @@ export async function testHands(context, origin) {
     const camera = new THREE.PerspectiveCamera(78, 4 / 3, 0.06, 50);
     camera.position.set(2, 1.6, -3); camera.rotation.set(0.05, 0.3, 0.01); scene.add(camera);
     const vm = new ViewModel(data); vm.setClass(data.classes[0]); camera.add(vm.root);
-    const holder = new THREE.Group(); holder.position.set(0.03, -1.58, -0.18); holder.rotation.y = Math.PI; vm.root.add(holder);
+    const holder = new THREE.Group(); holder.position.set(0.03, -1.44, -0.32); holder.rotation.y = Math.PI; vm.root.add(holder);
     const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('canvas'), antialias: true });
     renderer.setSize(1000, 750);
     let poses = 0, usable = 0, maxReachError = 0, thirdPersonReloadPoses=0;
@@ -96,7 +96,7 @@ export async function testHands(context, origin) {
             const target = grip.targetFor(side === 'R' ? hand : fore, gun,weapon.shape).clone();
             return [side, { target, rotation: grip.rotation.clone() }];
           }));
-          const ok = girl.poseArms(hand, fore, gun,weapon.shape);
+          const ok = girl.poseArms(hand, fore, gun,weapon.shape,true);
           usable += Number(ok);
           for (const side of ['R', 'L']) {
             const grip = wrists[side], exp = expected[side];
@@ -109,7 +109,7 @@ export async function testHands(context, origin) {
             }
           }
           const before = wrists.R.wrist.getWorldQuaternion(new THREE.Quaternion());
-          girl.poseArms(hand, fore, gun,weapon.shape); girl.poseArms(hand, fore, gun,weapon.shape);
+          girl.poseArms(hand, fore, gun,weapon.shape,true); girl.poseArms(hand, fore, gun,weapon.shape,true);
           if (before.normalize().angleTo(wrists.R.wrist.getWorldQuaternion(new THREE.Quaternion()).normalize()) > 1e-5) throw new Error('Wrist rotation accumulates across frames');
           poses++;
         }
@@ -163,7 +163,7 @@ export async function testHands(context, origin) {
     previews[0].setArmsOnly(true);
     holder.add(previews[0].root);
     vm.gripWorld(hand, fore, gun);
-    if (!previews[0].poseArms(hand, fore, gun)) throw new Error('Default first-person skin cannot reach normal hold');
+    if (!previews[0].poseArms(hand, fore, gun,vm.weapon?.shape,true)) throw new Error('Default first-person skin cannot reach normal hold');
     vm.armMeshes.visible = false;
     renderer.render(scene, camera);
     window.handPreview = { vm, holder, girl: previews[0], camera, renderer, scene, hand, fore, gun };
@@ -183,7 +183,7 @@ export async function testHands(context, origin) {
         vm.syncReload(2500, phase === 'reload' ? 1300 : 0, phase === 'reload');
         vm.update(0, { ads: phase === 'ads', moveSpeed: 0 });
         vm.gripWorld(hand, fore, gun);
-        const ok = girl.poseArms(hand, fore, gun,vm.weapon?.shape);
+        const ok = girl.poseArms(hand, fore, gun,vm.weapon?.shape,true);
         holder.visible = ok; vm.armMeshes.visible = !ok;
         renderer.render(scene, camera);
       }, phase);

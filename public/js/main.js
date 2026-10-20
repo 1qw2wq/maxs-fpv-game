@@ -16,6 +16,7 @@ import { resolveCamera } from './camera-collision.js';
 import { ArmPresentation, bodyVisibleAtDistance } from './avatar-visibility.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
+import { FirstPersonPass } from './first-person-pass.js';
 import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
 import { simulateThrow, sampleThrow } from './throwing.js';
 import { buildGrenadeEffect, updateGrenadeEffect } from './grenadefx.js';
@@ -2341,6 +2342,7 @@ function rayEnd(origin, dir, maxT = 140) {
 
 // ---------------------------------------------------------------- game loop
 
+const firstPersonPass = new FirstPersonPass();
 function loop(now) {
   requestAnimationFrame(loop);
   const frameMs = app.last ? now-app.last : 16;
@@ -2362,7 +2364,8 @@ function loop(now) {
   updateSmokeVision();
   if (app.settings?.visible) app.settings.render(dt);
   app.world?.group.getObjectByName('proc-city')?.userData.updateDetail?.(app.camera.position);
-  app.renderer.render(app.scene, app.camera);
+  if(!app.playing)app.vm.root.visible=false;
+  firstPersonPass.render(app.renderer, app.scene, app.camera, app.vm.root, app.world?.group);
 }
 
 // Holding ADS always uses the eye-aligned camera, then restores the selected
@@ -2473,6 +2476,7 @@ function tick(dt, now) {
     ads: app.controls.ads,
     sprinting: app.controls.sprinting,
     moveSpeed: app.controls.moveSpeed,
+    viewFov: app.camera.fov,
   });
   syncFpArms();
 
@@ -2552,7 +2556,7 @@ function fireOnce(w, eye, dir) {
   const style = gunStyle(w);
   app.vm.kick(style.kick.vm);
   // Apply this shot's pose before reading sockets, not one frame afterwards.
-  app.vm.update(0, { ads: app.controls.ads, sprinting: app.controls.sprinting, moveSpeed: app.controls.moveSpeed });
+  app.vm.update(0, { ads: app.controls.ads, sprinting: app.controls.sprinting, moveSpeed: app.controls.moveSpeed, viewFov: app.camera.fov });
   syncFpArms();
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
   app.sfx.shot(w, style);
@@ -2659,12 +2663,12 @@ function syncSelfAvatar(dt, alive) {
 // ------------------------------------------------------ first-person arms
 //
 // The first-person arms are the player's own character model. A second instance
-// of the same rig is parked under the camera with its eye at the lens, facing
+// of the same rig is mounted under the camera with calibrated shoulders, facing
 // the same way, and both arms are solved onto the viewmodel's hand anchors every
 // frame. Skin-weight-filtered geometry removes the head, torso and legs;
 // the weapon stays the viewmodel's,
 // which is why ADS, recoil, reload and bob keep working untouched.
-const FP_EYE = 1.58;    // model eye height, matches combat.standEyeHeight
+const FP_EYE = 1.58;    // reference standing eye height, not a per-rig shoulder measurement
 const FP_NEAR = 0.06;   // keep nearby wrists/sleeves intact; the torso is removed
 const fpArmPresentation = new ArmPresentation();
 
@@ -2683,7 +2687,7 @@ function syncFpArms() {
 
   const cls = app.data.classById[app.loadout.cls];
   const skinId = app.loadout.skin || DEFAULT_CLASS_SKIN[cls.id] || '';
-  const useExt = !!skinId && app.charTemplates.has(skinId);
+  const useExt = !!skinId && app.charMeta.has(skinId) && app.charTemplates.has(skinId);
   const key = useExt ? `${cls.id}|${skinId}` : '';
 
   if (app.fpArms && app.fpArms.key !== key) {
@@ -2704,13 +2708,12 @@ function syncFpArms() {
     const holder = new THREE.Group();
     // Keep the calibrated shoulders near the grips without moving the gun or
     // sight anchors. The dedicated geometry mask removes the rest of the body.
-    holder.position.set(0.03, -FP_EYE, -0.18);
+    holder.position.set(0.03, -FP_EYE + .14, -0.32);
     holder.rotation.y = Math.PI;        // the model faces +Z, the lens faces -Z
     holder.add(girl.root);
     app.vm.root.add(holder);
-    // The rig sits with its head at the lens; collapsing the head subtree is what
-    // keeps hair and — on a hat-wearing rig like the support class's — the whole
-    // brim from hanging across the sight line just past the near plane.
+    // Also collapse the head/secondary armatures defensively. The skin-weight
+    // geometry mask, not near-plane clipping, removes the body and accessories.
     if (girl.setHeadHidden) girl.setHeadHidden(true);
     girl.setArmsOnly(true);
     girl.key = key;
@@ -2723,7 +2726,7 @@ function syncFpArms() {
   app.camera.updateMatrixWorld(true);
   let ok = false;
   if (app.vm.gripWorld(_fpHand, _fpFore, _fpGunRotation)) {
-    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation,app.vm.weapon?.shape);
+    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation,app.vm.weapon?.shape,true);
   }
   // Never alternate models as animated grips cross the reach threshold. If an
   // equipped weapon needs the fallback once, retain it for that equip cycle.
