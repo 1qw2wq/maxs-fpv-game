@@ -26,6 +26,9 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  "兵种与职责": "Class & role",
+  "返回作战室": "Back to operations",
+  "作战工具": "OPERATIONS TOOLS",
   "创建大厅，选择地图，带领小队出发。": "Host a lobby. Pick a map. Lead your squad.",
   "浏览器房主联机：同浏览器用房号，其他设备先交换邀请码与回答码。": "Browser-hosted play. Use room codes between tabs; other devices need invite/answer pairing.",
   "开发工具": "Developer tools",

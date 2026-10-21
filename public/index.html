@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>堑壕前线 Trench Front</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/operations.css">
 <link rel="stylesheet" href="css/landing.css">
 <script type="importmap">
 {
@@ -16,7 +17,7 @@
 }
 </script>
 </head>
-<body>
+<body class="operations-game">
 
 <canvas id="game"></canvas>
 
@@ -141,7 +142,8 @@
 <section id="screen-select" class="screen hidden">
   <div class="menu-bg"></div>
   <div class="select-inner">
-    <header class="select-head">
+    <header class="select-head ops-page-heading">
+      <div class="ops-page-band"><span class="ops-wordmark">TF <i>/</i> FIELD OPERATIONS</span><span>01 / LOADOUT</span></div>
       <h2>选择你的兵种</h2>
       <p>堑壕里的每个人都有位置 —— 挑一个，然后活下去。</p>
     </header>
@@ -159,12 +161,13 @@
       <p id="lobby-selection-status" role="status" aria-live="polite"></p>
       <ul id="lobby-selection-members" class="lobby-list"></ul>
     </section>
+    <div class="ops-section-label"><span>01</span><h3>兵种与职责</h3></div>
     <div class="class-row" id="class-row"></div>
 
     <div class="weapon-block">
-      <h3 id="weapon-title">主武器</h3>
+      <div class="ops-section-label"><span>02</span><h3 id="weapon-title">主武器</h3></div>
       <div class="weapon-row" id="weapon-row"></div>
-      <h3>副武器 · 选择一把手枪</h3>
+      <div class="ops-section-label"><span>03</span><h3>副武器 · 选择一把手枪</h3></div>
       <div class="weapon-row secondary-row" id="secondary-row"></div>
       <p class="slot-help">1 主武器 · 2 手枪 · X 切换武器</p>
     </div>
@@ -181,7 +184,8 @@
 <section id="screen-settings" class="screen hidden">
   <div class="menu-bg"></div>
   <div class="settings-inner">
-    <header class="select-head">
+    <header class="select-head ops-page-heading">
+      <div class="ops-page-band"><span class="ops-wordmark">TF <i>/</i> FIELD OPERATIONS</span><span>02 / CHARACTER WORKSHOP</span></div>
       <h2>设置模式 · 角色模型与骨架</h2>
       <p>导入带蒙皮的 glTF/GLB，把模型骨骼映射到游戏关节，微调后上传即可全场共享。</p>
     </header>
@@ -226,6 +230,7 @@
       </div>
     </div>
 
+    <div class="ops-settings-extras">
     <div class="rig-shared-block">
       <h3 class="rig-h3">共享角色（所有人可用）</h3>
       <div id="rig-shared" class="rig-shared"></div>
@@ -247,6 +252,8 @@
         <button id="local-export" class="ghost-btn" type="button">导出存档</button>
         <button id="local-reset" class="ghost-btn" type="button">清空本机数据</button>
       </div>
+    </div>
+
     </div>
 
     <footer class="select-foot">
@@ -350,6 +357,7 @@
   <!-- 死亡 / 重新部署 -->
   <div id="death-panel" class="overlay hidden">
     <div class="panel death-panel">
+      <p class="ops-modal-kicker"><span>TF</span> FIELD REPORT / REDEPLOY</p>
       <p class="death-title">你阵亡了</p>
       <p class="death-by" id="death-by"></p>
       <p class="death-count" id="death-count"><b>3</b> 秒后可重新部署</p>
@@ -361,6 +369,7 @@
   <!-- 记分板 -->
   <div id="scoreboard" class="overlay hidden">
     <div class="panel sb-panel">
+      <p class="ops-modal-kicker"><span>TF</span> FIELD REPORT / SCOREBOARD</p>
       <header class="sb-head">
         <h3>战场战绩</h3>
         <span id="sb-timer">8:00</span>
@@ -375,6 +384,7 @@
   <!-- 结算 -->
   <div id="result-panel" class="overlay hidden">
     <div class="panel result-panel">
+      <p class="ops-modal-kicker"><span>TF</span> FIELD REPORT / AFTER ACTION</p>
       <h2 id="result-title">协约国 胜利</h2>
       <p class="result-score"><span id="result-0">0</span> : <span id="result-1">0</span></p>
       <p class="result-sub">10 秒后开始新的一局</p>
@@ -393,6 +403,7 @@
   <!-- Esc: pause. Leaving a match used to mean reloading the page. -->
   <div id="pause" class="overlay hidden">
     <div class="pause-panel">
+      <p class="ops-modal-kicker"><span>TF</span> COMMAND / PAUSE</p>
       <h2 class="pause-title">已暂停</h2>
       <p class="pause-note" id="pause-note"></p>
       <label class="field rules-field"><span>操作模式</span>
@@ -416,6 +427,7 @@
   <!-- Cross-computer multiplayer without any server: two codes, passed by hand. -->
   <div id="invite" class="overlay hidden">
     <div class="invite-panel">
+      <p class="ops-modal-kicker"><span>TF</span> SQUAD / CONNECTION</p>
       <h2 class="invite-title" id="invite-title"></h2>
       <p class="invite-step" id="invite-step"></p>
       <textarea id="invite-code" class="invite-code" spellcheck="false" placeholder=""></textarea>
@@ -436,10 +448,12 @@
   </div>
 
 <div id="boot" class="screen">
+  <div class="ops-loader-brand" aria-hidden="true">TF<span>FIELD OPERATIONS</span></div>
   <p class="boot-text">正在装载战场数据…</p>
 </div>
 
 <div id="map-load" class="screen hidden">
+  <div class="ops-loader-brand" aria-hidden="true">TF<span>PREPARING THE FRONT</span></div>
   <p class="boot-text">正在装载地图…</p>
 </div>
 

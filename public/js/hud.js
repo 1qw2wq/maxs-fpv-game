@@ -397,7 +397,8 @@ export class Hud {
     row.innerHTML = '';
     this.classCards = {};
     for (const cls of this.data.classes) {
-      const card = document.createElement('div');
+      const card = document.createElement('button');
+      card.type = 'button';
       card.className = 'class-card';
       card.style.setProperty('--tc', cls.themeColor);
 
@@ -443,14 +444,18 @@ export class Hud {
   }
 
   selectClass(clsId, teamId) {
-    for (const [id, c] of Object.entries(this.classCards)) c.card.classList.toggle('on', id === clsId);
+    for (const [id, c] of Object.entries(this.classCards)) {
+      c.card.classList.toggle('on', id === clsId);
+      c.card.setAttribute('aria-pressed', String(id === clsId));
+    }
     const cls = this.data.classById[clsId];
     this.el.weaponTitle.textContent = `${nameOf(cls)} · ${t('主武器')}`;
     const row = this.el.weaponRow;
     row.innerHTML = '';
     this.weaponCards = {};
     for (const w of this.data.weaponsByClass[clsId]) {
-      const card = document.createElement('div');
+      const card = document.createElement('button');
+      card.type = 'button';
       card.className = 'weapon-card';
       card.style.setProperty('--tc', cls.themeColor);
       this._fillWeaponCard(card, w);
@@ -474,7 +479,10 @@ export class Hud {
   pickSecondary(id) {
     this.secondary=this.data.secondaries.some(w=>w.id===id)?id:this.data.secondaries[0].id;
     if(this.selected)this.selected.secondary=this.secondary;
-    for(const [key,card]of Object.entries(this.secondaryCards||{}))card.classList.toggle('on',key===this.secondary);
+    for (const [key, card] of Object.entries(this.secondaryCards || {})) {
+      card.classList.toggle('on', key === this.secondary);
+      card.setAttribute('aria-pressed', String(key === this.secondary));
+    }
   }
 
   /** One weapon card, in the current language (see _fillClassCard). */
@@ -503,7 +511,10 @@ export class Hud {
 
   pickWeapon(clsId, weaponId) {
     this.selected = { cls: clsId, weapon: weaponId, secondary:this.secondary||this.data.secondaries[0].id };
-    for (const [id, c] of Object.entries(this.weaponCards)) c.classList.toggle('on', id === weaponId);
+    for (const [id, c] of Object.entries(this.weaponCards)) {
+      c.classList.toggle('on', id === weaponId);
+      c.setAttribute('aria-pressed', String(id === weaponId));
+    }
   }
 
   // ------------------------------------------------------------------ HUD

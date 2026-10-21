@@ -56,3 +56,9 @@ visual review, without putting test output or browser binaries in the repository
 now serve JPEG/SVG MIME types for the landing assets. The much larger general gameplay suite was
 not rerun for this presentation-only change; its previously documented unrelated live remote
 weapon-attachment assertion is not represented as fixed.
+
+## Matching interior screens
+
+The follow-up [submenu/interior redesign](operations-submenus.md) extends this visual language to
+selection, character settings, tutorial, match overlays and developer tools. Its separate
+`operations.css` theme loads before `landing.css`, preserving the landing-specific layout rules.

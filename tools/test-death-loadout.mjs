@@ -8,9 +8,10 @@ export async function testDeathLoadout(context, origin) {
   await page.goto(origin + '/__harness.html');
   const result = await page.evaluate(async () => {
     const html = await (await fetch('/index.html')).text();
+    document.body.classList.add('operations-game');
     document.body.innerHTML = new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
-    await new Promise(resolve => {
-      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = '/css/style.css'; css.onload = resolve; document.head.appendChild(css);
+    for(const href of ['/css/style.css','/css/operations.css'])await new Promise(resolve => {
+      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = href; css.onload = resolve; document.head.appendChild(css);
     });
     const data = await (await fetch('/shared/weapons.json')).json();
     data.classById = Object.fromEntries(data.classes.map(c => [c.id,c]));

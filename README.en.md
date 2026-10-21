@@ -1251,3 +1251,15 @@ real-phone certification; no production Node/npm, build step or required backend
 ### Landing page and bottom actions
 
 The operations-room landing page uses a battlefield hero and two setup cards: callsign/room approval on the left, map/rules on the right. Multiplayer and Solo have a dedicated launch bar. The lower section separates tutorial, character setup and control preferences; advanced server/keybind help is collapsible, with diagnostic/Gun Lab/color-repair links in the footer. Narrow screens stack naturally without covering controls. Existing approval/Ready/host-Start behavior is preserved. See [landing design and checks](docs/landing-redesign.md).
+
+### Matching submenus and interior tools
+
+Class/loadout selection, character workshop/settings, tutorial/manual, pause/invite, redeploy,
+scoreboard/results and loading screens now share the landing page's charcoal/olive/amber design.
+Numbered loadout sections and separated action footers improve the hierarchy; settings tools group
+into desktop cards and stack on phones. Class/weapon cards support native Enter/Space activation
+and expose their selected state. Diagnostics, color repair, Gun Lab and Animation Lab also use the
+matching shell and return navigation. Existing controls, game translations, host approval/Ready/Start,
+model placement and static deployment remain unchanged. See [scope and regression evidence](docs/operations-submenus.md).
+Run `node tools/test-operations.mjs` with the external browser-test dependencies for bilingual desktop/mobile
+reachability, keyboard selection, redeploy choices and utility-page checks.
