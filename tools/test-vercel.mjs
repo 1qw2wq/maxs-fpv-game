@@ -43,7 +43,7 @@ if (process.platform === 'linux' && !process.env.CHROMIUM_EXECUTABLE) {
 }
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const harness = `<!doctype html><html><head><script type="importmap">{"imports":{"three":"/vendor/three.module.js","three/addons/":"/vendor/"}}</script></head><body style="margin:0"><canvas id="game" width="800" height="600" style="width:800px;height:600px"></canvas></body></html>`;
-const mime = { '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.html': 'text/html' };
+const mime = { '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.html': 'text/html', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg' };
 const server = createServer(async (req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://test').pathname);
   if (path === '/__harness.html') { res.setHeader('Content-Type', 'text/html'); res.end(harness); return; }

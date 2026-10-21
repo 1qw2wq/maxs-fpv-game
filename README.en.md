@@ -1247,3 +1247,7 @@ exchange real offer/answer codes with BroadcastChannel and WebSocket disabled, r
 paired channels through launch, and exchange chat. Run heavy WebGL suites sequentially to avoid
 software-renderer memory contention. This is local static-host verification, not cross-NAT or
 real-phone certification; no production Node/npm, build step or required backend was added.
+
+### Landing page and bottom actions
+
+The operations-room landing page uses a battlefield hero and two setup cards: callsign/room approval on the left, map/rules on the right. Multiplayer and Solo have a dedicated launch bar. The lower section separates tutorial, character setup and control preferences; advanced server/keybind help is collapsible, with diagnostic/Gun Lab/color-repair links in the footer. Narrow screens stack naturally without covering controls. Existing approval/Ready/host-Start behavior is preserved. See [landing design and checks](docs/landing-redesign.md).

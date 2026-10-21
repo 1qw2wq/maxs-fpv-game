@@ -395,7 +395,7 @@ function setupLanguage() {
     const l = getLang();
     // The chip offers the *other* language, which is what a player looking for
     // a way out of Chinese wants to see.
-    if (chip) chip.textContent = l === 'en' ? '中文' : 'EN';
+    if (chip) chip.textContent = l === 'en' ? '中文 / ZH' : 'EN';
     zh?.classList.toggle('on', l === 'zh');
     en?.classList.toggle('on', l === 'en');
   };
@@ -721,7 +721,7 @@ function updateRoomLobby(){
   renderRoomLobby(app.roomLobby,app.hud,app.data);
   const button=app.hud.el.modeMulti;
   button.querySelector('b').textContent=t(app.roomLobby?'选择角色':app.roomMode==='join'?'申请加入':'创建房间');
-  button.querySelector('span').textContent=t(app.roomLobby?'房主控制地图与开始，其他玩家自动进入':'先申请并由房主接受，再选择角色');
+  button.querySelector('span').textContent=t(app.roomLobby?'房主控制地图与开始，其他玩家自动进入':app.roomMode==='join'?'先申请并由房主接受，再选择角色':'创建大厅，选择地图，带领小队出发。');
   button.disabled=!!app.roomLobby&&(app.roomLobby.phase!=='waiting'||app.roomLobby.selfStatus!=='approved');
 }
 function closeRoomLobby(notify=true){
@@ -1107,9 +1107,7 @@ const staticHint = () => t('连不上服务器：单机可以在这里直接开�
   + '想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。');
 
 /** The menu line a static copy of the page shows: how multiplayer works here. */
-const localEngineHint = () => t('静态托管：单机与多人都不需要服务器——'
-  + '点「创建房间」你就是房主：把 8 位房号发给朋友（同一浏览器多开标签页即可进），'
-  + '或用「邀请朋友」的邀请码让另一台电脑直连过来。');
+const localEngineHint = () => t('浏览器房主联机：同浏览器用房号，其他设备先交换邀请码与回答码。');
 
 function showStaticHint() {
   const configured = !!(app.hud.serverAddress || app.serverPick);

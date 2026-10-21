@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>堑壕前线 Trench Front</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/landing.css">
 <script type="importmap">
 {
   "imports": {
@@ -22,27 +23,31 @@
 <!-- ================================ 主菜单 ================================ -->
 <section id="screen-menu" class="screen">
   <div class="menu-bg"></div>
-  <button id="lang-toggle" class="lang-chip" type="button" title="界面语言 / Interface language">EN</button>
-  <div class="menu-inner">
-    <h1 class="logo">
-      <span class="logo-cn">堑壕前线</span>
-      <span class="logo-en">TRENCH&nbsp;FRONT</span>
-    </h1>
-    <p class="logo-sub">1916 · 索姆河无人区 · 团队死斗</p>
+  <div class="menu-inner landing-shell">
+    <header class="landing-topbar">
+      <a class="landing-brand" href="./" aria-label="Trench Front"><span class="brand-mark" aria-hidden="true">TF<span>✦</span></span><span>TRENCH FRONT<small>FIELD OPERATIONS / 1916</small></span></a>
+      <div class="landing-topbar-right"><span class="landing-platform">浏览器内开战 · 无需安装</span><button id="lang-toggle" class="lang-chip" type="button" title="界面语言 / Interface language">EN</button></div>
+    </header>
 
-    <div class="panel menu-panel">
-      <label class="field">
+    <section class="landing-hero" aria-labelledby="landing-title">
+      <div class="hero-copy">
+        <p class="hero-eyebrow"><span></span>西部战线 · 1916</p>
+        <h1 class="logo" id="landing-title"><span class="logo-cn">堑壕前线</span><span class="logo-en">TRENCH FRONT</span></h1>
+        <p class="logo-sub">召集小队，守住前线。</p>
+        <div class="hero-tags"><span>4 个兵种</span><i></i><span>3 张战场</span><i></i><span>30 种武器</span></div>
+      </div>
+      <div class="hero-sector" aria-hidden="true"><span>01 / SOMME</span><b>THE WESTERN FRONT</b><small>50° N — FIELD OPERATIONS</small></div>
+    </section>
+
+    <div class="panel menu-panel landing-console">
+      <div class="landing-setup">
+        <section class="landing-card squad-card" aria-labelledby="squad-title">
+          <header class="landing-section-head"><span class="section-index">01</span><div><p>小队集结</p><h2 id="squad-title">你的下一场战斗</h2></div><span class="section-symbol" aria-hidden="true">⌁</span></header>
+          <label class="field">
         <span>代号</span>
         <input id="input-name" type="text" maxlength="16" placeholder="输入你的名字" autocomplete="off">
       </label>
-
-      <label class="field">
-        <span>服务器地址</span>
-        <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
-      </label>
-      <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p>
-
-      <div class="room-field">
+          <div class="room-field">
         <span class="room-label">联机房间</span>
         <div class="room-row">
           <button id="btn-room-create" class="room-btn on" type="button">创建房间</button>
@@ -69,8 +74,19 @@
         <ul id="lobby-requests" class="lobby-list"></ul>
         <h4>房间成员</h4><ul id="lobby-members" class="lobby-list"></ul>
       </section>
-
-      <div class="bot-row hidden" id="bot-row">
+        </section>
+        <section class="landing-card operation-card" aria-labelledby="operation-title">
+          <header class="landing-section-head"><span class="section-index">02</span><div><p>战场配置</p><h2 id="operation-title">选择你的战场</h2></div><span class="section-symbol" aria-hidden="true">⌖</span></header>
+          <label class="field rules-field"><span>游戏规则</span>
+        <select id="game-mode"><option value="tdm">团队死斗</option><option value="control">据点控制</option></select>
+        <small>据点控制：占领全部 A / B / C，并连续守住 15 秒获胜；双方同时在圈内会阻止占领。加入房间时遵循房主规则。</small>
+      </label>
+      <div class="map-field">
+        <span class="map-label">选择地图</span>
+        <div class="map-row" id="map-row"></div>
+        <p id="map-note" class="hint dim"></p>
+      </div>
+          <div class="bot-row hidden" id="bot-row">
         <span>AI 数量</span>
         <div class="seg" id="bot-count">
           <button type="button" data-n="4">4</button>
@@ -81,47 +97,43 @@
         </div>
       </div>
       <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
+        </section>
+      </div>
 
-      <label class="field rules-field"><span>操作模式</span>
+      <section class="landing-launch" aria-labelledby="launch-title">
+        <div class="launch-heading"><h2 id="launch-title">准备好出发了吗？</h2><p>与朋友并肩作战，或先与 AI 练习。</p></div>
+        <div class="mode-row launch-actions"><button id="btn-mode-multi" class="mode-btn" type="button">
+          <b>多人模式</b><span>联机对战 · 与真人同场竞技</span>
+        </button><button id="btn-mode-solo" class="mode-btn" type="button">
+          <b>单人模式</b><span>与 AI 队友并肩，对抗 AI 敌军</span>
+        </button></div>
+      </section>
+      <p id="menu-error" class="error" role="status" aria-live="polite"></p>
+
+      <section class="landing-bottom" aria-label="更多选项">
+        <div class="landing-utilities">
+          <div class="utility-heading"><span class="section-index">03</span><h2>整装待发</h2></div>
+          <div class="utility-actions"><button id="btn-mode-tutorial" class="mode-btn" type="button">
+          <b>新手指引</b><span>学习移动 / 手榴弹 / 据点控制 / 联机</span>
+        </button><button id="btn-mode-settings" class="mode-btn" type="button">
+          <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
+        </button></div>
+          <p id="skin-note" class="hint dim"></p>
+        </div>
+        <div class="landing-preferences"><h2>操作偏好</h2><div class="preferences-grid"><label class="field rules-field"><span>操作模式</span>
         <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
       </label>
       <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
         <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
+      </label></div></div>
+      </section>
+      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p></div><div><label class="field">
+        <span>服务器地址</span>
+        <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
       </label>
-
-      <label class="field rules-field"><span>游戏规则</span>
-        <select id="game-mode"><option value="tdm">团队死斗</option><option value="control">据点控制</option></select>
-        <small>据点控制：占领全部 A / B / C，并连续守住 15 秒获胜；双方同时在圈内会阻止占领。加入房间时遵循房主规则。</small>
-      </label>
-      <div class="map-field">
-        <span class="map-label">选择地图</span>
-        <div class="map-row" id="map-row"></div>
-        <p id="map-note" class="hint dim"></p>
-      </div>
-
-      <div class="mode-row">
-        <button id="btn-mode-multi" class="mode-btn" type="button">
-          <b>多人模式</b><span>联机对战 · 与真人同场竞技</span>
-        </button>
-        <button id="btn-mode-solo" class="mode-btn" type="button">
-          <b>单人模式</b><span>与 AI 队友并肩，对抗 AI 敌军</span>
-        </button>
-        <button id="btn-mode-settings" class="mode-btn" type="button">
-          <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
-        </button>
-        <button id="btn-mode-tutorial" class="mode-btn" type="button">
-          <b>新手指引</b><span>学习移动 / 手榴弹 / 据点控制 / 联机</span>
-        </button>
-      </div>
-
-      <p id="skin-note" class="hint dim"></p>
-
-      <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
-      <p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
-      <p class="hint dim"><a class="debug-link" href="debug.html">API 调试页</a> · <a class="debug-link" href="gun-lab.html">第三人称持枪调校 / Gun Lab</a>：看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步</p>
+      <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p></div></div></details>
     </div>
-    <p id="menu-error" class="error"></p>
-    <p class="hint dim">角色出现白块 / 黑块（头发、衣服、鞋子变色）？<a href="/colorfixer.html">打开颜色修复者 ColorFixer</a></p>
+    <footer class="landing-footer"><span class="footer-wordmark">TF <i>/</i> <span>为下一次冲锋做好准备。</span></span><nav aria-label="开发工具"><a href="debug.html">联机诊断</a><a href="gun-lab.html">持枪调校</a><a href="/colorfixer.html">角色颜色修复</a></nav><small>1916 · TRENCH FRONT</small></footer>
   </div>
 </section>
 
