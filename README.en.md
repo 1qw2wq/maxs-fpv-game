@@ -20,6 +20,10 @@ server — see *Deployment → Vercel*.
 - Primaries per class: **Assault 6 / Medic 5 / Support 6 / Scout 9**. Every class can choose APX Carry,
   G17, Desert Eagle or Flare Pistol as a separate secondary; each slot keeps its own ammunition.
 - Desktop uses native pointer lock; mobile is an explicit joystick/button mode. No cursor/edge steering.
+- **Unified operations-room UI**: the landing page, loadout, settings, tutorial, match submenus and
+  developer tools share the olive/charcoal/amber design, with responsive layouts and keyboard selection.
+- **Corrected diagnostics status**: `/debug.html` runs independently; an absent game runtime there is
+  expected, not a `main.js` startup failure. See [diagnostics and startup troubleshooting](#diagnostics-and-startup-troubleshooting).
 - The latest stair fix follows walkable surfaces during each collision substep and uses real sloped
   undersides for headroom. See [stair behavior and tests](#stair-reliability-and-headroom).
 
@@ -188,6 +192,42 @@ connect straight to it. Nothing goes through a third-party service — no relay,
 - Want to try "one host plus several players" on a single machine? Open a few tabs: create the room
   in the first, join with the code in the others. A real server (next section) is still the better
   answer when you want a permanent lobby and a shared character library.
+
+### Diagnostics and startup troubleshooting
+
+The old red **“not loaded (main.js did not run)”** message on `/debug.html` was a false warning.
+Diagnostics intentionally loads `debug.js`, not the game’s `main.js`. Each document has its own
+`window`, so opening diagnostics from the game does not retain `window.__trench` or let diagnostics
+read another tab. The corrected status is **“Not started on this diagnostics page (expected)”**;
+it does not claim that the game either failed or booted successfully.
+
+| What you see | What it means / next step |
+| --- | --- |
+| Expected / not started on diagnostics | Normal. Use **Back to the game** to open `index.html`; repeatedly refreshing diagnostics will not start the game. |
+| Local P2P self-test passes | Two real WebRTC peers in this browser exchanged messages using the game’s invite/answer transport. This does not verify game startup or a connection to another device/network. |
+| An API or P2P check fails | A genuine failure in that check; its error remains visible. Copy the report, including endpoint status and logs. |
+| The game itself is stuck loading | Open DevTools **on `index.html`**, not on diagnostics. Check Console and Network for the first error, failed module/data request, HTTP status or wrong MIME type; include its resource URL when reporting it. |
+| DevTools reports an ignored CSS `@import` | This is separate from JavaScript loading. Expand **Affected resources** and identify the stylesheet URL. No `@import` exists in current project stylesheets/HTML, and the warning was not reproduced in the focused check; no fix to an unidentified stylesheet is claimed. |
+
+**Copy report** now includes `multiplayer.scope: "current-document-only"` and
+`multiplayer.runtimeStatus: "not-applicable-on-diagnostics-page"` when no game app is present.
+In that state, a null engine / empty transport means **unobserved**, not a failed game. An optional
+same-document developer app handle is reported as `app-handle-present`, not proof of successful boot.
+
+Focused regression commands (external test-only browser dependencies required; no production npm,
+backend or build step):
+
+```sh
+node --check public/js/debug.js
+node tools/test-diagnostics.mjs
+node tools/test-landing.mjs
+```
+
+The diagnostics regression covers both languages, re-probing, copied-report scope, actual bidirectional
+local RTC, 1280/390/320px layouts, visible HTTP 503 errors, and the real Back link loading `main.js`
+and reaching the game menu. It is not real-device/cross-NAT certification or an exhaustive gameplay test.
+Use `DIAGNOSTICS_SCREENSHOTS=1 node tools/test-diagnostics.mjs` for a review image in `/tmp`.
+See [implementation, dependency setup and verification limits](docs/diagnostics.md).
 
 ### Running inside a restrictive browser environment
 
