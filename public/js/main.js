@@ -2516,6 +2516,7 @@ function tick(dt, now) {
   const shield = document.getElementById('spawn-shield-status');
   const shieldMs = alive ? Math.max(0, (app.shieldUntil || 0) - now) : 0;
   shield.classList.toggle('hidden', shieldMs <= 0);
+  if(shieldMs>0)shield.title=t('移动、开火或投掷手榴弹会结束自己的出生保护');
   shield.textContent = shieldMs > 0 ? t('出生保护 · {seconds}秒', {seconds: Math.ceil(shieldMs/1000)}) : '';
   app.clickPending = false;
   app.controls.touchFirePending = false;

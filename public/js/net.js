@@ -325,26 +325,28 @@ export class Net {
     this.send({ t: 'bots', on, n });
   }
 
+  // Capture the life NOW, not at queue flush: old input after respawn must
+  // never move the fresh body or cancel its shield. Legacy hosts ignore it.
   input(pos, yaw, pitch, flags) {
-    this.send({ t: 'input', p: [r2(pos.x), r2(pos.y), r2(pos.z)], r: [r2(yaw), r2(pitch)], s: flags });
+    this.send({ t: 'input', life: this._lastMe?.life, p: [r2(pos.x), r2(pos.y), r2(pos.z)], r: [r2(yaw), r2(pitch)], s: flags });
   }
 
   fire(origin, dir) {
-    this.send({ t: 'fire', o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
+    this.send({ t: 'fire', life: this._lastMe?.life, o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
   }
 
-  switchWeapon(slot) { this.send({t:'switch', ...(slot ? {slot} : {})}); }
-  reload() { this.send({ t: 'reload' }); }
+  switchWeapon(slot) { this.send({t:'switch', life:this._lastMe?.life, ...(slot ? {slot} : {})}); }
+  reload() { this.send({ t: 'reload', life: this._lastMe?.life }); }
   /** Ability cast. `land` is the aim preview's landing point for a thrown one. */
   ability(dir, land, power) {
-    const msg = { t: 'ability' };
+    const msg = { t: 'ability', life: this._lastMe?.life };
     if (dir) msg.d = [r3(dir.x), r3(dir.y), r3(dir.z)];
     if (Number.isFinite(power)) msg.power = Math.max(0, Math.min(1, power));
     if (land) msg.p = [r2(land.x), r2(land.y), r2(land.z)];
     this.send(msg);
   }
-  grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
-  respawn(cls, weapon, secondary) { this.send({ t: 'respawn', c: cls, w: weapon, secondary }); }
+  grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', life: this._lastMe?.life, kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
+  respawn(cls, weapon, secondary) { this.send({ t: 'respawn', life: this._lastMe?.life, c: cls, w: weapon, secondary }); }
   chat(text) { this.send({ t: 'chat', m: text }); }
 
   // -------------------------------------------------- interpolation sampling

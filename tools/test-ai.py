@@ -86,7 +86,8 @@ class BotTests(unittest.TestCase):
                 self.assertLessEqual(remaining, skill['reaction'][1])
                 self.assertFalse(fire.called)
                 st.update(burst_end=self.clock+5000, burst_ready=self.clock+6000,
-                          jitter=0, pitch_jitter=0, jitter_at=self.clock+6000)
+                          jitter=0, pitch_jitter=0, jitter_target=0, pitch_target=0, jitter_at=self.clock+6000,
+                          hesitate_until=0, tactic='hold', tactic_foe=self.foe['id'], tactic_until=self.clock+6000)
                 self.advance(remaining-1)
                 self.assertFalse(fire.called)
                 self.advance(2)
@@ -112,10 +113,10 @@ class BotTests(unittest.TestCase):
             st.update(jitter=1, pitch_jitter=1, jitter_at=self.clock+5000)
             self.advance(100)
             errors.append(abs(bots._angdiff(0, self.bot['yaw'])))
-            self.assertAlmostEqual(errors[-1], skill['aim_error'])
+            self.assertAlmostEqual(errors[-1], skill['aim_error']*st['steadiness'])
             tx, ty, tz = bots._target_point(self.foe)
             exact_pitch = math.degrees(math.atan2(ty-1.58, math.hypot(tx, tz)))
-            self.assertAlmostEqual(self.bot['pitch']-exact_pitch, skill['aim_error']*.6)
+            self.assertAlmostEqual(self.bot['pitch']-exact_pitch, skill['aim_error']*st['steadiness']*.6)
             pause = st['burst_ready']-st['burst_end']
             self.assertGreaterEqual(pause, skill['pause'][0])
             self.assertLessEqual(pause, skill['pause'][1])
@@ -321,6 +322,108 @@ class BotTests(unittest.TestCase):
         st.update(last_seen=[.2, 0, 0], seen_until=self.clock+4000)
         self.advance(33)
         self.assertLessEqual(st['seen_until'], self.clock)
+
+    def test_sensor_samples_do_not_track_live_or_hidden_velocity(self):
+        self.advance(25)
+        st=self.bot['bot_state']
+        sample=list(st['aim_sample']);st['sense_at']=self.clock+200
+        self.foe['pos'][2]+=1;self.foe['velocity']=[9999,9999,9999]
+        self.advance(25)
+        self.assertEqual(st['aim_sample'],sample)
+        self.assertEqual(st['last_seen'],[18,0,0])
+        self.advance(200)
+        self.assertGreater(st['aim_sample'][2],sample[2])
+        self.assertLess(max(abs(v) for v in st['observed_velocity']),combat.COMBAT['maxMoveSpeed'])
+        predicted=bots._aim_point(st,bots.SKILLS[st['skill']],self.clock+5000)
+        self.assertTrue(all(abs(predicted[i]-st['aim_sample'][i])<=1.2 for i in range(3)))
+
+    def test_new_targets_and_teleports_reset_motion_prediction(self):
+        st=self.bot['bot_state'];bots._observe(st,self.foe,self.clock)
+        self.foe['pos'][2]+=1;bots._observe(st,self.foe,self.clock+200)
+        self.assertGreater(st['observed_velocity'][2],0)
+        self.foe['pos'][2]+=25;bots._observe(st,self.foe,self.clock+400)
+        self.assertEqual(st['observed_velocity'],[0,0,0])
+        other=self.match.add_player('Other',None);other.update(team=1,pos=[18,0,2])
+        st['observed_velocity']=[2,3,4];bots._observe(st,other,self.clock+600)
+        self.assertEqual(st['observed_velocity'],[0,0,0])
+
+    def test_range_and_suppression_do_not_create_laser_accuracy(self):
+        combat.BOUNDS=dict(minX=-100,maxX=100,minZ=-100,maxZ=100)
+        for tier,skill in bots.SKILLS.items():
+            errors=[]
+            for distance,suppressed in [(18,False),(80,False),(18,True)]:
+                self.use_skill(tier);self.foe['pos']=[distance,0,0]
+                st=self.bot['bot_state'];st.update(jitter=1,pitch_jitter=0,jitter_at=self.clock+5000,steadiness=1)
+                self.bot['suppress_until']=self.clock+2000 if suppressed else 0
+                self.advance(100);errors.append(abs(bots._angdiff(0,self.bot['yaw'])))
+            self.assertGreater(errors[1],errors[0],tier)
+            self.assertAlmostEqual(errors[2],errors[0]*1.6)
+
+    def test_hesitation_misses_a_real_firing_opportunity(self):
+        self.use_skill('veteran');st=self.bot['bot_state']
+        st.update(foe_id=self.foe['id'],jitter=0,pitch_jitter=0,jitter_at=self.clock+10000,
+                  tactic='hold',tactic_foe=self.foe['id'],tactic_until=self.clock+10000)
+        with patch.object(bots._RNG,'random',return_value=0),patch.object(self.match,'_on_fire',return_value=[]) as fire:
+            self.advance(10)
+            self.assertGreater(st['hesitate_until'],self.clock)
+            self.assertFalse(fire.called)
+            self.advance(100);self.assertFalse(fire.called)
+            self.advance(100);self.assertTrue(fire.called)
+
+    def test_drift_is_eased_and_frame_rate_independent(self):
+        values=[]
+        for hz in (20,60,144):
+            self.use_skill('regular');st=self.bot['bot_state']
+            st.update(jitter=0,pitch_jitter=0,jitter_target=1,pitch_target=-1,jitter_at=self.clock+10000,
+                      tactic='hold',tactic_foe=self.foe['id'],tactic_until=self.clock+10000)
+            for _ in range(hz):self.advance(1000/hz)
+            values.append(st['jitter'])
+        self.assertLess(max(values)-min(values),1e-9)
+        self.assertAlmostEqual(values[0],1-math.exp(-7))
+
+    def test_tactics_vary_but_commit_and_flanks_are_walkable(self):
+        choices=set()
+        for seed in range(50):
+            bots._RNG.seed(seed);self.use_skill('regular')
+            tactic=bots._choose_tactic(self.bot,self.foe,18,20,self.clock)
+            choices.add(tactic);st=self.bot['bot_state']
+            due=st['tactic_until']
+            self.assertEqual(bots._choose_tactic(self.bot,self.foe,18,20,self.clock+100),tactic)
+            self.assertEqual(st['tactic_until'],due)
+            if st['flank_goal']:
+                x,y,z=st['flank_goal'];self.assertFalse(combat.blocked(x,z,y))
+        self.assertTrue({'hold','strafe','flank'}.issubset(choices),choices)
+
+    def test_objectives_spread_allies_and_retain_the_decision(self):
+        self.match.set_mode('control','somme')
+        self.match.control.points=[dict(id=key,p=pos,owner=-1,attacking=-1,contested=False)
+                                   for key,pos in [('A',[10,0,0]),('B',[15,0,0])]]
+        for i in range(4):
+            ally=self.match.add_player('Ally',None,bot=True);ally['team']=0
+            ally['bot_state']['objective_id']='A'
+        chosen=bots._objective_goal(self.match,self.bot,self.clock)
+        self.assertEqual(chosen['id'],'B')
+        due=self.bot['bot_state']['objective_until']
+        self.assertIs(bots._objective_goal(self.match,self.bot,self.clock+100),chosen)
+        self.assertEqual(self.bot['bot_state']['objective_until'],due)
+
+    def test_fifteen_bots_on_all_maps_use_varied_tactics_and_cancel_their_shields(self):
+        for map_id in ('somme','italy','proc_city'):
+            combat.set_map(map_id);bots._RNG.seed(987)
+            match=game.Match();match.solo=True;match.fill_bots(15)
+            tactics=set();cancelled=set()
+            for _ in range(400):
+                self.clock+=100;match.tick(100)
+                for p in match.players.values():
+                    self.assertTrue(all(math.isfinite(v) for v in p['pos']))
+                    self.assertFalse(combat.blocked(p['pos'][0],p['pos'][2],p['pos'][1]),(map_id,p['pos']))
+                    st=p['bot_state']
+                    if st.get('tactic'):tactics.add(st['tactic'])
+                    if p.get('shield_cancelled'):cancelled.add(p['id'])
+            self.assertEqual(len(cancelled),15,map_id)
+            self.assertGreater(sum(p['shot_seq'] for p in match.players.values()),0,map_id)
+            self.assertGreaterEqual(len(tactics),2,(map_id,tactics))
+            print('SIMULATION',map_id,'15 bots / 40 seconds; tactics',sorted(tactics),'shots',sum(p['shot_seq'] for p in match.players.values()))
 
     def test_real_maps_simulation_stays_finite_and_outside_walls(self):
         for map_id in ('somme', 'italy'):

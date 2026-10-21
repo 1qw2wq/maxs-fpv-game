@@ -128,7 +128,8 @@ Checks include:
   exchange and rejoining the same live host without resetting its seat or life.
 - On **Somme, Italy and Procedural City**: real RTC early joining, host map/control rules overriding
   conflicting guest requests, no multiplayer bots, private sidearm/ammo acknowledgement,
-  bidirectional commands/chat, natural spawn-shield expiry, and host-close notification.
+  bidirectional commands/chat, per-player movement/fire shield cancellation, and host-close notification.
+  Idle five-second expiry is separately covered by `tools/test-map-shields.py`.
 - The three-map transport tests run with the host's animation-frame callbacks disabled, proving
   the engine does not require rendering to advance. Their own assertions use timer polling.
 
@@ -160,3 +161,22 @@ its rotation assertion accounts for the intentional crouch aim counter-rotation 
 incorrectly demanding that the barrel lean down with the torso. The Gun Lab still checks all
 150 gun/character combinations. Death clearance uses a denser independent test sample, including
 deaths that begin in a crouched stance.
+
+### Updated spawn-shield action regression
+
+The shield now lasts **up to** five seconds while idle. The full menu/RTC regression waits for
+both real frame loops to start before creating fresh test lives (software-rendered first-frame
+shader work can consume an entire five-second window). Static scenery/shadows are hidden in the
+menu-flow fixture to reduce shader cost; map collision, controls, characters and authority stay real. It then presses the guest's actual W key,
+checks that only the guest loses protection, fires for the host, and checks both clients' remote
+shield state. The transport-only cases repeat independent movement/fire cancellation on Somme,
+Italy and Procedural City with host rendering disabled. Existing pause, kills, redeploy,
+ammo/reload, leave and re-pair/rejoin checks remain.
+
+Gameplay helpers stamp the sending life ID on input, fire, reload, switch, throws and respawn.
+The host rejects mismatching serials before acting; missing serials remain legacy-compatible.
+This fixes a reproduced queue race where an idle pre-respawn input moved the fresh body and
+removed its shield before the player acted. `tools/test-survival.py` and
+`tools/test-protection.mjs` cover rejection and capture-at-send behavior. The focused live
+survival fixture also checks the real main.js HUD, idle damage immunity, an attacking player's
+absent bubble, natural expiry and recovery without renewal.

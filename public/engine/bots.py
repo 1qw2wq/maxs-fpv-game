@@ -14,17 +14,17 @@ from combat import (
 )
 import combat
 
-_RNG = random.Random(20240)
+_RNG = random.Random()  # Runtime variety; regression tests explicitly seed it.
 
 # Same navigation, health, LOS and authoritative weapons for every tier. Skill
 # changes human-like reaction/tracking/trigger discipline, never hidden info.
 SKILLS = {
     "recruit": dict(reaction=(550, 1000), sense=(280, 420), turn=140, pitch=110,
-                    aim_error=3.2, burst=(180, 400), pause=(550, 1050)),
+                    aim_error=3.2, burst=(180, 400), pause=(550, 1050), lapse=.22, lead=.02),
     "regular": dict(reaction=(300, 600), sense=(210, 310), turn=230, pitch=170,
-                    aim_error=1.55, burst=(300, 600), pause=(300, 600)),
+                    aim_error=1.55, burst=(300, 600), pause=(300, 600), lapse=.13, lead=.07),
     "veteran": dict(reaction=(150, 300), sense=(180, 250), turn=320, pitch=240,
-                    aim_error=0.75, burst=(400, 750), pause=(170, 320)),
+                    aim_error=0.75, burst=(400, 750), pause=(170, 320), lapse=.07, lead=.11),
 }
 # Per-team rotation: mostly ordinary soldiers; only one veteran per six bots.
 SKILL_ROTATION = ("recruit", "regular", "veteran", "recruit", "regular", "regular")
@@ -67,6 +67,15 @@ def new_state(team, skill="regular"):
         "progress_at": now + 900.0, "progress_pos": None,
         "escape_until": 0.0, "escape_heading": 0.0,
         "search_heading": None,
+        "steadiness": _RNG.uniform(.85, 1.2),
+        "aggression": _RNG.uniform(.75, 1.25),
+        "jitter_target": None, "pitch_target": None,
+        "aim_sample": None, "sample_id": None, "sample_at": 0.0,
+        "observed_velocity": [0.0, 0.0, 0.0],
+        "hesitate_until": 0.0,
+        "tactic": None, "tactic_until": 0.0, "tactic_foe": None,
+        "flank_goal": None,
+        "objective_id": None, "objective_until": 0.0,
     }
 
 
@@ -248,6 +257,78 @@ def _find_cover(p, threat):
     return best
 
 
+def _observe(st, visible, now):
+    """Estimate motion from sight samples, not a hidden player's live velocity."""
+    point = list(_target_point(visible))
+    elapsed = (now-st["sample_at"])/1000.0
+    velocity = [0.0, 0.0, 0.0]
+    if st["sample_id"] == visible["id"] and st["aim_sample"] and elapsed > .04:
+        delta = [point[i]-st["aim_sample"][i] for i in range(3)]
+        cap = COMBAT["maxMoveSpeed"]*COMBAT.get("sprintMult", 1.35)
+        if math.sqrt(sum(v*v for v in delta)) <= cap*elapsed+1:
+            velocity = [clamp(delta[i]/elapsed, -cap, cap)*.65+st["observed_velocity"][i]*.35 for i in range(3)]
+    st.update(aim_sample=point, sample_id=visible["id"], sample_at=now,
+              observed_velocity=velocity, last_seen=list(visible["pos"]), seen_until=now+4500)
+
+
+def _aim_point(st, skill, now):
+    # Modest extrapolation bridges delayed observations. A sudden juke can fool
+    # even a veteran; never consult a live position/velocity between samples.
+    horizon = min(.18, max(0, (now-st["sample_at"])/1000.0)+skill["lead"])
+    return [st["aim_sample"][i]+clamp(st["observed_velocity"][i]*horizon, -1.2, 1.2) for i in range(3)]
+
+
+def _choose_tactic(p, foe, distance, ideal, now):
+    st = p["bot_state"]
+    if st["tactic_foe"] == foe["id"] and now < st["tactic_until"]:
+        return st["tactic"]
+    st["tactic_foe"], st["tactic_until"] = foe["id"], now+_RNG.uniform(1300, 3100)
+    # Commit to a decision, rather than perfect range-keeping/left-right changes
+    # on every tick. Occasionally choose a risky push or hesitate in the open.
+    roll = _RNG.random()
+    if distance < ideal*.55:
+        tactic = "push" if roll < .14*st["aggression"] else "withdraw"
+    elif distance > ideal*1.35:
+        tactic = "flank" if roll < .55 else "push"
+    else:
+        tactic = "hold" if roll < .23 else "flank" if roll < .48 else "strafe"
+    st["flank_goal"] = None
+    if tactic == "flank":
+        dx, dz = foe["pos"][0]-p["pos"][0], foe["pos"][2]-p["pos"][2]
+        length = math.hypot(dx, dz) or 1
+        side, reach = st["strafe"], _RNG.uniform(4, 8)
+        x = p["pos"][0]+(dx*.35-dz*side)/length*reach
+        z = p["pos"][2]+(dz*.35+dx*side)/length*reach
+        y = combat.floor_at(x, z, p["pos"][1])
+        if (combat.BOUNDS["minX"]+1.5 < x < combat.BOUNDS["maxX"]-1.5
+                and combat.BOUNDS["minZ"]+1.5 < z < combat.BOUNDS["maxZ"]-1.5
+                and abs(y-p["pos"][1]) < .6 and not blocked(x, z, y)):
+            st["flank_goal"] = [x, y, z]
+        else:
+            tactic = "strafe"
+    if tactic == "hold":
+        st["tactic_until"] = now+_RNG.uniform(350, 850)
+    st["tactic"] = tactic
+    return tactic
+
+
+def _objective_goal(match, p, now):
+    st = p["bot_state"]
+    candidates = [point for point in match.control.points if point['owner'] != p['team'] or point['contested'] or point['attacking'] not in (-1, p['team'])]
+    candidates = candidates or match.control.points
+    held = next((point for point in candidates if point['id'] == st["objective_id"]), None)
+    if held and now < st["objective_until"]:
+        return held
+    allies = [q for q in match.players.values() if q is not p and q['alive'] and q['team'] == p['team']]
+    def score(point):
+        assigned = sum(1 for q in allies if (q.get('bot_state') or {}).get('objective_id') == point['id'] or dist3(q['pos'], point['p']) < 5)
+        urgency = -5 if point['owner'] == p['team'] and (point['contested'] or point['attacking'] not in (-1, p['team'])) else 0
+        return dist3(p['pos'], point['p'])+assigned*7+urgency+_RNG.uniform(0, 5)
+    target = min(candidates, key=score)
+    st["objective_id"], st["objective_until"] = target['id'], now+_RNG.uniform(1800, 3500)
+    return target
+
+
 def _ability(match, p, visible, reloading, now):
     st = p["bot_state"]
     if now < st["ability_at"]:
@@ -292,7 +373,8 @@ def think(match, p, dt_ms):
     w = WEAPONS[p["weapon"]]
     # A full scan is staggered, but LOS/smoke of the held target is rechecked on
     # every tick so cached perception can never fire through new cover/smoke.
-    if now >= st["sense_at"]:
+    sampled = now >= st["sense_at"]
+    if sampled:
         visible, _ = _visible_foe(match, p, eye)
         st["visible_id"] = visible["id"] if visible else None
         st["sense_at"] = now + _RNG.uniform(*skill["sense"])
@@ -304,8 +386,8 @@ def think(match, p, dt_ms):
         if st["foe_id"] != visible["id"]:
             st["react_until"] = now + _RNG.uniform(*skill["reaction"])
         st["foe_id"] = visible["id"]
-        st["last_seen"] = list(visible["pos"])
-        st["seen_until"] = now + 4500
+        if sampled or st["sample_id"] != visible["id"]:
+            _observe(st, visible, now)
     else:
         st["foe_id"] = None
     memory = st["last_seen"] if now < st["seen_until"] else None
@@ -324,23 +406,31 @@ def think(match, p, dt_ms):
     events.extend(_ability(match, p, visible, reloading, now))
 
     if visible:
-        tx, ty, tz = _target_point(visible)
+        tx, ty, tz = _aim_point(st, skill, now)
         aim_yaw = math.degrees(math.atan2(tz - eye[2], tx - eye[0]))
         aim_pitch = math.degrees(math.atan2(ty - eye[1], max(0.001, math.hypot(tx - eye[0], tz - eye[2]))))
         if now >= st["jitter_at"]:
-            st["jitter"], st["jitter_at"] = _RNG.uniform(-1, 1), now + _RNG.uniform(150, 450)
-            st["pitch_jitter"] = _RNG.uniform(-1, 1)
-        error = skill["aim_error"] * min(1, 24 / max(8, distance))
+            st["jitter_target"], st["jitter_at"] = _RNG.uniform(-1, 1), now + _RNG.uniform(150, 450)
+            st["pitch_target"] = _RNG.uniform(-1, 1)
+        if st["jitter_target"] is not None:
+            ease = 1-math.exp(-7*dt)
+            st["jitter"] += (st["jitter_target"]-st["jitter"])*ease
+            st["pitch_jitter"] += (st["pitch_target"]-st["pitch_jitter"])*ease
+        # Error must not shrink towards laser accuracy at long range. Pressure
+        # and moving-target tracking amplify human mistakes, not damage rolls.
+        pressure = 1.6 if now < p.get("suppress_until", 0) else 1.0
+        error = skill["aim_error"]*st["steadiness"]*(1+clamp((distance-24)/70, 0, .8))*pressure
         wanted = aim_yaw + st["jitter"] * error
         wanted_pitch = clamp(aim_pitch + st["pitch_jitter"] * error * 0.6, -89, 89)
         p["yaw"] = _turn_yaw(p["yaw"], wanted, skill["turn"] * dt)
         p["pitch"] = clamp(_approach(p["pitch"], wanted_pitch, skill["pitch"] * dt), -89, 89)
         aligned = abs(_angdiff(p["yaw"], wanted)) < AIM_TOLERANCE_DEG and abs(p["pitch"] - wanted_pitch) < AIM_TOLERANCE_DEG
         if now >= st["burst_ready"] and now >= st["burst_end"]:
-            st["burst_end"] = now + _RNG.uniform(*skill["burst"])
+            st["hesitate_until"] = now+_RNG.uniform(180, 550) if _RNG.random() < skill["lapse"] else now
+            st["burst_end"] = st["hesitate_until"] + _RNG.uniform(*skill["burst"])
             st["burst_ready"] = st["burst_end"] + _RNG.uniform(*skill["pause"])
         direction = dir_from_angles(p["yaw"], p["pitch"])
-        if aligned and not reloading and now >= st["react_until"] and now < st["burst_end"] and not _friendly_lane(match, p, eye, direction, distance):
+        if aligned and not reloading and now >= max(st["react_until"], st["hesitate_until"]) and now < st["burst_end"] and not _friendly_lane(match, p, eye, direction, distance):
             events.extend(match._on_fire(p, {"t": "fire", "o": list(eye), "d": list(direction)}))
     elif memory:
         bearing = math.degrees(math.atan2(memory[2] - eye[2], memory[0] - eye[0]))
@@ -364,11 +454,7 @@ def think(match, p, dt_ms):
         dx, dz = p["pos"][0] - visible["pos"][0], p["pos"][2] - visible["pos"][2]
         speed_mult = 0.7
     elif match.control is not None and match.control.points and (not visible or distance > 10):
-        candidates = [point for point in match.control.points if point['owner'] != p['team'] or point['contested'] or point['attacking'] not in (-1,p['team'])]
-        if not candidates:
-            candidates = match.control.points
-        # Small squad bias spreads bots across objectives rather than one blob.
-        target = min(candidates,key=lambda point: dist3(p['pos'],point['p'])+(0 if ord(point['id'])%3 == p['id']%3 else 12))
+        target = _objective_goal(match, p, now)
         if math.hypot(p['pos'][0]-target['p'][0],p['pos'][2]-target['p'][2]) < 1.8:
             dx, dz, speed_mult = 0, 0, 0
         else:
@@ -376,12 +462,19 @@ def think(match, p, dt_ms):
             speed_mult = .85
         st["search_heading"] = None
     elif visible:
-        dx, dz = visible["pos"][0] - p["pos"][0], visible["pos"][2] - p["pos"][2]
-        if distance < ideal * 0.5:
+        tactic = _choose_tactic(p, visible, distance, ideal, now)
+        dx, dz = visible["pos"][0]-p["pos"][0], visible["pos"][2]-p["pos"][2]
+        speed_mult = .5*st["aggression"]
+        if tactic == "hold" and distance < ideal*1.7:
+            dx, dz, speed_mult = 0.0, 0.0, 0.0
+        elif tactic == "flank" and st["flank_goal"]:
+            dx, dz = _route_direction(p, st["flank_goal"], now)
+            if dist3(p["pos"], st["flank_goal"]) < .7:
+                st["tactic_until"] = now
+        elif tactic == "withdraw":
             dx, dz = -dx, -dz
-        elif distance < ideal * 1.2:
-            dx, dz = -dz * st["strafe"], dx * st["strafe"]
-        speed_mult = 0.55
+        elif tactic == "strafe":
+            dx, dz = -dz*st["strafe"], dx*st["strafe"]
     elif memory and dist3(p["pos"], memory) > 1.2:
         dx, dz = _route_direction(p, memory, now)
         speed_mult = 0.8
@@ -390,8 +483,10 @@ def think(match, p, dt_ms):
         # impulses or privileged teleports: _steer walks the authored ramp.
         lookouts=[n['p'] for n in combat.MAP_DATA['bot_nav']['nodes'] if n.get('kind')=='lookout']
         stage=st.get('city_patrol',0)
-        if stage%2==0:
-            goal=lookouts[(p['id']+stage//2)%len(lookouts)]
+        if stage%2==0 and lookouts:
+            if st.get('patrol_stage') != stage:
+                st['patrol_stage'], st['patrol_index'] = stage, _RNG.randrange(len(lookouts))
+            goal=lookouts[st['patrol_index']]
         else:
             spawn=combat.SPAWNS[str(1-p['team'])][p['id']%len(combat.SPAWNS[str(1-p['team'])])]
             goal=[spawn['x'],spawn['y'],spawn['z']]
@@ -414,8 +509,8 @@ def think(match, p, dt_ms):
             dx, dz = math.cos(st["search_heading"]), math.sin(st["search_heading"])
         speed_mult = 0.9
     if now >= st["strafe_until"]:
-        st["strafe"] *= -1
-        st["strafe_until"] = now + _RNG.uniform(1800, 4000)
+        st["strafe"] = _RNG.choice((-1, 1))
+        st["strafe_until"] = now + _RNG.uniform(1400, 4200)
     if now >= st["progress_at"]:
         last = st["progress_pos"]
         if last and speed_mult and dist3(last, p["pos"]) < 0.4:
@@ -442,7 +537,7 @@ def think(match, p, dt_ms):
     crouch = at_cover and (hurt or reloading)
     speed = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * speed_mult * (0.55 if crouch else 1)
     old = list(p["pos"])
-    off, nxt = _steer(p, dx, dz, speed * dt, st.get("detour"))
+    off, nxt = _steer(p, dx, dz, speed * dt, st.get("detour")) if speed_mult else (0.0, None)
     if nxt:
         st["detour"] = None if off == 0 else off
         p["pos"] = [nxt[0], combat.floor_at(nxt[0], nxt[1], old[1]), nxt[1]]
@@ -451,6 +546,7 @@ def think(match, p, dt_ms):
         # otherwise the direction we actually walked, including obstacle turns.
         bearing = math.degrees(math.atan2(p["pos"][2]-old[2], p["pos"][0]-old[0]))
         p["yaw"] = _turn_yaw(p["yaw"], bearing, skill["turn"] * dt)
+    match._movement_spawn_shield(p, old)
     p["velocity"] = [(p["pos"][i]-old[i])/max(dt, 0.001) for i in range(3)]
     p["flags"] = {"move": dist3(old, p["pos"]) > 0.005, "sprint": False, "crouch": crouch, "ground": True}
     return events

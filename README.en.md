@@ -204,11 +204,22 @@ The game needs no plugins, but two browser environments restrict pages and both 
 
 ### Spawn protection, recoil and map safety
 
-- Every initial spawn, respawn and new round grants **five seconds of host-enforced protection**
-  to players and bots. Bullets, blast/fire damage and flash blindness are blocked during this window;
-  firing does not shorten it. A blue shield bubble and health-column countdown show the remaining time.
+- Every initial spawn, respawn and new round grants **up to five seconds of host-enforced protection**
+  to players and bots. Moving, firing an accepted shot or throwing a grenade ends **that player's own**
+  shield immediately; an inactive opponent keeps theirs. Stopping never restores it within the same life.
+  While active, it blocks bullets, blast/fire damage and flash blindness. A blue shield bubble and
+  health-column countdown show the remaining time.
   Shield deadlines cannot be extended within a life. Delayed/repeated packets and asynchronous
   map loading cannot restart the countdown; only an authoritative new spawn renews it.
+  Looking around, ADS, crouching in place, switching and reloading do not remove an idle shield;
+  rejected/dry shots or unavailable grenades do not count. An accepted offensive scout flare does.
+  Movement intent and actual accepted displacement are checked by the host; tiny rounding noise is
+  tolerated, but sustained slow movement cannot preserve protection by claiming `move=false`.
+  `tools/test-survival.py` covers these transitions. The browser RTC suite checks each player's own
+  cancellation and both clients' remote state on all maps; `tools/test-map-shields.py` separately
+  waits the real five-second **idle** expiry and checks damage, recovery and a new-life grant.
+  Gameplay commands carry the life ID captured when sent. The host rejects an old-life input,
+  shot or throw arriving after respawn, so queued idle input cannot strip the new spawn shield.
 - Firing immediately kicks the weapon backward and raises the **actual aim**, with per-gun strength,
   bounded sideways recoil and reduced kick while ADS. Pull down to compensate during a burst. The
   camera, crosshair and subsequent shot ray stay aligned; recoil never pushes the player off a ledge.
@@ -448,19 +459,38 @@ layout/emulation checks, not a claim that every physical phone/browser has been 
 `node tools/test-mouse.mjs` checks input spikes, first-lock movement, 24/60/144 Hz precision, fast
 flicks and stalled backlogs. `node tools/test-vercel.mjs` also checks actual native-lock integration,
 saved menu/pause sensitivity, mixed-tier live rosters and translated scoreboard labels alongside
-all existing aiming/shooting/multiplayer tests. `python tools/test-ai.py` now includes six skill
-regressions (distribution, respawn/state recovery, reaction gates, turn rates, aim/pauses and LOS safety).
+all existing aiming/shooting/multiplayer tests. `python tools/test-ai.py` has 31 regressions covering
+skill, sampled prediction, frame-rate-independent drift, hesitation, tactic commitments, objective
+spread, LOS safety and 15 bots running for 40 simulated seconds on each of the three maps.
 
 ### Smarter solo bots and collision-safe cameras
 
+- **Less scripted decisions:** each life gets its own steadiness/aggression and runtime-random choices,
+  not the same fixed match seed. Bots commit to push/flank/strafe/withdraw plans for 1.3–3.1 seconds,
+  or stop to hold for 350–850 ms. Flank waypoints are checked against bounds, floors and collision,
+  then use existing bounded navigation; an unsafe candidate falls back to strafing. Cover/reload
+  decisions still take priority. Holding no longer drifts sideways from separation steering.
+- **Fallible tracking:** aim follows tier-timed sight samples, with velocity estimated only from those
+  observations—not the target's live/hidden velocity. Prediction is capped at 180 ms and 1.2 m per
+  axis, so sudden direction changes can fool it. Aim error eases smoothly rather than snapping,
+  grows instead of shrinking at long range, and increases under suppression.
+- At each new burst, recruits/regulars/veterans have a **22% / 13% / 7%** chance to hesitate for
+  **180–550 ms**. This is a missed/delayed firing opportunity, not a hit probability. Together with
+  imperfect tracking, overcommitted pushes and individual traits, it introduces real mistakes
+  without adding damage, health, collision or ammunition privileges.
+- Objective choices account for allies already assigned/near a point and public capture threats,
+  and stay committed for 1.8–3.5 seconds rather than changing every frame. City lookout choices
+  vary; strafe changes can keep the same side instead of mechanically alternating left/right.
 - Bots acquire enemies through a field of view, solid line of sight and smoke checks. They briefly
   investigate a frozen last-seen position instead of tracking hidden players through walls. Target
   hysteresis, reaction time, weapon-specific engagement distances and short bursts keep fights readable.
 - Low-health/reloading bots seek occluding cover, reload partial magazines when safe, avoid teammates
   in their firing lane, and place healing/ammo crates when their nearby team needs them. Cached,
   bounded A* handles investigation/cover routes; map flow, swept steps and stuck recovery handle travel.
-  They still use the human authoritative ammo, fire-rate, damage and ability paths; solo damage relief
-  is unchanged. This is tactical AI, not machine learning or an external service.
+  They still use the human authoritative ammo, fire-rate, damage and ability paths. The existing
+  Solo-only 50% chance to discard an eligible bot-to-human bullet hit is unchanged; the new tracking
+  mistakes/hesitations are separate from that relief. This is tactical AI, not machine learning or
+  an external service.
 - FP/TP cameras use a swept near-plane-sized collision volume against map solids, including ramps,
   floors and ceilings. TP retracts at walls; FP resolves near-plane overlap, including wide screens.
   Jumping also stops at ceilings. A fully contracted TP camera hides the local body, not other players.
@@ -497,12 +527,13 @@ all four shipped skeletons across 960 weapon/ADS/recoil/sprint/reload poses, che
 hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
 `tools/test-survival.mjs` adds 60 real-aim recoil cases, 8,064 map movement frames at 20/60/144fps,
 shield replication/expiry and disposal, plus live respawn protection/HUD and client/host recovery.
-Run `python tools/test-survival.py` for eleven authoritative shield/safety regressions.
+Run `python tools/test-survival.py` for 20 authoritative shield/safety regressions, including independent
+movement/fire cancellation, slow/spoofed movement, packet noise, rejected actions, throws and fresh lives.
 `tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
 `tools/test-arsenal.mjs` verifies all 30 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
 shot deduplication and pool cleanup; the actual solo game also fires all 30 guns in FP and TP (60 cases).
-Run `python tools/test-ai.py` for 23 deterministic AI/engine tests, including 60-second simulated matches
-on both shipped maps. Browser regressions can take a few minutes on software-rendered Chromium.
+Run `python tools/test-ai.py` for 31 deterministic AI/engine tests, including 60-second simulated matches
+on both shipped maps and 15-bot/40-second simulations on all three maps. Browser regressions can take a few minutes on software-rendered Chromium.
 Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
 ---
@@ -1122,7 +1153,7 @@ A complete local-browser run of `node tools/test-multiplayer.mjs` checks the act
 flow with BroadcastChannel/WebSocket/external requests disabled, keyboard crouch/walk replication,
 pause/heartbeat handling, both directions of kill/death/redeploy, ammo/reload, departure and
 fresh menu-based pairing/rejoining without resetting the host.
-Somme, Italy and Procedural City also pass early-join, host-rule, private-ammo, chat, shield-expiry
+Somme, Italy and Procedural City also pass early-join, host-rule, private-ammo, chat, per-player shield cancellation
 and host-close checks with host rendering disabled. These are local RTC tests, not a two-network
 or deployed-Vercel certification. Full procedures, regression commands and exact limitations:
 [crouch and multiplayer checks](docs/crouch-and-multiplayer-checks.md).

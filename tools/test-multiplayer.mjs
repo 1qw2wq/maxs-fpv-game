@@ -39,7 +39,9 @@ async function gamePage(c,name){
  return p;
 }
 async function playing(p){
- try{await p.waitForFunction(()=>__trench.app.playing&&__trench.app.net?.lastMe?.alive,null,{timeout:45000});}
+ try{await p.waitForFunction(()=>__trench.app.playing&&__trench.app.net?.lastMe?.alive,null,{timeout:45000});
+ // Keep real collision/input/characters; scenery shader cost is not a transport test.
+ await p.evaluate(()=>{const a=__trench.app;a.world.group.visible=false;a.renderer.shadowMap.enabled=false;});}
  catch(e){console.error('UI DIAGNOSTIC',await p.evaluate(()=>{const a=__trench.app;return {url:a.netUrl,playing:a.playing,paused:a.paused,peers:a.net?.peers,room:a.roomCode,relayHostCode:a.relayHostCode,mode:a.net?.mode,me:a.net?.lastMe,note:a.hud.el.menuError.textContent,invite:a.hud.el.inviteStatus.textContent};}));throw e;}
 }
 try{
@@ -68,6 +70,29 @@ try{
  console.log('PASS: actual menu Create → invite → answer → pair → deploy, isolated contexts, no BroadcastChannel/backend/broker');
  // Use a clear, real map lane; only fixture placement bypasses movement.
  const ids={host:await host.evaluate(()=>__trench.app.myId),guest:await guest.evaluate(()=>__trench.app.myId)};
+ // Wait for both actual frame loops to upload input; first-render shader work
+ // can otherwise consume a whole fresh shield before keyboard input is possible.
+ for(const p of [host,guest])await p.evaluate(()=>{const c=__trench.app.controls;c.setMobileMode(true);c.requestLock();});
+ try{await host.waitForFunction(()=>__trench.app.net._engine.py.runPython("all(bool(p['flags']) for p in _relay.room.match.players.values())"),null,{polling:50,timeout:90000});}
+ catch(e){for(const p of [host,guest])console.error('FRAME READY',await p.evaluate(()=>{const a=__trench.app;return {playing:a.playing,paused:a.paused,last:a.last,now:performance.now(),enabled:a.controls.enabled,me:a.net.lastMe};}));throw e;}
+ // Fresh authoritative lives isolate action cancellation from elapsed joining time.
+ await host.evaluate(()=>__trench.app.net._engine.py.runPython(`
+_m=_relay.room.match
+for _p in _m.players.values():
+ _m.outbox.extend(_m._spawn(_p))
+`));
+ for(const p of [host,guest])await p.waitForFunction(()=>__trench.app.net.lastMe.life===2&&__trench.app.net.lastMe.shieldMs>0,null,{polling:50});
+ await guest.evaluate(()=>{const c=__trench.app.controls;c.setMobileMode(true);c.requestLock();});
+ await guest.keyboard.down('w');
+ await guest.waitForFunction(()=>__trench.app.net.lastMe.shieldMs===0,null,{polling:50});
+ await guest.keyboard.up('w');
+ const shieldDebug=await host.evaluate(()=>{const a=__trench.app;return {me:a.net.lastMe,controls:{pos:a.controls.pos.toArray(),move:a.controls.moveSpeed},server:JSON.parse(a.net._engine.py.runPython("__import__('json').dumps([dict(id=p['id'],pos=p['pos'],motion=p['shield_motion'],cancelled=p['shield_cancelled'],flags=p['flags'],age=__import__('game').now_ms()-p['spawned_at']) for p in _relay.room.match.players.values()])"))};});
+ assert(shieldDebug.me.shieldMs>0,JSON.stringify(shieldDebug));
+ await host.waitForFunction(id=>__trench.app.net.sample().get(id)?.shieldMs===0,ids.guest,{polling:50});
+ await host.evaluate(()=>__trench.app.net.send({t:'fire',d:[0,1,0]}));
+ await host.waitForFunction(()=>__trench.app.net.lastMe.shieldMs===0,null,{polling:50});
+ await guest.waitForFunction(id=>__trench.app.net.sample().get(id)?.shieldMs===0,ids.host,{polling:50});
+ console.log('PASS: real keyboard movement cancels only the guest shield; host firing then cancels its own, replicated to both clients');
  async function duel(){
    const positions=await host.evaluate(async()=>{
      const {app:a}=__trench,{rayWorld}=await import('/js/ballistics.js'),T=await import('/vendor/three.module.js');
@@ -228,15 +253,26 @@ json.dumps({'phase':_m.phase,'players':[{k:v for k,v in p.items() if k in ('id',
    assert.equal(await g.evaluate(()=>net.lastMe.secondary),'deagle');
    await g.evaluate(()=>net.chat('rtc-map-check'));
    await h.waitForFunction(()=>events.some(m=>m.t==='chat'&&m.m==='rtc-map-check'),null,{polling:50,timeout:5000});
+   await h.evaluate(()=>net._engine.py.runPython(`
+_m=_relay.room.match
+for _p in _m.players.values():
+ _m.outbox.extend(_m._spawn(_p))
+`));
+   for(const p of [h,g])await p.waitForFunction(()=>net.lastMe.life===2&&net.lastMe.shieldMs>0,null,{polling:50});
+   await g.evaluate(()=>{const row=net.lastState.ps.find(p=>p.i===net.id);net.input({x:row.p[0]+.08,y:row.p[1],z:row.p[2]},0,0,{move:true,ground:true});});
+   await g.waitForFunction(()=>net.lastMe.shieldMs===0,null,{polling:50});
+   assert(await h.evaluate(()=>net.lastMe.shieldMs>0),'An idle opponent keeps its own shield');
+   const guestId=await g.evaluate(()=>net.id);
+   await h.waitForFunction(id=>net.sample().get(id)?.shieldMs===0,guestId,{polling:50});
    for(const p of [h,g]){
      const count=await p.evaluate(()=>net.lastMe.mag);
      await p.evaluate(()=>net.send({t:'fire',d:[0,1,0]}));
      await p.waitForFunction(count=>net.lastMe.mag===count-1,count,{polling:50,timeout:5000});
    }
-   await g.waitForFunction(()=>net.lastMe.shieldMs<=0,null,{timeout:10000});
+   for(const p of [h,g])await p.waitForFunction(()=>net.lastMe.shieldMs===0&&[...net.sample().values()].every(row=>row.shieldMs===0),null,{polling:50,timeout:10000});
    await h.evaluate(()=>net.close());
    await g.waitForFunction(()=>!net.connected&&netErrors.length>0,null,{timeout:5000});
-   console.log(`PASS: ${map}: RTC early join, host map/control rules, zero multiplayer bots, private sidearm/ammo, bidirectional commands/chat, natural shield expiry and host-close notification`);
+   console.log(`PASS: ${map}: RTC early join, host map/control rules, zero multiplayer bots, private sidearm/ammo, bidirectional commands/chat, per-player movement/fire shield cancellation and host-close notification`);
    await a.close();await b.close();
  }
 

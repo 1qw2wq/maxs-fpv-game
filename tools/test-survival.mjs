@@ -80,10 +80,10 @@ export async function testLiveSurvival(page) {
   await page.waitForFunction(()=>window.__trench.app.net.lastMe.shieldMs>0 && !document.getElementById('spawn-shield-status').classList.contains('hidden'));
   await page.evaluate(()=>{
     const {app}=window.__trench;app.controls.reset([0,0,0],0);
-    app.net._engine.py.runPython(`p['pos']=[0,0,0];p['safe_pos']=[0,0,0];game._seed_hist(p,game.now_ms())\nqa=_host.room.match.add_player('Shield QA',None)\nqa.update(team=1-p['team'],pos=[6,0,0],safe_pos=[6,0,0])\nassert game.shield_remaining(p,game.now_ms())>0\n_host.room.match._on_fire(qa,dict(d=[-1,0,0]))\nassert p['hp']==game.max_hp(_host.room.match,p)`);
+    app.net._engine.py.runPython(`p['pos']=[0,0,0];p['safe_pos']=[0,0,0];p['shield_anchor']=[0,0,0];p['shield_motion']=0;game._seed_hist(p,game.now_ms())\nqa=_host.room.match.add_player('Shield QA',None)\nqa.update(team=1-p['team'],pos=[6,0,0],safe_pos=[6,0,0])\nassert game.shield_remaining(p,game.now_ms())>0, str({k:p[k] for k in ('life','shield_cancelled','shield_motion','shield_anchor','pos','flags','spawned_at')})+str(game.now_ms())\n_host.room.match._on_fire(qa,dict(d=[-1,0,0]))\nassert p['hp']==game.max_hp(_host.room.match,p)`);
     app.qaShieldId=app.net._engine.py.runPython("qa['id']");
   });
-  await page.waitForFunction(()=>{const {app}=window.__trench;return app.self?.spawnShield && app.remotes.get(app.qaShieldId)?.spawnShield;});
+  await page.waitForFunction(()=>{const {app}=window.__trench;return app.self?.spawnShield && app.remotes.has(app.qaShieldId) && !app.remotes.get(app.qaShieldId).spawnShield;});
   await page.waitForFunction(()=>{const {app}=window.__trench;return app.net.lastMe.shieldMs===0 && !app.self.spawnShield && !app.remotes.get(app.qaShieldId)?.spawnShield && document.getElementById('spawn-shield-status').classList.contains('hidden');},null,{timeout:8000});
   await page.evaluate(()=>{const c=window.__trench.app.controls;c.pos.set(999,-999,999);});
   await page.waitForFunction(()=>{const c=window.__trench.app.controls;return c.pos.y>=c.world.floorBase && c.pos.length()<1;});
@@ -94,5 +94,5 @@ export async function testLiveSurvival(page) {
   await page.waitForFunction(()=>{const {app}=window.__trench;return app.lastRecoverySeq>0 && app.controls.pos.distanceTo({x:3,y:0,z:2})<.01;});
   assert.equal(await page.evaluate(()=>window.__trench.app.net.lastMe.shieldMs),0,'Fall recovery must not grant another shield');
   await page.evaluate(()=>{const {app}=window.__trench;app.net._engine.py.runPython("_host.room.match.remove_player(qa['id'])");delete app.qaShieldId;});
-  console.log('PASS: actual main.js respawn shield/HUD + remote bubble, damage immunity/expiry, local fall recovery and host-to-client safe-position correction without renewed immunity');
+  console.log('PASS: actual main.js respawn shield/HUD + idle protection/shooter-cancelled bubble, damage immunity/expiry, local fall recovery and host-to-client safe-position correction without renewed immunity');
 }

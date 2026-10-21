@@ -40,7 +40,7 @@ SPAWN_SHIELD_MS = float(COMBAT.get("spawnShieldMs", 5000))
 def shield_remaining(p, now):
     # A corrupt/extended deadline must never grant more than one spawn window.
     deadline = min(p.get("shield_until", 0.0), p.get("spawned_at", now - SPAWN_SHIELD_MS) + SPAWN_SHIELD_MS)
-    return max(0.0, deadline - now) if p["alive"] else 0.0
+    return max(0.0, deadline - now) if p["alive"] and not p.get("shield_cancelled", False) else 0.0
 
 
 # A bot firing through smoke at anything past this range only lands one shot in
@@ -208,7 +208,7 @@ class Match:
             "hp": hp, "alive": True,
             "pos": list(spawn), "safe_pos": list(spawn),
             "recovery_seq": 0, "recovery_pos": None, "shield_until": spawned_at + SPAWN_SHIELD_MS,
-            "spawned_at": spawned_at, "life": 1,
+            "spawned_at": spawned_at, "life": 1, "shield_cancelled": False, "shield_motion": 0.0, "shield_anchor": None,
             # the spawn point carries the facing that looks across the map
             "yaw": spawn_yaw,
             "pitch": 0.0, "flags": {}, "mag": mag_size(weapon),
@@ -270,6 +270,10 @@ class Match:
         if p is None or p["bot"]:
             return []
         t = msg.get("t")
+        # An input/action queued before respawn belongs to the previous body.
+        # Missing serials remain compatible with older clients and direct AI calls.
+        if t != "chat" and "life" in msg and msg["life"] != p["life"]:
+            return []
         if t == "input":
             self._on_input(p, msg)
         elif t == "fire":
@@ -289,6 +293,24 @@ class Match:
             if text:
                 return [{"to": None, "msg": {"t": "chat", "n": p["name"], "tm": p["team"], "m": text}}]
         return []
+
+    @staticmethod
+    def _cancel_spawn_shield(p):
+        # Terminal for this life; only _spawn may grant protection again.
+        p["shield_cancelled"] = True
+        p["shield_until"] = 0.0
+
+    def _movement_spawn_shield(self, p, previous, moving=False):
+        if p.get("shield_cancelled"):
+            return
+        # Ignore tiny packet quantisation/ground settling, but accumulate small
+        # accepted steps so crawling with a forged move=False cannot keep it.
+        if p.get("shield_anchor") is None:
+            p["shield_anchor"] = list(previous)
+        p["shield_motion"] = p.get("shield_motion", 0.0) + max(0.0, dist3(previous, p["pos"]) - .001)
+        # Also bound net drift: sub-millimetre packets must not evade the noise discount.
+        if moving or p["shield_motion"] > .025 or dist3(p["shield_anchor"], p["pos"]) > .025:
+            self._cancel_spawn_shield(p)
 
     def _on_input(self, p, msg):
         if not p["alive"]:
@@ -351,6 +373,7 @@ class Match:
         cap = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * COMBAT.get("sprintMult", 1.35)
         p["velocity"] = [clamp((nx-ox)/dt, -cap, cap), clamp((ny-oy)/dt, -cap, cap), clamp((nz-oz)/dt, -cap, cap)]
         p["pos"] = [nx, ny, nz]
+        self._movement_spawn_shield(p, (ox, oy, oz), p["flags"].get("move", False))
         self._ensure_safe_position(p)
 
     def _on_switch(self, p, msg):
@@ -444,6 +467,7 @@ class Match:
         if d == (0.0, 0.0, 0.0) or not all(math.isfinite(v) for v in d):
             return []
 
+        self._cancel_spawn_shield(p)
         p["last_shot"] = now
         p["shot_seq"] = p.get("shot_seq", 0) + 1
         p["mag"] -= 1
@@ -610,6 +634,7 @@ class Match:
         p["spawned_at"] = p["last_input"]
         p["life"] = p.get("life", 0) + 1
         p["shield_until"] = p["spawned_at"] + SPAWN_SHIELD_MS
+        p["shield_cancelled"], p["shield_motion"], p["shield_anchor"] = False, 0.0, None
         p["safe_pos"] = list(s)
         p["recovery_pos"] = None
         _seed_hist(p, p["last_input"])
@@ -660,6 +685,8 @@ class Match:
             fx.update({"p": [round(v, 2) for v in p["pos"]], "r": radius,
                        "dur": CRATE_LIFE_MS, "persist": True})
 
+        if kind == "flare":
+            self._cancel_spawn_shield(p)
         p["ability_charges"] -= 1
         if p["ability_charges"] <= 0:
             p["ability_ready"] = now + cd
@@ -713,6 +740,7 @@ class Match:
         fx["owner"] = {key: p[key] for key in ("id", "name", "team", "cls", "weapon", "kills")}
         self.next_eid += 1
         self.effects.append(fx)
+        self._cancel_spawn_shield(p)
         p["grenades"] -= 1
         if p["grenades"] <= 0:
             p["grenade_ready"] = now + combat.THROW["grenadeCdMs"]

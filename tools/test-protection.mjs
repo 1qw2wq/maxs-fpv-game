@@ -19,6 +19,11 @@ assert.equal(clock.remaining(30000),0);
 clock.accept(4,999999,true,40000);
 assert.equal(clock.remaining(40000),5000,'Malformed durations are capped');
 
+clock.accept(5,5000,true,50000);
+clock.accept(5,0,true,50100);
+clock.accept(5,5000,true,50200);
+assert.equal(clock.remaining(50200),0,'Movement/fire cancellation stays terminal while alive');
+
 let now=1000;
 const performanceDescriptor = Object.getOwnPropertyDescriptor(globalThis,'performance');
 Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>now}});
@@ -52,8 +57,23 @@ try {
   assert.equal(pose.x,90,'Respawn body interpolated through the map');
   assert.equal(pose.speed,0,'Respawn teleport became a running animation');
   assert.ok(pose.shieldMs<=5000 && pose.shieldMs>4900);
-  net._dispatch({t:'state',tick:13,ps:[]});
+  net._dispatch({t:'state',tick:13,ps:[row(2,0,[90,0,90])]});
+  assert.equal(net.sample().get(2).shieldMs,0,'Moving/shooting remote loses its bubble');
+  net._dispatch({t:'state',tick:14,ps:[row(2,5000,[90,0,90])]});
+  assert.equal(net.sample().get(2).shieldMs,0,'A stale positive value cannot revive an active remote life');
+  net._dispatch({t:'me',tick:13,life:2,alive:1,shieldMs:0,id:1});
+  net._dispatch({t:'me',tick:14,life:2,alive:1,shieldMs:5000,id:1});
+  assert.equal(net.protection.remaining(now),0,'A stale private value cannot revive protection after action');
+  net._dispatch({t:'state',tick:15,ps:[]});
   assert.equal(net.remoteProtection.size,0,'Departed players leak shield clocks');
+  const commands=[];net.send=m=>commands.push(m);
+  const v={x:0,y:0,z:0};
+  net.input(v,0,0,{});net.fire(v,{x:0,y:1,z:0});net.switchWeapon();net.reload();
+  net.ability(v);net.grenade(v,'frag');net.respawn('assault','mp18');
+  assert(commands.every(m=>m.life===2),'Commands must capture the sending life');
+  net._dispatch({t:'me',id:1,tick:15,life:3,alive:1,shieldMs:5000});
+  assert(commands.every(m=>m.life===2),'Queued old commands must not be retagged as the fresh life');
+  net.input(v,0,0,{});assert.equal(commands.at(-1).life,3);
   net._startPing=()=>{};
   net._dispatch({t:'welcome',id:3,team:0});
   net._dispatch({t:'me',id:1,tick:99999,life:99,alive:1,shieldMs:5000});
