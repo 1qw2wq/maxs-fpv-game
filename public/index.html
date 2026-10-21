@@ -87,17 +87,26 @@
         <div class="map-row" id="map-row"></div>
         <p id="map-note" class="hint dim"></p>
       </div>
-          <div class="bot-row hidden" id="bot-row">
-        <span>AI 数量</span>
+          <div class="bot-row bot-settings" id="bot-row">
+        <div class="bot-count-setting"><span>单人 AI 数量</span>
         <div class="seg" id="bot-count">
+          <button type="button" data-n="0">0</button>
           <button type="button" data-n="4">4</button>
           <button type="button" data-n="6" class="on">6</button>
           <button type="button" data-n="8">8</button>
           <button type="button" data-n="12">12</button>
           <button type="button" data-n="15">15</button>
-        </div>
+          <button type="button" data-n="16">16</button>
+        </div></div>
+        <label class="field rules-field"><span>多人 AI 数量（房主）</span>
+          <select id="multi-bot-count"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option></select>
+        </label>
+        <label class="field rules-field"><span>AI 难度</span>
+          <select id="bot-difficulty"><option value="mixed">混合（均衡）</option><option value="recruit">简单 · 新兵</option><option value="regular">普通 · 列兵</option><option value="veteran">困难 · 老兵</option><option value="elite">专家 · 精英</option></select>
+          <small id="bot-difficulty-note" aria-live="polite"></small>
+        </label>
       </div>
-      <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
+      <p id="bots-lock-hint" class="hint dim">难度适用于单人和多人；多人 AI 由房主设置，0 为仅真人。</p>
         </section>
       </div>
 
@@ -128,7 +137,7 @@
         <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
       </label></div></div>
       </section>
-      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p></div><div><label class="field">
+      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人可由房主添加 AI；同一台机器多开两个标签页也能对战</p></div><div><label class="field">
         <span>服务器地址</span>
         <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
       </label>

@@ -29,7 +29,7 @@ const SHARED_DIR = new URL('../shared/', import.meta.url);
 
 // Everything combat.py / bots.py / game.py / room.py import, plus the driver.
 const ENGINE_FILES = ['combat.py', 'objectives.py', 'throwing.py', 'bots.py', 'game.py', 'room.py', 'host.py'];
-const SHARED_FILES = ['weapons.json', 'maps.json', 'map.json'];
+const SHARED_FILES = ['weapons.json', 'maps.json', 'map.json', 'bots.json'];
 
 /** Battlefield JSON/JS in the engine's own layout. A 404 names the file. */
 async function text(url) {
@@ -245,9 +245,9 @@ export class LocalNet extends Net {
    * The first join creates the room (host.start); anything later -- a rejoin
    * after a reload, an address change -- is an ordinary message to it.
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx', botDifficulty = 'mixed') {
     const msg = {
-      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, botDifficulty, skin: skin || '',
       solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     };
     if (this._joined) { this.send(msg); return; }

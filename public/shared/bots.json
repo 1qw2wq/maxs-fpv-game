@@ -1,0 +1,122 @@
+{
+  "default": "mixed",
+  "maxCount": 16,
+  "rotation": [
+    "recruit",
+    "regular",
+    "veteran",
+    "recruit",
+    "regular",
+    "regular"
+  ],
+  "skills": {
+    "recruit": {
+      "reaction": [
+        550,
+        1000
+      ],
+      "sense": [
+        280,
+        420
+      ],
+      "turn": 140,
+      "pitch": 110,
+      "aim_error": 3.2,
+      "burst": [
+        180,
+        400
+      ],
+      "pause": [
+        550,
+        1050
+      ],
+      "lapse": 0.22,
+      "lead": 0.02,
+      "memory": 2500,
+      "decision_noise": 2.6,
+      "coordination": 0.15,
+      "cover_health": 0.26
+    },
+    "regular": {
+      "reaction": [
+        300,
+        600
+      ],
+      "sense": [
+        210,
+        310
+      ],
+      "turn": 230,
+      "pitch": 170,
+      "aim_error": 1.55,
+      "burst": [
+        300,
+        600
+      ],
+      "pause": [
+        300,
+        600
+      ],
+      "lapse": 0.13,
+      "lead": 0.07,
+      "memory": 4500,
+      "decision_noise": 1.9,
+      "coordination": 0.45,
+      "cover_health": 0.38
+    },
+    "veteran": {
+      "reaction": [
+        150,
+        300
+      ],
+      "sense": [
+        180,
+        250
+      ],
+      "turn": 320,
+      "pitch": 240,
+      "aim_error": 0.75,
+      "burst": [
+        400,
+        750
+      ],
+      "pause": [
+        170,
+        320
+      ],
+      "lapse": 0.07,
+      "lead": 0.11,
+      "memory": 6000,
+      "decision_noise": 1.1,
+      "coordination": 0.8,
+      "cover_health": 0.46
+    },
+    "elite": {
+      "reaction": [
+        120,
+        240
+      ],
+      "sense": [
+        150,
+        220
+      ],
+      "turn": 365,
+      "pitch": 275,
+      "aim_error": 0.5,
+      "burst": [
+        450,
+        800
+      ],
+      "pause": [
+        140,
+        280
+      ],
+      "lapse": 0.04,
+      "lead": 0.13,
+      "memory": 7000,
+      "decision_noise": 0.65,
+      "coordination": 1.0,
+      "cover_health": 0.52
+    }
+  }
+}

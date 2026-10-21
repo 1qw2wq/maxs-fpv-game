@@ -10,6 +10,7 @@
 // with an in-memory profile instead of throwing on start-up.
 
 import { store, session } from './storage.js';
+import {cleanBotSettings} from './bot-settings.js';
 import { sanitizeTouchLayout } from './mobile-layout.js';
 
 const KEY = 'tf.profile';
@@ -27,6 +28,8 @@ export const DEFAULT_PROFILE = {
   recentRooms: [],        // newest first, at most 5
   tutorialDone: false,
   soloBots: 6,
+  multiBots: 0,
+  botDifficulty: 'mixed',
   mapId: '',
   sensitivity: 0.0022,
   controlMode: 'auto',
@@ -71,6 +74,8 @@ export function sanitize(raw) {
   p.touchLayout = sanitizeTouchLayout(raw.touchLayout);
   p.tutorialDone = !!raw.tutorialDone;
   p.soloBots = [0, 4, 6, 8, 12, 15, 16].includes(Number(raw.soloBots)) ? Number(raw.soloBots) : 6;
+  p.multiBots = cleanBotSettings({botCount:raw.multiBots}).botCount;
+  p.botDifficulty = cleanBotSettings(raw).botDifficulty;
   p.mapId = clampStr(raw.mapId, 32);
   p.sensitivity = num(raw.sensitivity, 0.0004, 0.01, DEFAULT_PROFILE.sensitivity);
   const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};

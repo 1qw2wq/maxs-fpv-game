@@ -103,7 +103,7 @@ class BotTests(unittest.TestCase):
             self.assertAlmostEqual(turn, skill['turn'] * .1)
             turns.append(turn)
         self.assertEqual(turns, sorted(turns))
-        self.assertEqual(len(set(turns)), 3)
+        self.assertEqual(len(set(turns)), len(bots.SKILLS))
 
     def test_aim_error_and_trigger_pauses_differ_by_skill(self):
         errors, pauses = [], []
@@ -406,6 +406,76 @@ class BotTests(unittest.TestCase):
         due=self.bot['bot_state']['objective_until']
         self.assertIs(bots._objective_goal(self.match,self.bot,self.clock+100),chosen)
         self.assertEqual(self.bot['bot_state']['objective_until'],due)
+
+    def test_empty_primary_falls_back_without_minting_ammo_or_ignoring_equip_delay(self):
+        self.bot.update(mag=0,reserve=0)
+        primary=self.bot['primary'];secondary=self.bot['secondary']
+        old_mag=self.bot['inventory'][secondary]['mag']
+        self.advance(50)
+        self.assertEqual(self.bot['slot'],'secondary')
+        self.assertEqual(self.bot['inventory'][primary]['mag'],0)
+        self.assertEqual(self.bot['inventory'][primary]['reserve'],0)
+        self.assertEqual(self.bot['mag'],old_mag)
+        self.assertGreater(self.bot['equip_until'],self.clock)
+        self.assertEqual(self.match._on_fire(self.bot,dict(o=[0,1.58,0],d=[1,0,0])),[])
+        self.bot.update(mag=0,reserve=0)
+        for _ in range(10):self.advance(100)
+        self.assertEqual(self.bot['slot'],'secondary','no empty-weapon oscillation')
+        self.bot['inventory'][primary]['reserve']=10
+        self.advance(100)
+        self.assertEqual(self.bot['slot'],'primary')
+        self.assertEqual(self.bot['reserve'],10)
+
+    def test_utility_responds_to_health_range_and_pressure(self):
+        self.use_skill('veteran')
+        normal = bots._tactical_scores(self.match, self.bot, 20, 20, self.clock)
+        self.bot['hp'] = 10
+        self.bot['suppress_until'] = self.clock+1000
+        hurt = bots._tactical_scores(self.match, self.bot, 20, 20, self.clock)
+        self.assertGreater(hurt['withdraw'], normal['withdraw'])
+        self.assertLess(hurt['push'], normal['push'])
+        close = bots._tactical_scores(self.match, self.bot, 3, 20, self.clock)
+        far = bots._tactical_scores(self.match, self.bot, 50, 20, self.clock)
+        self.assertGreater(close['withdraw'], far['withdraw'])
+        self.assertGreater(far['push'], close['push'])
+
+    def test_flanking_ally_makes_an_anchor_and_ignores_hidden_enemy_positions(self):
+        self.use_skill('veteran');st=self.bot['bot_state'];st['foe_id']=self.foe['id']
+        ally=self.match.add_player('Flanker',None,bot=True)
+        ally['team']=self.bot['team'];ally['pos']=[2,0,2]
+        before=bots._tactical_scores(self.match,self.bot,20,20,self.clock)
+        ally['bot_state'].update(tactic='flank',tactic_foe=self.foe['id'],tactic_until=self.clock+1000)
+        after=bots._tactical_scores(self.match,self.bot,20,20,self.clock)
+        self.assertEqual(st['role'],'anchor')
+        self.assertLess(after['flank'],before['flank'])
+        self.assertGreater(after['hold'],before['hold'])
+        # Utility never reads enemy live position/health/intent.
+        self.foe['pos']=[-100,20,90];self.foe['hp']=1
+        self.assertEqual(bots._tactical_scores(self.match,self.bot,20,20,self.clock),after)
+
+    def test_difficulty_changes_memory_and_decisions_not_class_stats(self):
+        reaction=[];memory=[];noise=[]
+        hp=self.bot['hp'];weapon=dict(combat.WEAPONS[self.bot['weapon']])
+        for level,skill in bots.SKILLS.items():
+            self.use_skill(level);st=self.bot['bot_state']
+            bots._observe(st,self.foe,self.clock)
+            memory.append(st['seen_until']-self.clock)
+            reaction.append(sum(skill['reaction']))
+            noise.append(skill['decision_noise'])
+            self.assertEqual(self.bot['hp'],hp)
+            self.assertEqual(combat.WEAPONS[self.bot['weapon']],weapon)
+        self.assertEqual(memory,sorted(memory))
+        self.assertEqual(reaction,sorted(reaction,reverse=True))
+        self.assertEqual(noise,sorted(noise,reverse=True))
+
+    def test_higher_tiers_seek_cover_when_suppressed_by_observed_group(self):
+        other=self.match.add_player('Threat',None);other.update(team=1,pos=[20,0,2])
+        for level in bots.SKILLS:
+            self.use_skill(level);self.bot['suppress_until']=self.clock+1000
+            with patch.object(bots,'_find_cover',return_value=[-3,0,0]) as cover, patch.object(self.match,'_on_fire',return_value=[]):
+                self.advance(100)
+                self.assertEqual(cover.called,level in ('veteran','elite'),level)
+                self.assertEqual(self.bot['bot_state']['visible_count'],2)
 
     def test_fifteen_bots_on_all_maps_use_varied_tactics_and_cancel_their_shields(self):
         for map_id in ('somme','italy','proc_city'):

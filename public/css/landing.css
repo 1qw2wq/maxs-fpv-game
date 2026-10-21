@@ -172,3 +172,12 @@ html[lang='en'] #screen-menu .logo-en { display:none; }
 #screen-menu:has(#lobby-main:not(.hidden)) .landing-hero { min-height:180px; padding-block:24px; }
 #screen-menu:has(#lobby-main:not(.hidden)) .logo-cn { font-size:42px; }
 #screen-menu:has(#lobby-main:not(.hidden)) .logo-sub { margin-block:10px 16px; }
+
+/* Solo and host-owned multiplayer AI settings share the operation card. */
+#screen-menu .bot-settings { flex-direction:column; align-items:stretch; gap:13px; }
+#screen-menu .bot-count-setting { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+#screen-menu .bot-count-setting > span { font-size:11px; color:#a3ae96; }
+#screen-menu .bot-count-setting .seg { flex-wrap:wrap; }
+#screen-menu .bot-settings select { width:100%; min-width:0; min-height:44px; }
+#screen-menu .bot-settings button { min-width:36px; min-height:44px; }
+#screen-menu .bot-settings :disabled { opacity:.5; cursor:not-allowed; }

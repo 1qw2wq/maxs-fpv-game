@@ -163,6 +163,7 @@ class Match:
         self.tick_count = 0
         self.rng = random.Random(1914)
         self.bot_count = bot_count
+        self.bot_difficulty = "mixed"
         self.suppress_window = 1500.0
         self.outbox = []
         # Solo balancing is opt-in per join: see Lobby.join. In solo a bot only
@@ -198,7 +199,7 @@ class Match:
             weapon = CLASS_WEAPONS[cls][0]
         secondary = secondary if isinstance(secondary, str) and secondary in combat.SECONDARIES else combat.SECONDARIES[0]
         spawn, spawn_yaw = random_spawn(team, self.rng)
-        skill = bots_mod.skill_for_slot(sum(1 for q in self.players.values() if q["bot"] and q["team"] == team)) if bot else ""
+        skill = bots_mod.difficulty_for_slot(self.bot_difficulty, sum(1 for q in self.players.values() if q["bot"] and q["team"] == team)) if bot else ""
         hp = float(CLASSES[cls]["maxHp"])
         spawned_at = now_ms()
         p = {
@@ -247,8 +248,22 @@ class Match:
     def human_count(self):
         return sum(1 for p in self.players.values() if not p["bot"])
 
+    def set_bot_difficulty(self, level):
+        self.bot_difficulty = bots_mod.normalize_difficulty(level)
+        slots = {0: 0, 1: 0}
+        for p in self.players.values():
+            if not p["bot"]:
+                continue
+            p["bot_skill"] = bots_mod.difficulty_for_slot(self.bot_difficulty, slots[p["team"]])
+            p["bot_state"] = bots_mod.new_state(p["team"], p["bot_skill"])
+            slots[p["team"]] += 1
+
     def fill_bots(self, want):
-        """Top up with bots so a lone player still sees a running match."""
+        """Exact bounded AI population; reserve slots for arriving humans."""
+        want = max(0, min(bots_mod.BOT_CONFIG["maxCount"], 32-self.human_count(), int(want)))
+        existing = [p["id"] for p in self.players.values() if p["bot"]]
+        for pid in existing[want:]:
+            self.remove_player(pid)
         # Solo never fields bot scouts: a bot sniper one-shots the lone player
         # across the map, and there is no team to trade the pick back.
         pool = ["assault", "medic", "support"] if self.solo else ["assault", "medic", "support", "scout"]
@@ -1015,6 +1030,7 @@ class Match:
             remaining = max(0.0, float(COMBAT["matchMs"]) - (now_ms() - self.start_ms))
         return {
             "t": "state", "tick": self.tick_count, "phase": self.phase,
+            "botDifficulty": self.bot_difficulty,
             "s": list(self.scores), "limit": len(self.control.points) if self.control else int(COMBAT["scoreLimit"]),
             "gameMode": self.mode, "objectives": self.control.payload() if self.control else None, "reason": self.end_reason,
             "endsIn": int(remaining), "winner": self.winner,

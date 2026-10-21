@@ -20,6 +20,8 @@ server — see *Deployment → Vercel*.
 - Primaries per class: **Assault 6 / Medic 5 / Support 6 / Scout 9**. Every class can choose APX Carry,
   G17, Desert Eagle or Flare Pistol as a separate secondary; each slot keeps its own ammunition.
 - Desktop uses native pointer lock; mobile is an explicit joystick/button mode. No cursor/edge steering.
+- **Selectable AI in Solo and multiplayer**: Easy, Normal, Hard, Expert and Mixed; hosts choose
+  0–16 multiplayer bots, guests follow the host. See [difficulty, tactics and checks](docs/bot-difficulty.md).
 - **Unified operations-room UI**: the landing page, loadout, settings, tutorial, match submenus and
   developer tools share the olive/charcoal/amber design, with responsive layouts and keyboard selection.
 - **Corrected diagnostics status**: `/debug.html` runs independently; an absent game runtime there is
@@ -506,7 +508,8 @@ layout/emulation checks, not a claim that every physical phone/browser has been 
   stay in sync and use the existing local profile setting; it survives reloads when local storage
   is allowed. Lock changes, Esc, blur, hidden tabs, resizing and respawning clear pending movement.
   This remains native pointer lock only: no free-cursor steering is introduced.
-- Bots mix **Recruit / Regular / Veteran** skills on each team, visible on the Tab scoreboard.
+- **Mixed** difficulty rotates **Recruit / Regular / Veteran** on each team, visible on the Tab scoreboard.
+  The selector also offers uniform Easy/Normal/Hard and a new **Expert · Elite** tier (120–240 ms reaction).
   Recruits react in 550–1000 ms, turn more slowly, have wider horizontal/vertical aim error and
   longer pauses. Regulars react in 300–600 ms; veterans in 150–300 ms with tighter tracking and
   shorter pauses. These are reaction delays **after acquisition**, not guaranteed time-to-first-shot.
@@ -518,11 +521,57 @@ layout/emulation checks, not a claim that every physical phone/browser has been 
 `node tools/test-mouse.mjs` checks input spikes, first-lock movement, 24/60/144 Hz precision, fast
 flicks and stalled backlogs. `node tools/test-vercel.mjs` also checks actual native-lock integration,
 saved menu/pause sensitivity, mixed-tier live rosters and translated scoreboard labels alongside
-all existing aiming/shooting/multiplayer tests. `python tools/test-ai.py` has 31 regressions covering
+all existing aiming/shooting/multiplayer tests. `python tools/test-ai.py` has 36 regressions covering
 skill, sampled prediction, frame-rate-independent drift, hesitation, tactic commitments, objective
 spread, LOS safety and 15 bots running for 40 simulated seconds on each of the three maps.
 
-### Smarter solo bots and collision-safe cameras
+### AI difficulty in Solo and multiplayer
+
+On the main page, use **Solo AI count** or **Multiplayer AI count (host)**, then **AI difficulty**.
+Solo keeps per-map count preferences (City defaults to 15); multiplayer defaults to **0**, so existing
+human-only rooms stay human-only unless the host enables AI. Count and difficulty are separate settings.
+
+| Difficulty | Tier / reaction after acquisition | Tactical character |
+| --- | --- | --- |
+| Mixed (balanced) | Original per-team recruit/regular/veteran rotation | Mostly ordinary soldiers; no Elite in this rotation |
+| Easy | Recruit / 550–1000 ms | Looser aim, more pauses and decision mistakes |
+| Normal | Regular / 300–600 ms | Balanced tracking, cover and tactical choices |
+| Hard | Veteran / 150–300 ms | Better coordination and cover under group suppression |
+| Expert | Elite / 120–240 ms | Steadier tracking/decisions, still finite reaction and imperfect aim |
+
+- Bots now **score push, hold, strafe, flank and withdraw** using health, weapon range, suppression,
+  visible threats and nearby allies. Support guns / allies already flanking encourage an anchor role,
+  rather than the whole team repeatedly rushing the same flank. Decision noise decreases with difficulty.
+- Harder tiers seek cover earlier and remember last-seen positions longer, without tracking hidden
+  live positions. An exhausted primary can fall back to a stocked pistol through the normal equip-delay
+  and separate-ammo rules. All tiers retain normal health, damage, LOS/smoke/flash and weapon authority.
+  Existing Solo-only balance relief is unchanged; multiplayer does not gain it from a guest's join.
+- Only the **host** chooses multiplayer bots and difficulty. Guests see the settings read-only; their
+  join messages/direct commands cannot change them. AI changes revoke Ready and require guests to
+  re-ready before host Start. Approved joins/rejoins retain the AI population and selected tier.
+- At most 16 bots and 32 total players; human arrivals reclaim bot slots when needed, departures
+  restore the requested count, and the last human leaving removes all AI. Difficulty survives respawn.
+- Bilingual settings, local persistence and shared `public/shared/bots.json` tuning work with both the
+  Python host and browser/Pyodide authority. No build, required backend, online AI service or production npm.
+
+This is hand-authored utility/coordination AI, **not machine learning or a full squad planner**.
+Research references, parameters, authority rules and verification limits are in
+[bot difficulty and intelligence](docs/bot-difficulty.md). Focused checks:
+
+```sh
+python tools/test-ai.py
+python tools/test-bot-difficulty.py
+node tools/test-bot-settings.mjs
+node tools/test-room-lobby.mjs
+BOT_LOBBY_TEST=1 node tools/test-room-lobby.mjs
+```
+
+Browser checks require the existing external test-only Playwright/Chromium dependencies. They cover
+all selector levels in actual Solo/Pyodide matches, English/Chinese desktop/mobile settings, saved
+preferences, default no-bot multiplayer and host-selected Elite bots over tabs and isolated RTC.
+These are local regressions, not cross-NAT/real-device certification or exhaustive gameplay testing.
+
+### Smarter bots and collision-safe cameras
 
 - **Less scripted decisions:** each life gets its own steadiness/aggression and runtime-random choices,
   not the same fixed match seed. Bots commit to push/flank/strafe/withdraw plans for 1.3–3.1 seconds,
@@ -533,7 +582,7 @@ spread, LOS safety and 15 bots running for 40 simulated seconds on each of the t
   observations—not the target's live/hidden velocity. Prediction is capped at 180 ms and 1.2 m per
   axis, so sudden direction changes can fool it. Aim error eases smoothly rather than snapping,
   grows instead of shrinking at long range, and increases under suppression.
-- At each new burst, recruits/regulars/veterans have a **22% / 13% / 7%** chance to hesitate for
+- At each new burst, recruits/regulars/veterans/elites have a **22% / 13% / 7% / 4%** chance to hesitate for
   **180–550 ms**. This is a missed/delayed firing opportunity, not a hit probability. Together with
   imperfect tracking, overcommitted pushes and individual traits, it introduces real mistakes
   without adding damage, health, collision or ammunition privileges.
@@ -784,8 +833,8 @@ The main-menu options (match rules are selected separately):
 
 | Mode | What it does |
 | --- | --- |
-| Multiplayer | Host or join human-only deathmatch / point control; no bots |
-| Solo | You plus AI teammates against AI enemies; bots are forced on and the switch becomes a read-only indicator |
+| Multiplayer | Host or join deathmatch / point control; host can add 0–16 AI at the chosen difficulty (0 = humans only) |
+| Solo | Choose AI count and difficulty; 0 = target practice, otherwise AI teammates and enemies |
 | Setup | Import a skinned glTF/GLB, map its bones to the game's joints, tune the pose and upload it for everyone |
 | Tutorial | Private, bot-free practice with 11 action-based lessons |
 

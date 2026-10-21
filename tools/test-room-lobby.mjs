@@ -25,6 +25,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const origin=`http://127.0.0.1:${server.address().port}`;
 const browser=await pw.launch({executablePath:process.env.CHROMIUM_EXECUTABLE||await chromium.executablePath(),args:chromium.args.filter(a=>!a.includes('disable-web-security')&&a!=='--single-process'),headless:true});
 const errors=[],contexts=[];
+const botCount=process.env.BOT_LOBBY_TEST?4:0;
 async function context(isolated=false){
  const c=await browser.newContext({viewport:{width:1100,height:800}});contexts.push(c);
  await c.addInitScript(isolated=>{window.WebSocket=class{constructor(){throw Error('No backend');}};if(isolated)window.BroadcastChannel=class{constructor(){throw Error('RTC only');}};},isolated);
@@ -40,6 +41,12 @@ async function readyAndStart(host,guest){
  await guest.locator('.class-card').nth(await guest.evaluate(()=>__trench.app.data.classes.findIndex(c=>c.id==='medic'))).click();
  await host.click('#map-row button[data-id="proc_city"]');
  await host.selectOption('#game-mode','control');
+ if(botCount){
+  await host.selectOption('#multi-bot-count',String(botCount));await host.selectOption('#bot-difficulty','elite');
+  await guest.waitForFunction(()=>__trench.app.roomLobby.config.botDifficulty==='elite');
+  assert.equal(await guest.locator('#multi-bot-count').isDisabled(),true);
+  assert.equal(await guest.locator('#bot-difficulty').isDisabled(),true);
+ }
  await guest.waitForFunction(()=>__trench.app.mapPick==='proc_city'&&document.getElementById('game-mode').value==='control');
  assert.equal(await guest.locator('#game-mode').isDisabled(),true);
  assert.equal(await guest.locator('#map-row button:not(:disabled)').count(),0);
@@ -67,7 +74,16 @@ async function readyAndStart(host,guest){
  assert.equal(await host.evaluate(()=>__trench.app.roomChannel._wireId),wire);
  await host.click('#btn-deploy');
  await host.waitForFunction(()=>__trench.app.playing&&__trench.app.roomLobby.phase==='started',null,{timeout:90000});
- await guest.waitForFunction(()=>__trench.app.playing&&__trench.app.net.lastState?.ps?.length===2,null,{timeout:90000});
+ await guest.waitForFunction(n=>__trench.app.playing&&__trench.app.net.lastState?.ps?.length===2+n,botCount,{timeout:90000});
+ assert.equal(await host.evaluate(()=>__trench.app.net.status().bots),botCount);
+ if(botCount){
+  const rows=await guest.evaluate(()=>__trench.app.net.lastState.ps.filter(p=>p.ai));
+  assert(rows.every(p=>p.ai==='elite'));
+  await guest.evaluate(()=>__trench.app.net.send({t:'bots',on:false,n:0,difficulty:'recruit'}));
+  const tick=await host.evaluate(()=>__trench.app.net.status().tick);
+  await host.waitForFunction(tick=>__trench.app.net.status().tick>tick+3,tick);
+  assert.equal(await host.evaluate(()=>__trench.app.net.status().bots),botCount,'guest cannot clear host bots');
+ }
  assert.equal(await host.evaluate(()=>__trench.app.net.status().humans),2);
  assert.equal(await guest.evaluate(()=>__trench.app.loadout.cls),'medic');
  assert.equal(await guest.evaluate(()=>__trench.app.mapId),'somme');
@@ -101,6 +117,7 @@ try{
  await host.evaluate(sid=>__trench.app.net._dropGuest(sid),sid);
  await guest.waitForFunction(previous=>__trench.app.playing&&__trench.app.net.id!==null&&__trench.app.net.id!==previous,previous);
  await host.waitForFunction(()=>__trench.app.net.status().humans===2);
+ assert.equal(await host.evaluate(()=>__trench.app.net.status().bots),botCount,'approved rejoin retains host AI');
  const rogue=await c.newPage();await rogue.goto(origin+'/__harness.html');
  await rogue.evaluate(async code=>{const {RelayNet}=await import('/js/relay.js');window.rogueErrors=[];window.rogue=new RelayNet({onMessage:m=>rogueErrors.push(m)}, {code});await rogue.connect('',{code});rogue.join('Unapproved','assault','mp18',false,0,'',false,'somme','',code);},code);
  await rogue.waitForFunction(()=>rogueErrors.some(m=>m.t==='joinError'&&m.why==='approval'));

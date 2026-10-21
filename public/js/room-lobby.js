@@ -1,13 +1,14 @@
 // Pre-match admission/state, independent of rendering and the Python engine.
 // The same channel is handed to RelayHostNet/RelayNet when the host starts.
+import {cleanBotSettings} from './bot-settings.js';
 const topic=code=>`trench-front/v1/r/${code}`;
 // Epoch uniqueness, not an authentication token; LAN HTTP may lack randomUUID.
 const nonce=()=>globalThis.crypto?.randomUUID?.()||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const cleanName=name=>String(name||'Player').replace(/[\u0000-\u001f]/g,'').trim().slice(0,16)||'Player';
 export class RoomLobby {
-  constructor({role,code,channel,id,name,map='somme',gameMode='tdm',onChange,onApproved,onStart,onClosed,onLeave}){
+  constructor({role,code,channel,id,name,map='somme',gameMode='tdm',botCount=0,botDifficulty='mixed',onChange,onApproved,onStart,onClosed,onLeave}){
     Object.assign(this,{role,code,channel,id,name:cleanName(name),onChange,onApproved,onStart,onClosed,onLeave});
-    this.phase='waiting';this.config={map,gameMode};this.members=new Map();this.pending=new Map();
+    this.phase='waiting';this.config={map,gameMode,...cleanBotSettings({botCount,botDifficulty})};this.members=new Map();this.pending=new Map();
     this.owner=role==='host'?channel._wireId:null;this.epoch=role==='host'?nonce():null;
     this.rev=0;this.lastRev=-1;this.lastHost=Date.now();this.closed=false;this.launched=false;
     this.selfStatus=role==='host'?'approved':'pending';this.selfReady=false;this.readySeq=0;
@@ -51,6 +52,7 @@ export class RoomLobby {
         this.pending.set(m.id,{id:m.id,wire:sender,name:cleanName(m.name),seen:Date.now(),ready:false,readySeq:0});this.update();return;
       }
       if(m.cmd==='ready'&&this.phase==='waiting'&&this.members.has(m.id)){
+        if(m.botConfig!==`${this.config.botCount}:${this.config.botDifficulty}`)return;
         if(!Number.isSafeInteger(m.seq)||m.seq<member.readySeq)return;
         if(m.seq===member.readySeq){this.broadcast();return;}
         member.ready=m.ready===true;member.readySeq=m.seq;member.seen=Date.now();this.update();
@@ -64,7 +66,8 @@ export class RoomLobby {
     if(this.epoch&&this.epoch!==m.epoch)return;
     if(m.rev<this.lastRev)return;
     this.owner=sender;this.epoch=m.epoch;this.lastRev=m.rev;this.lastHost=Date.now();
-    this.phase=m.phase;this.config={...m.config};this.hostName=m.hostName;
+    if(this.config.botCount!==m.config.botCount||this.config.botDifficulty!==m.config.botDifficulty)this.readyIntent=undefined;
+    this.phase=m.phase;this.config={...m.config,...cleanBotSettings(m.config)};this.hostName=m.hostName;
     this.members=new Map(m.members.map(p=>[p.id,p]));
     const own=this.members.get(this.id),was=this.selfStatus;
     this.selfStatus=own?'approved':'pending';this.selfReady=!!own?.ready;
@@ -84,14 +87,19 @@ export class RoomLobby {
   }
   configure(config){
     if(this.role!=='host'||this.phase!=='waiting')return false;
-    this.config={...this.config,...config};this.update();return true;
+    const bots=cleanBotSettings({...this.config,...config});
+    if(bots.botCount!==this.config.botCount||bots.botDifficulty!==this.config.botDifficulty){
+      for(const member of this.members.values())member.ready=false;
+    }
+    this.config={map:config.map??this.config.map,gameMode:config.gameMode??this.config.gameMode,...bots};
+    this.update();return true;
   }
   ready(value,selection){
     if(this.role!=='guest'||this.phase!=='waiting'||this.selfStatus!=='approved')return false;
     this.selection=selection||this.selection;
     this.readyIntent=!!value;this.readySeq++;this.sendReady();return true;
   }
-  sendReady(){this.send({cmd:'ready',id:this.id,ready:this.readyIntent,seq:this.readySeq});}
+  sendReady(){this.send({cmd:'ready',id:this.id,ready:this.readyIntent,seq:this.readySeq,botConfig:`${this.config.botCount}:${this.config.botDifficulty}`});}
   get canStart(){return this.role==='host'&&this.phase==='waiting'&&[...this.members.values()].every(m=>m.ready);}
   start(){
     if(!this.canStart)return false;

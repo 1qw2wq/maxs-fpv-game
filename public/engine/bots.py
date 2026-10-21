@@ -18,16 +18,20 @@ _RNG = random.Random()  # Runtime variety; regression tests explicitly seed it.
 
 # Same navigation, health, LOS and authoritative weapons for every tier. Skill
 # changes human-like reaction/tracking/trigger discipline, never hidden info.
-SKILLS = {
-    "recruit": dict(reaction=(550, 1000), sense=(280, 420), turn=140, pitch=110,
-                    aim_error=3.2, burst=(180, 400), pause=(550, 1050), lapse=.22, lead=.02),
-    "regular": dict(reaction=(300, 600), sense=(210, 310), turn=230, pitch=170,
-                    aim_error=1.55, burst=(300, 600), pause=(300, 600), lapse=.13, lead=.07),
-    "veteran": dict(reaction=(150, 300), sense=(180, 250), turn=320, pitch=240,
-                    aim_error=0.75, burst=(400, 750), pause=(170, 320), lapse=.07, lead=.11),
-}
-# Per-team rotation: mostly ordinary soldiers; only one veteran per six bots.
-SKILL_ROTATION = ("recruit", "regular", "veteran", "recruit", "regular", "regular")
+BOT_CONFIG = combat._load("bots.json")
+SKILLS = BOT_CONFIG["skills"]
+SKILL_ROTATION = tuple(BOT_CONFIG["rotation"])
+
+
+def normalize_difficulty(value):
+    return value if isinstance(value, str) and (value == "mixed" or value in SKILLS) else "mixed"
+
+
+def difficulty_for_slot(difficulty, slot):
+    level = normalize_difficulty(difficulty)
+    return skill_for_slot(slot) if level == "mixed" else level
+
+
 AIM_TOLERANCE_DEG = 0.8
 
 
@@ -76,6 +80,7 @@ def new_state(team, skill="regular"):
         "tactic": None, "tactic_until": 0.0, "tactic_foe": None,
         "flank_goal": None,
         "objective_id": None, "objective_until": 0.0,
+        "visible_count": 0, "role": "maneuver", "confidence": 0.0, "utilities": {},
     }
 
 
@@ -170,17 +175,20 @@ def _can_see(match, p, q, eye):
 
 def _visible_foe(match, p, eye, max_d=95.0):
     best, score = None, float("inf")
+    contacts = 0
     for q in match.players.values():
         if not _can_see(match, p, q, eye):
             continue
         d = dist3(p["pos"], q["pos"])
         if d > max_d:
             continue
+        contacts += 1
         # Hysteresis keeps a duel stable rather than resetting reaction time
         # every time two opponents swap which one is a centimetre closer.
         value = d * (0.72 if q["id"] == p["bot_state"]["foe_id"] else 1.0)
         if value < score:
             best, score = q, value
+    p["bot_state"]["visible_count"] = contacts
     return best, dist3(p["pos"], best["pos"]) if best else float("inf")
 
 
@@ -268,7 +276,8 @@ def _observe(st, visible, now):
         if math.sqrt(sum(v*v for v in delta)) <= cap*elapsed+1:
             velocity = [clamp(delta[i]/elapsed, -cap, cap)*.65+st["observed_velocity"][i]*.35 for i in range(3)]
     st.update(aim_sample=point, sample_id=visible["id"], sample_at=now,
-              observed_velocity=velocity, last_seen=list(visible["pos"]), seen_until=now+4500)
+              observed_velocity=velocity, last_seen=list(visible["pos"]),
+              seen_until=now+SKILLS[st["skill"]]["memory"])
 
 
 def _aim_point(st, skill, now):
@@ -278,20 +287,54 @@ def _aim_point(st, skill, now):
     return [st["aim_sample"][i]+clamp(st["observed_velocity"][i]*horizon, -1.2, 1.2) for i in range(3)]
 
 
-def _choose_tactic(p, foe, distance, ideal, now):
+def _tactical_scores(match, p, distance, ideal, now):
+    """Small utility model: only own state, friendly roles and perceived threats.
+
+    Inspired by utility DSEs / squad confidence, not a planner or machine learning.
+    No enemy positions are consulted here, particularly not hidden opponents.
+    """
+    st = p["bot_state"]
+    skill = SKILLS[st["skill"]]
+    allies = [] if match is None else [q for q in match.players.values()
+        if q is not p and q["alive"] and q["team"] == p["team"]
+        and dist3(q["pos"], p["pos"]) < 18]
+    engaged = [q for q in allies if (q.get("bot_state") or {}).get("tactic_foe") == st["foe_id"]
+               and now < (q.get("bot_state") or {}).get("tactic_until", 0)]
+    flankers = sum((q.get("bot_state") or {}).get("tactic") == "flank" for q in engaged)
+    threats = max(1, st["visible_count"])
+    hp = p["hp"] / CLASSES[p["cls"]]["maxHp"]
+    pressure = float(now < p.get("suppress_until", 0))
+    close = clamp(1-distance/ideal, 0, 1)
+    far = clamp(distance/ideal-1, 0, 2)
+    fit = 1-min(1, abs(distance-ideal)/ideal)
+    confidence = clamp((len(allies)+1-threats)*.3 + (hp-.65) - pressure*.4, -1, 1)
+    st["confidence"] = confidence
+    coordination = skill["coordination"]
+    # A support gun / existing maneuver element becomes the anchor. Limit the
+    # number of committed flankers instead of sending the entire group around.
+    anchor = WEAPONS[p["weapon"]]["shape"] == "lmg" or flankers >= max(1, (len(allies)+1)//3)
+    st["role"] = "anchor" if anchor else "maneuver"
+    return {
+        "withdraw": .2+close*3.4+(1-hp)*3.0+pressure*.8-max(0, confidence)*.5,
+        "push": .6+far*2.3+confidence*.6-close*.8-pressure*.8,
+        "hold": .9+fit*.8-far*.8+coordination*(1.7 if anchor else 0),
+        "strafe": 1.1+fit*.9-pressure*.3,
+        "flank": 1.0+max(0, confidence)*.6+far*.3-close*.8+coordination*(-2 if anchor else .9),
+    }
+
+
+def _choose_tactic(p, foe, distance, ideal, now, match=None):
     st = p["bot_state"]
     if st["tactic_foe"] == foe["id"] and now < st["tactic_until"]:
         return st["tactic"]
     st["tactic_foe"], st["tactic_until"] = foe["id"], now+_RNG.uniform(1300, 3100)
-    # Commit to a decision, rather than perfect range-keeping/left-right changes
-    # on every tick. Occasionally choose a risky push or hesitate in the open.
-    roll = _RNG.random()
-    if distance < ideal*.55:
-        tactic = "push" if roll < .14*st["aggression"] else "withdraw"
-    elif distance > ideal*1.35:
-        tactic = "flank" if roll < .55 else "push"
-    else:
-        tactic = "hold" if roll < .23 else "flank" if roll < .48 else "strafe"
+    # Score competing needs, add bounded personality/mistakes, then commit.
+    # Lower difficulty has noisier decisions, not reduced health/damage.
+    skill = SKILLS[st["skill"]]
+    st["utilities"] = _tactical_scores(match, p, distance, ideal, now)
+    scores = {action: value + _RNG.uniform(-skill["decision_noise"], skill["decision_noise"])
+              for action, value in st["utilities"].items()}
+    tactic = max(scores, key=scores.get)
     st["flank_goal"] = None
     if tactic == "flank":
         dx, dz = foe["pos"][0]-p["pos"][0], foe["pos"][2]-p["pos"][2]
@@ -353,6 +396,15 @@ def _ability(match, p, visible, reloading, now):
     return events
 
 
+def _manage_weapon(match, p):
+    """Use the same equip delay and independent ammunition as human switching."""
+    other = "secondary" if p["slot"] == "primary" else "primary"
+    stored = p["inventory"].get(p[other], {})
+    available = stored.get("mag", 0)+stored.get("reserve", 0) > 0
+    if available and (p["mag"]+p["reserve"] <= 0 or other == "primary"):
+        match._on_switch(p, {"slot": other})
+
+
 def think(match, p, dt_ms):
     events = []
     now, dt = now_ms(), min(0.2, max(0, dt_ms / 1000.0))
@@ -370,6 +422,7 @@ def think(match, p, dt_ms):
 
     crouch = p["flags"].get("crouch", False)
     eye = (p["pos"][0], p["pos"][1] + COMBAT["crouchEyeHeight" if crouch else "standEyeHeight"], p["pos"][2])
+    _manage_weapon(match, p)
     w = WEAPONS[p["weapon"]]
     # A full scan is staggered, but LOS/smoke of the held target is rechecked on
     # every tick so cached perception can never fire through new cover/smoke.
@@ -397,8 +450,8 @@ def think(match, p, dt_ms):
         st["seen_until"], memory = 0.0, None
     if visible or memory:
         st["search_heading"] = None
-    ideal = {"smg": 12.0, "rifle": 25.0, "lmg": 30.0, "bolt": 42.0}.get(w["shape"], 22.0)
-    hurt = p["hp"] < CLASSES[p["cls"]]["maxHp"] * 0.38
+    ideal = {"smg": 12.0, "rifle": 25.0, "lmg": 30.0, "bolt": 42.0, "pistol": 9.0}.get(w["shape"], 22.0)
+    hurt = p["hp"] < CLASSES[p["cls"]]["maxHp"] * skill["cover_health"]
     reloading = now < p["reload_end"]
     if not reloading and p["reserve"] > 0 and (p["mag"] <= 0 or (p["mag"] < int(w["mag"]) * 0.35 and (not visible or distance > ideal * 1.4))):
         match._on_reload(p)
@@ -438,7 +491,8 @@ def think(match, p, dt_ms):
 
     # Low health/reload: seek actual occluding cover, not a random backwards
     # sidestep. Keep a chosen spot for a second instead of oscillating each tick.
-    retreat = bool(memory and (hurt or reloading) or st["cover"] and hurt and now - p["last_hit_ms"] < 10500)
+    under_pressure = now < p.get("suppress_until", 0) and st["visible_count"] >= 2 and skill["coordination"] >= .8
+    retreat = bool(memory and (hurt or reloading or under_pressure) or st["cover"] and hurt and now - p["last_hit_ms"] < 10500)
     if retreat and memory and now >= st["cover_at"]:
         st["cover"] = _find_cover(p, _target_point(visible) if visible else (memory[0], memory[1] + 1.15, memory[2]))
         st["cover_at"] = now + 1300
@@ -462,7 +516,7 @@ def think(match, p, dt_ms):
             speed_mult = .85
         st["search_heading"] = None
     elif visible:
-        tactic = _choose_tactic(p, visible, distance, ideal, now)
+        tactic = _choose_tactic(p, visible, distance, ideal, now, match)
         dx, dz = visible["pos"][0]-p["pos"][0], visible["pos"][2]-p["pos"][2]
         speed_mult = .5*st["aggression"]
         if tactic == "hold" and distance < ideal*1.7:
@@ -534,7 +588,7 @@ def think(match, p, dt_ms):
             if 0.01 < r < 1.6:
                 dx += rx / r * (1.6 - r)
                 dz += rz / r * (1.6 - r)
-    crouch = at_cover and (hurt or reloading)
+    crouch = at_cover and (hurt or reloading or under_pressure)
     speed = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * speed_mult * (0.55 if crouch else 1)
     old = list(p["pos"])
     off, nxt = _steer(p, dx, dz, speed * dt, st.get("detour")) if speed_mult else (0.0, None)

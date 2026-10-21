@@ -20,6 +20,7 @@ export class Hud {
       selectRoom: $('select-room'), selectRoomCode: $('select-room-code'),
       selectInvite: $('btn-select-invite'), selectCopy: $('btn-select-copy'),
       botRow: $('bot-row'), botCount: $('bot-count'),
+      botDifficulty: $('bot-difficulty'), multiBotCount: $('multi-bot-count'),
       botsLockHint: $('bots-lock-hint'), skinNote: $('skin-note'),
       mapRow: $('map-row'), mapNote: $('map-note'), tbMap: $('tb-map'), mapLoad: $('map-load'),
       modeMulti: $('btn-mode-multi'), modeSolo: $('btn-mode-solo'), modeSettings: $('btn-mode-settings'),
@@ -171,7 +172,7 @@ export class Hud {
     });
     this.el.botCount.addEventListener('click', (e) => {
       const b = e.target.closest('button');
-      if (!b) return;
+      if (!b || b.disabled) return;
       for (const x of this.el.botCount.children) x.classList.toggle('on', x === b);
       onBotCount(Number(b.dataset.n));
     });
@@ -314,7 +315,7 @@ export class Hud {
     });
   }
 
-  /** Bot controls only ever apply to solo: multiplayer is humans only. */
+  /** Main-menu bot settings; multiplayer choices are locked to the host. */
   setBotsVisible(visible) {
     this.el.botRow.classList.toggle('hidden', !visible);
     this.el.botsLockHint.classList.toggle('hidden', !visible);
@@ -1033,7 +1034,7 @@ export class Hud {
         .sort((a, b) => b.k - a.k || a.d - b.d);
       body.innerHTML = rows.map((p) => `
         <tr class="${p.i === myId ? 'me' : ''}${p.al ? '' : ' dead'}">
-          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}${p.ai ? ` · ${esc(t({recruit:'AI 新兵',regular:'AI 普通',veteran:'AI 老兵'}[p.ai] || 'AI'))}` : ''}</div></td>
+          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}${p.ai ? ` · ${esc(t({recruit:'AI 新兵',regular:'AI 普通',veteran:'AI 老兵',elite:'AI 精英'}[p.ai] || 'AI'))}` : ''}</div></td>
           <td class="k">${p.k}</td>
           <td class="d">${p.d}</td>
         </tr>

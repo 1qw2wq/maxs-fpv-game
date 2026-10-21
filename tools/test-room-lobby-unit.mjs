@@ -1,19 +1,31 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-const {RoomLobby}=await import('data:text/javascript;base64,'+Buffer.from(await readFile(new URL('../public/js/room-lobby.js',import.meta.url))).toString('base64'));
+import {BOT_DIFFICULTIES,cleanBotSettings} from '../public/js/bot-settings.js';
+const {RoomLobby}=await import(new URL('../public/js/room-lobby.js',import.meta.url));
 const channels=[],lobbies=[];let dropped=0,starts=0,approved=0,left=0,closed='';
 function channel(wire){const c={_wireId:wire,send(topic,text){const m=JSON.parse(text);if(m.cmd==='ready'&&dropped){dropped--;return;}for(const other of channels)if(other!==c)queueMicrotask(()=>other.lobby?.receive(text,wire));}};channels.push(c);return c;}
 function create(role,id,callbacks={}){const l=new RoomLobby({role,id,code:'12345678',name:id,channel:channel(id+'-wire'),...callbacks});lobbies.push(l);return l;}
 const settle=()=>new Promise(r=>setImmediate(r));
 try{
+ const config=JSON.parse(await readFile(new URL('../public/shared/bots.json',import.meta.url)));
+ assert.deepEqual(BOT_DIFFICULTIES,['mixed',...Object.keys(config.skills)]);
+ assert.deepEqual(cleanBotSettings({botCount:Infinity,botDifficulty:'bad'}),{botCount:0,botDifficulty:'mixed'});
+ assert.equal(cleanBotSettings({botCount:999}).botCount,16);
  const h=create('host','Host',{onStart:()=>starts++,onLeave:()=>left++});
  const g=create('guest','Guest',{onApproved:()=>approved++,onStart:()=>starts++});await settle();
  assert.equal(h.pending.size,1);assert.equal(g.selfStatus,'pending');assert.equal(g.configure({map:'italy'}),false);
  assert.equal(h.allows(g.id,g.channel._wireId),false);assert.equal(g.start(),false);
  assert(h.approve(g.id));await settle();assert.equal(approved,1);assert.equal(g.selfStatus,'approved');assert.equal(h.start(),false);
- h.configure({map:'proc_city',gameMode:'control'});await settle();assert.deepEqual(g.config,{map:'proc_city',gameMode:'control'});
+ h.configure({map:'proc_city',gameMode:'control'});await settle();assert.deepEqual(g.config,{map:'proc_city',gameMode:'control',botCount:0,botDifficulty:'mixed'});
  dropped=1;g.ready(true,{cls:'medic',weapon:'m1907'});await settle();assert.equal(h.canStart,false);
  g.pulse();await settle();assert.equal(h.canStart,true);assert.equal(g.selfReady,true);assert.equal(g.readyIntent,undefined);
+ const oldBotConfig=`${g.config.botCount}:${g.config.botDifficulty}`;
+ h.configure({botCount:6,botDifficulty:'elite'});await settle();
+ assert.equal(h.canStart,false);assert.equal(g.selfReady,false);assert.equal(g.config.botDifficulty,'elite');
+ assert.equal(g.configure({botCount:0,botDifficulty:'recruit'}),false);
+ h.receive(JSON.stringify({v:1,k:'lobby',room:h.code,cmd:'ready',id:g.id,ready:true,seq:g.readySeq+1,botConfig:oldBotConfig}),g.channel._wireId);
+ assert.equal(h.canStart,false,'a delayed Ready for older bot settings cannot launch');
+ g.ready(true);await settle();assert.equal(h.canStart,true);
  // Delayed old readiness must not undo a newer click, and pulse retries a lost acknowledgement.
  g.ready(false);g.ready(true,{cls:'scout'});await settle();
  h.receive(JSON.stringify({v:1,k:'lobby',room:h.code,cmd:'ready',id:g.id,ready:false,seq:g.readySeq-1}),g.channel._wireId);

@@ -51,7 +51,7 @@ def _bot_count(raw):
     """Clamped bot count; anything unparsable means the default of six."""
     try:
         return max(0, min(16, int(raw)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 6
 
 
@@ -63,6 +63,7 @@ class Room:
         self.by_pid = {}           # player id -> connection
         self.bots_on = False
         self.bot_target = 6
+        self.bot_owner = None
         # Map voting: one vote per connected human, settled during the gap
         # between rounds. Bots do not vote.
         self.votes = {}            # player id -> map id
@@ -102,24 +103,20 @@ class Room:
         skin = str(msg.get("skin") or "")
         if skin and not known_skin(skin):
             skin = ""
-        # Solo balancing flag; the last join wins and it clears when the room
-        # empties, so a normal multi match is never affected.
-        self.match.solo = bool(msg.get("solo"))
+        # Only the room creator chooses bots/difficulty/solo balancing. A guest
+        # cannot clear the host's AI or enable solo damage/regen concessions.
+        if fresh:
+            self.bot_owner = client
+            self.match.solo = bool(msg.get("solo"))
+            self.bot_target = _bot_count(msg.get("botCount", MAP_BY_ID[self.map_id].get("recommendedBots", 6)))
+            self.bots_on = msg.get("bots") is True and self.bot_target > 0
+            self.match.set_bot_difficulty(msg.get("botDifficulty", "mixed"))
         p = self.match.add_player(name, client, cls=str(msg.get("cls", "assault")),
                                   weapon=msg.get("weapon"), skin=skin, secondary=msg.get("secondary"))
         self.votes[p["id"]] = want
         self.sockets[client] = p["id"]
         self.by_pid[p["id"]] = client
         self.empty_since = None
-        if self.match.solo and msg.get("bots"):
-            self.bots_on = True
-            self.bot_target = _bot_count(msg.get("botCount", MAP_BY_ID[self.map_id].get("recommendedBots", 6)))
-        else:
-            # Bots are a solo-only feature: a multiplayer join clears any AI
-            # already in play, so a human match can never field bots.
-            if self.bots_on:
-                self.match.drop_bots()
-            self.bots_on = False
         if self.bots_on:
             self.match.fill_bots(self.bot_target)
         meta = map_meta(self.map_id)
@@ -133,7 +130,8 @@ class Room:
             "scene": meta["scene"], "cfg": COMBAT, "tickRate": COMBAT["tickRate"],
             "spawn": [round(v, 2) for v in p["pos"]], "yaw": p["yaw"],
             "cls": p["cls"], "weapon": p["weapon"], "secondary": p["secondary"], "skin": p["skin"],
-            "botsOn": self.bots_on, "gameMode": self.match.mode,
+            "botsOn": self.bots_on, "botCount": self.bot_target if self.bots_on else 0,
+            "botDifficulty": self.match.bot_difficulty, "gameMode": self.match.mode,
             # Existing clouds, fire, crates and pending flights retain their age.
             "fx": self.match.standing_crates(),
         }
@@ -151,6 +149,8 @@ class Room:
             self.match.solo = False
             self.votes.clear()
             self.empty_since = time.monotonic()
+        elif self.bots_on:
+            self.match.fill_bots(self.bot_target)
         log("leave room=%s id=%d players=%d" % (self.code, pid, len(self.match.players)))
 
     # ------------------------------------------------------- message handling
@@ -173,12 +173,12 @@ class Room:
                 p["ping"] = max(0.0, min(240.0, rtt))
             return
         if kind == "bots":
-            # Solo-only, same rule as join: never let a multiplayer room spawn
-            # bots through this path either.
-            if not self.match.solo:
+            # Same first-human authority in browser and Python hosts.
+            if client is not self.bot_owner:
                 return
-            self.bots_on = bool(data.get("on"))
             self.bot_target = _bot_count(data.get("n", self.bot_target))
+            self.bots_on = data.get("on") is True and self.bot_target > 0
+            self.match.set_bot_difficulty(data.get("difficulty", self.match.bot_difficulty))
             if self.bots_on:
                 self.match.fill_bots(self.bot_target)
             else:

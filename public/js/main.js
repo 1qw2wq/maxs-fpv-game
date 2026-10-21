@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import {RoomLobby} from './room-lobby.js';
+import {cleanBotSettings} from './bot-settings.js';
 import {renderRoomLobby} from './room-lobby-view.js';
 import { loadConfig } from './config.js';
 import { World } from './map.js';
@@ -738,6 +739,7 @@ function closeRoomLobby(notify=true){
 function installRoomLobby(role,channel,id){
   const lobby=new RoomLobby({role,channel,id,code:channel.room,name:app.hud.playerName,map:app.mapPick,
     gameMode:document.getElementById('game-mode').value,
+    ...cleanBotSettings({botCount:app.hud.el.multiBotCount.value,botDifficulty:app.hud.el.botDifficulty.value}),
     onChange:l=>{
       if(app.roomLobby!==l)return;
       if(role==='guest'){
@@ -752,7 +754,7 @@ function installRoomLobby(role,channel,id){
       if(app.roomLobby!==lobby)return;
       app.hud.closeInvite();
       const opts={...(selection||app.lobbySelection()),name:lobby.name,map:config.map,gameMode:config.gameMode,
-        solo:false,bots:false,botCount:0,room:role==='guest'?lobby.code:''};
+        solo:false,bots:config.botCount>0,botCount:config.botCount,botDifficulty:config.botDifficulty,room:role==='guest'?lobby.code:''};
       const ok=await deploy(opts);
       if(ok===false&&app.roomLobby===lobby){
         if(role==='host'){lobby.failed();app.hud.toast(t('启动失败，请重试或返回大厅。'),4500);}
@@ -825,6 +827,8 @@ function setupMenu() {
     return n;
   };
   let botCount = selectBotCount(app.mapPick);
+  app.hud.el.multiBotCount.value=String(saved.multiBots);
+  app.hud.el.botDifficulty.value=saved.botDifficulty;
   let mode = 'multi';
   app.roomMode = saved.roomMode;
   app.roomCode = saved.room;
@@ -851,8 +855,7 @@ function setupMenu() {
   const enterSelect = app.enterRoomSelect = (which) => {
     mode = which;
     app.sfx.resume();
-    // Bots belong to solo only; multiplayer is humans only.
-    app.hud.setBotsVisible(which === 'solo');
+    app.hud.setBotsVisible(true);
     app.hud.screen('select');
     app.hud.selectClass(app.loadout.cls, 0);
     app.hud.pickWeapon(app.loadout.cls, app.loadout.primary || app.loadout.weapon || app.loadout.cls);
@@ -951,7 +954,9 @@ function setupMenu() {
     const sel=app.hud.selected||{cls:app.loadout.cls,weapon:app.loadout.primary};
     app.loadout={...app.loadout,...sel,primary:sel.weapon};const practice=!!app.tut?.active;
     return {name:app.hud.playerName,cls:sel.cls,weapon:sel.weapon,secondary:sel.secondary,
-      bots:practice?false:mode==='solo',botCount:mode==='solo'?botCount:0,skin:app.loadout.skin||'',
+      bots:!practice&&(mode==='solo'?botCount:Number(app.hud.el.multiBotCount.value))>0,
+      botCount:practice?0:mode==='solo'?botCount:Number(app.hud.el.multiBotCount.value),
+      botDifficulty:app.hud.el.botDifficulty.value,skin:app.loadout.skin||'',
       solo:practice||mode==='solo',gameMode:practice?'control':document.getElementById('game-mode').value,
       room:!practice&&mode==='multi'&&multiNeedsCode()?app.hud.joinCode:'',map:practice?'somme':app.mapPick};
   };
@@ -964,7 +969,7 @@ function setupMenu() {
       if(l){if(l.role==='host')l.start();else l.ready(true,opts);updateRoomLobby();return;}
       deploy(opts);
     },
-    ()=>{app.roomLobby?.ready(false);app.hud.setBotsVisible(mode==='solo');app.hud.screen('menu');updateRoomLobby();},
+    ()=>{app.roomLobby?.ready(false);app.hud.setBotsVisible(true);app.hud.screen('menu');updateRoomLobby();},
   );
   document.getElementById('btn-lobby-invite').onclick=()=>openInvite('host');
   document.getElementById('btn-lobby-copy').onclick=()=>app.hud.copyRoomLink();
@@ -979,6 +984,12 @@ function setupMenu() {
   };
   for(const id of ['class-row','weapon-row','secondary-row'])document.getElementById(id).addEventListener('click',()=>app.roomLobby?.ready(false));
   document.getElementById('game-mode').addEventListener('change',()=>app.roomLobby?.configure({gameMode:document.getElementById('game-mode').value}));
+  for(const el of [app.hud.el.multiBotCount,app.hud.el.botDifficulty])el.addEventListener('change',()=>{
+    const settings=cleanBotSettings({botCount:app.hud.el.multiBotCount.value,botDifficulty:app.hud.el.botDifficulty.value});
+    if(app.roomLobby&&!app.roomLobby.configure(settings)){updateRoomLobby();return;}
+    profile.save({multiBots:settings.botCount,botDifficulty:settings.botDifficulty});
+    updateRoomLobby();
+  });
   onLangChange(updateRoomLobby);updateRoomLobby();
 
   for (const cls of app.data.classes) {
@@ -1493,7 +1504,7 @@ async function deploy(opts) {
   // keep running another room's map instead.
   app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
-    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm', opts.secondary || 'apx');
+    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm', opts.secondary || 'apx', opts.botDifficulty || 'mixed');
   return true;
 }
 

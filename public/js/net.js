@@ -314,15 +314,15 @@ export class Net {
   /**
    * @param {string} room  8-digit code to join, or '' to host a new room
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx', botDifficulty = 'mixed') {
     this.send({
-      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, botDifficulty, skin: skin || '',
       solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     });
   }
 
-  setBots(on, n) {
-    this.send({ t: 'bots', on, n });
+  setBots(on, n, difficulty = 'mixed') {
+    this.send({ t: 'bots', on, n, difficulty });
   }
 
   // Capture the life NOW, not at queue flush: old input after respawn must

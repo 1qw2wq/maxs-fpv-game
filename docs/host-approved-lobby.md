@@ -143,3 +143,10 @@ or a cross-NAT/network reliability certification.
 - Two old full-suite harness problems were corrected while running it: percent-encoded static
   asset paths now decode correctly, and the live pistol fixture uses a real character class
   instead of assigning the non-playable catalog class `secondary` to a player.
+
+## Follow-up: optional multiplayer AI
+
+The later [bot difficulty update](bot-difficulty.md) adds host-owned AI count/difficulty to this
+waiting-lobby configuration. Multiplayer still defaults to zero bots, but is no longer restricted
+to humans only. AI setting changes revoke guest Ready; stale Ready messages for old AI settings
+are rejected. Guest joins/direct commands cannot overwrite the room creator’s bot policy.

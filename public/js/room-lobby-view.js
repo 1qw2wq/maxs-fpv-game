@@ -1,4 +1,5 @@
 import {t,nameOf} from './i18n.js';
+import {BOT_DIFFICULTY_HINTS} from './bot-settings.js';
 const el=id=>document.getElementById(id);
 const text=(id,value)=>{if(el(id).textContent!==value)el(id).textContent=value;};
 export function renderRoomLobby(lobby,hud,data){
@@ -9,6 +10,14 @@ export function renderRoomLobby(lobby,hud,data){
   const guest=active&&lobby.role==='guest',locked=active&&(guest||lobby.phase!=='waiting');
   for(const b of el('map-row').querySelectorAll('button'))b.disabled=!!locked;
   el('game-mode').disabled=!!locked;
+  hud.setBotsVisible(true);
+  for(const b of hud.el.botCount.querySelectorAll('button'))b.disabled=!!locked;
+  hud.el.multiBotCount.disabled=!!locked;hud.el.botDifficulty.disabled=!!locked;
+  if(active){
+    hud.el.multiBotCount.value=String(lobby.config.botCount);
+    hud.el.botDifficulty.value=lobby.config.botDifficulty;
+  }
+  text('bot-difficulty-note',t(BOT_DIFFICULTY_HINTS[hud.el.botDifficulty.value]||BOT_DIFFICULTY_HINTS.mixed));
   hud.el.deploy.disabled=false;hud.el.deploy.textContent=t('部署');
   if(!active)return;
   el('lobby-code').textContent=lobby.code.replace(/(\d{4})(\d{4})/,'$1 $2');
@@ -19,6 +28,7 @@ export function renderRoomLobby(lobby,hud,data){
     lobby.phase==='started'?t('对局已开始，正在进入。'):
     guest?t('选择角色后点击准备，等待房主开始。'):t('在主页面接受申请并选择地图；所有成员准备后开始。');
   status+=' · '+map+' · '+t('{ready}/{total} 位受邀玩家已准备',{ready,total:lobby.members.size});
+  status+=' · '+t('AI：{n} · {level}',{n:lobby.config.botCount,level:hud.el.botDifficulty.selectedOptions[0]?.textContent||lobby.config.botDifficulty});
   text('lobby-status',status);text('lobby-selection-status',status);
   el('btn-lobby-invite').classList.toggle('hidden',guest);
   el('btn-lobby-copy').classList.toggle('hidden',guest);
