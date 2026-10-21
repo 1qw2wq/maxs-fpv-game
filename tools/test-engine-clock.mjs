@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {LocalNet} from '../public/js/local.js';
+const net=new LocalNet();net.connected=true;
+let ticks=0,commands=0;
+net._engineStep=()=>{ticks++;return '[]';};
+net._engineCmd=()=>{commands++;return '[]';};
+net._queue.push({t:'fire'});
+net.paused=true;net._last=performance.now()-5000;net._advance();
+assert.equal(ticks,0);assert.equal(commands,0);
+net.paused=false;net._last=performance.now()-10000;net._advance();
+assert(ticks>=5&&ticks<=6);assert.equal(commands,1);
+assert(net._acc<net._stepMs+1e-8,'No unbounded catch-up after a stall');
+net._last=performance.now();net._frame();assert(net._timer);
+net.close();const count=ticks;
+await new Promise(r=>setTimeout(r,60));
+assert.equal(ticks,count);assert.equal(net._timer,null);
+console.log('PASS: render-independent authority, explicit pause, bounded catch-up, command flushing and timer cleanup');

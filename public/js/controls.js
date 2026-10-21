@@ -7,21 +7,13 @@
 
 import * as THREE from 'three';
 import { yawToRotation } from './character.js';
+import { MouseLook } from './mouse-look.js';
 
 const PITCH_LIMIT = 88;
 
-// Looking around is pointer lock and nothing else: the mouse is captured, the
-// view follows the raw movement, and Esc gives the mouse back. There used to be
-// a second way -- "cursor steering", which turned the view by pushing the
-// cursor towards the edges of the screen -- and it was a trap in a fight: aim
-// chased the cursor, a stray bump spun the camera, and the mode could only be
-// left by pressing Esc, which most players never guessed. It is gone. Where a
-// browser refuses pointer lock outright (a page embedded in an iframe without
-// the permission), the game says so and offers to open itself in a tab of its
-// own instead of inventing a second control scheme.
-//
-// The arrow keys can always turn the view as well: keyboard-only players, and
-// anyone whose mouse is busy, still get to look around.
+// Mouse look uses native pointer lock only. Never substitute edge steering or
+// drag aiming. A denied request leaves the mouse free and can be retried on a
+// later click; parent iframe sandbox permissions cannot be overridden here.
 const ARROW_YAW_RATE = 135;
 const ARROW_PITCH_RATE = 95;
 
@@ -41,6 +33,7 @@ export class Controls {
     // The World is built lazily (a 92 MB model map must not delay the menu), so
     // boot passes null and setMap() fills it in before the first deploy.
     this.pos = new THREE.Vector3(0, world?.groundY ?? 0, 0);
+    this.safePos = this.pos.clone();
     this.vel = new THREE.Vector3();
     this.vy = 0;
     // Smooths the *camera* onto the ground height only; the body itself is still
@@ -51,19 +44,35 @@ export class Controls {
     this.yaw = 0;          // degrees, 0 = +X
     this.pitch = 0;        // degrees, + = up
     this.grounded = true;
+    this._jumpHeld = false;
+    this._jumpBuffer = 0;
+    this._coyote = 0;
 
     this.keys = new Set();
     this.mouse = { left: false, right: false };
     this.ads = false;
+    this._aimHeld = false;
+    this.lookFov = 78;
     this.crouch = false;
+    this.sprinting = false;
+    this.touchSprintAt = null;
+    this.inputNow = () => performance.now();
     this.moveSpeed = 0;
     this.enabled = false;
     this.locked = false;
+    this.mobileMode = false;
+    this.touchActive = false;
+    this.touchFirePending = false;
+    this.touchMove = { x: 0, y: 0 };
+    this.touchKeys = new Set();
+    this.onInputReset = null;
     // Set once pointer lock has actually been refused (see _lockFailed): only
     // then is the page worth telling the player about.
     this.lockUnavailable = false;
+    this._wantLook = false;
 
     this.sensitivity = 0.0022;
+    this.mouseLook = new MouseLook();
     this.speedMult = 1;
 
     this.onFireDown = null;
@@ -71,6 +80,9 @@ export class Controls {
     // Q is held to charge a throw: down opens the aim preview, up releases it.
     this.onAbilityDown = null;
     this.onAbilityUp = null;
+    this.onGrenadeDown = null;
+    this.onGrenadeUp = null;
+    this.onGrenadeCycle = null;
     // Charge dropped without a throw (lost lock, tab blur, death).
     this.onAbilityCancel = null;
     this.onScoreboard = null;
@@ -85,6 +97,8 @@ export class Controls {
     this.onEscape = null;
 
     this._lockWatch = null;
+    this._lockPending = false;
+    this._lockRequestId = 0;
     // A lock request right after the player pressed Esc is refused by Chrome
     // for about a second; that refusal must not be mistaken for "this page
     // cannot lock the mouse" (see _lockFailed).
@@ -95,38 +109,54 @@ export class Controls {
   _bind() {
     const c = this.canvas;
     c.addEventListener('mousedown', (e) => {
-      if (!this.enabled) return;
+      if (this.mobileMode || !this.enabled || typing()) return;
+      if (e.button === 2) this._aimHeld = true;
       if (!this.canLook) { this.requestLock(); return; }
       if (e.button === 0) { this.mouse.left = true; this.onFireDown?.(); }
       if (e.button === 2) { this.mouse.right = true; }
     });
     window.addEventListener('mouseup', (e) => {
+      if (this.mobileMode) return;
       if (e.button === 0) this.mouse.left = false;
-      if (e.button === 2) this.mouse.right = false;
+      if (e.button === 2) { this.mouse.right = false; this._aimHeld = false; }
     });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
     window.addEventListener('mousemove', (e) => {
-      if (!this.canLook || !this.enabled || typing()) return;
+      if (this.mobileMode || !this.canLook || !this.enabled || typing()) return;
       // yaw grows clockwise (0 = +X, 90 = +Z), so mouse-right must add.
-      const k = this.sensitivity * 57.2958;
-      this.yaw += e.movementX * k;
-      this.pitch -= e.movementY * k;
-      this.yaw = ((this.yaw % 360) + 360) % 360;
-      this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+      // Match screen-space precision to the actual zoom, including transitions.
+      const fov = Math.max(10, Math.min(78, this.lookFov || 78));
+      const zoomScale = Math.tan(fov * Math.PI / 360) / Math.tan(78 * Math.PI / 360);
+      const k = this.sensitivity * 57.2958 * zoomScale;
+      this.mouseLook.push(e.movementX, e.movementY, k);
     });
     document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement === c && (!this._wantLook || !this.enabled)) {
+        document.exitPointerLock?.();
+        return;
+      }
       this.locked = document.pointerLockElement === this.canvas;
-      if (!this.locked) {
+      this.mouseLook.reset();
+      clearTimeout(this._lockWatch);
+      this._lockPending = false;
+      this._lockRequestId += 1;
+      if (this.locked) {
+        this.lockUnavailable = false;
+        this.mouse.right = this._aimHeld;
+      } else {
+        this._wantLook = false;
+        this._lockCooldownUntil = Math.max(this._lockCooldownUntil, performance.now() + 1300);
         this.mouse.left = false;
         this.mouse.right = false;
+        this._aimHeld = this.ads = false;
         this.keys.clear();
         this.onAbilityCancel?.();
       }
       this.onLockChange?.(this.locked);
     });
     // Fired by browsers that refuse the lock request; some also reject the
-    // promise, so both paths funnel into the same fallback.
+    // promise, so both paths report a failed request without changing controls.
     document.addEventListener('pointerlockerror', () => this._lockFailed());
 
     window.addEventListener('keydown', (e) => {
@@ -138,8 +168,13 @@ export class Controls {
       if (e.code === 'Escape') { this.releaseLook(); this.onEscape?.(); return; }
       if (e.repeat) return;
       this.keys.add(e.code);
+      if (e.code === 'Digit1') this.onWeaponSwitch?.('primary');
+      if (e.code === 'Digit2') this.onWeaponSwitch?.('secondary');
+      if (e.code === 'KeyX') this.onWeaponSwitch?.();
       if (e.code === 'KeyR') this.onReload?.();
       if (e.code === 'KeyQ') this.onAbilityDown?.();
+      if (e.code === 'KeyG') this.onGrenadeDown?.();
+      if (e.code === 'KeyB') this.onGrenadeCycle?.();
       if (e.code === 'KeyV') this.onViewToggle?.();
       if (e.code === 'Enter') this.onChat?.();
       if (e.code === 'Space') e.preventDefault();
@@ -147,63 +182,85 @@ export class Controls {
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Tab') { this.onScoreboard?.(false); return; }
       if (e.code === 'KeyQ') this.onAbilityUp?.();
+      if (e.code === 'KeyG') this.onGrenadeUp?.();
       this.keys.delete(e.code);
     });
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.mouse.left = false;
-      this.onAbilityCancel?.();
+    window.addEventListener('blur', () => this.releaseLook());
+    window.addEventListener('resize', () => {
+      this.mouseLook.reset();
+      if (this.mobileMode) this.releaseLook();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.releaseLook();
     });
   }
 
-  /** True when the mouse turns the view: it is captured, or not at all. */
+  /** True only while the player has explicitly taken control of the view. */
   get canLook() {
-    return this.locked;
+    return this.mobileMode ? this.enabled && this.touchActive : this.locked;
+  }
+
+  setMobileMode(enabled) {
+    if (this.mobileMode === !!enabled) return;
+    this.releaseLook();
+    this.mobileMode = !!enabled;
+    this.lockUnavailable = false;
+  }
+
+  /** Explicit touch mode only; mouse deltas never use this path. */
+  touchLook(dx, dy) {
+    if (!this.mobileMode || !this.canLook || typing()) return;
+    const fov = Math.max(10, Math.min(78, this.lookFov || 78));
+    const zoom = Math.tan(fov * Math.PI / 360) / Math.tan(78 * Math.PI / 360);
+    // Touch coordinates are CSS pixels, independent of DPR/render resolution.
+    this.mouseLook.push(dx, dy, this.sensitivity * 57.2958 * 2 * zoom);
   }
 
   requestLock() {
-    if (this.locked) return;
-    const el = this.canvas;
-    if (!el || typeof el.requestPointerLock !== 'function') { this._lockFailed(); return; }
-    try {
-      const pending = el.requestPointerLock();
-      // Chrome/Edge return a promise whose rejection carries the reason
-      // ("frame is sandboxed and the 'allow-pointer-lock' permission is not
-      // set", or a permissions-policy refusal).
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch(() => this._lockFailed());
-      }
-    } catch (err) {
-      this._lockFailed();
+    if (this.mobileMode) {
+      if (this.enabled) this.touchActive = true;
       return;
     }
-    // Firefox and Safari may fail silently, so cover that with a short
-    // watchdog: still unlocked a moment later means it will never be granted.
+    if (!this.enabled || this.locked || this._lockPending) return;
+    // Retrying needs a fresh user gesture, particularly after Esc. Do not
+    // schedule an automatic retry that browsers would refuse anyway.
+    if (performance.now() < this._lockCooldownUntil) return;
+    const el = this.canvas;
+    if (navigator.userActivation && !navigator.userActivation.isActive) return;
+    this._wantLook = true;
+    this._lockPending = true;
+    const requestId = ++this._lockRequestId;
+    if (!el || typeof el.requestPointerLock !== 'function') { this._lockFailed(requestId); return; }
+    // Cover legacy implementations that return no promise or fail silently.
     clearTimeout(this._lockWatch);
     this._lockWatch = setTimeout(() => {
-      if (document.pointerLockElement !== el) this._lockFailed();
-    }, 900);
+      if (document.pointerLockElement !== el) this._lockFailed(requestId);
+    }, 1500);
+    try {
+      const pending = el.requestPointerLock();
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch(() => this._lockFailed(requestId));
+      }
+    } catch {
+      this._lockFailed(requestId);
+    }
   }
 
-  /**
-   * Pointer lock was refused. There is nothing to fall back to any more: the
-   * only thing worth doing is telling the player why the mouse is dead, once,
-   * so the HUD can point at opening the page in a tab of its own.
-   */
-  _lockFailed() {
+  /** A denial is not permanent. Every subsequent eligible click can retry. */
+  _lockFailed(requestId = this._lockRequestId) {
+    if (requestId !== this._lockRequestId || !this._lockPending) return;
     clearTimeout(this._lockWatch);
-    // Refused because the player just pressed Esc (Chrome holds the mouse for a
-    // moment after): that is not a verdict on this page, so stay out of the way
-    // and let them click again.
-    if (performance.now() < this._lockCooldownUntil) return;
-    if (this.lockUnavailable) return;
-    this.lockUnavailable = true;
-    this.onLookMode?.('unavailable');
+    this._lockPending = false;
+    if (!this.enabled || !this._wantLook || this.locked) return;
+    this._aimHeld = this.ads = this.mouse.right = false;
+    if (!this.lockUnavailable) {
+      this.lockUnavailable = true;
+      this.onLookMode?.('unavailable');
+    }
   }
 
   releaseLock() {
-    clearTimeout(this._lockWatch);
-    document.exitPointerLock?.();
+    this.releaseLook();
   }
 
   /**
@@ -217,15 +274,29 @@ export class Controls {
    * and clicking the view takes the mouse again.
    */
   releaseLook() {
+    this.sprinting = false; this.touchSprintAt = null;
+    this.touchActive = false;
+    this.touchFirePending = false;
+    this.touchMove.x = this.touchMove.y = 0;
+    this.touchKeys.clear();
+    this.onInputReset?.();
+    this.mouseLook.reset();
     clearTimeout(this._lockWatch);
+    this._wantLook = false;
+    this._lockPending = false;
+    this._lockRequestId += 1;
     this._lockCooldownUntil = performance.now() + 1300;
     this.keys.clear();
+    this._jumpHeld=false;this._jumpBuffer=this._coyote=0;
     this.mouse.left = false;
     this.mouse.right = false;
+    this._aimHeld = this.ads = false;
     this.onAbilityCancel?.();
-    if (this.locked || document.pointerLockElement === this.canvas) {
-      document.exitPointerLock?.();
-    }
+    const hadLock = this.locked || document.pointerLockElement === this.canvas;
+    // exitPointerLock completes asynchronously. Stop accepting deltas now,
+    // rather than allowing one final packet into the pause/relock transition.
+    this.locked = false;
+    if (hadLock) document.exitPointerLock?.();
     this.onLookMode?.('free');
   }
 
@@ -243,6 +314,11 @@ export class Controls {
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
   }
 
+  /** Retain a short touch press until physics sees it, even between frames. */
+  queueJump() {
+    if (this.enabled && !typing()) this._jumpBuffer = .12;
+  }
+
   setClass(cls) {
     this.speedMult = cls.speedMult;
     this.eyeStand = this.combat.standEyeHeight;
@@ -250,12 +326,42 @@ export class Controls {
   }
 
   reset(pos, yaw) {
-    this.pos.set(pos[0], pos[1], pos[2]);
-    this.eyeGround = pos[1];
+    this.sprinting = false; this.touchSprintAt = null;
+    if (this.mobileMode) {
+      this.releaseLook();
+      this.requestLock();
+    }
+    this.mouseLook.reset();
+    this.recoverPosition(pos);
     this.yaw = yaw ?? this.yaw;
     this.pitch = 0;
-    this.vy = 0;
-    this.vel.set(0, 0, 0);
+  }
+
+  /** Shot kick changes the real aim, so subsequent bullets and the reticle agree. */
+  applyRecoil(kick, random = Math.random) {
+    const scale = this.ads ? 0.65 : 1;
+    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + kick.punch*scale));
+    this.yaw += (random()*2-1)*kick.roll*scale;
+  }
+
+  recoverPosition(pos) {
+    this.pos.fromArray(pos);
+    this.safePos.copy(this.pos);
+    this.eyeGround=this.pos.y;
+    this.vel.set(0,0,0);this.vy=0;this.grounded=true;
+    this._jumpHeld=false;this._jumpBuffer=this._coyote=0;
+  }
+
+  ensureSafePosition() {
+    const b=this.world.bounds, p=this.pos;
+    if(!Number.isFinite(this.yaw))this.yaw=0;
+    if(!Number.isFinite(this.pitch))this.pitch=0;
+    if(![p.x,p.y,p.z,this.vel.x,this.vel.z,this.vy].every(Number.isFinite) ||
+       p.x<b.minX+1.5 || p.x>b.maxX-1.5 || p.z<b.minZ+1.5 || p.z>b.maxZ-1.5 || p.y<this.world.floorBase-.05 || this.world.isVoidFloor(p.x,p.z,p.y)) {
+      const [x,z]=this.world.clampToBounds(this.safePos.x,this.safePos.z);
+      const y=this.world.floorAt(x,z,Math.max(this.safePos.y,this.world.floorBase));
+      this.recoverPosition([x,y,z]);
+    }
   }
 
   get eyeY() {
@@ -281,8 +387,20 @@ export class Controls {
     return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
   }
 
-  update(dt, alive, suppressed) {
+  // Called before camera placement AND fire processing: filtered aim and the
+  // crosshair share one orientation, including while zoomed or in third person.
+  updateMouseLook(dt) {
+    if (!this.enabled || !this.canLook || typing()) { this.mouseLook.reset(); return; }
+    const delta = this.mouseLook.consume(dt);
+    this.yaw = ((this.yaw + delta.yaw) % 360 + 360) % 360;
+    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + delta.pitch));
+    if (Math.abs(this.pitch) === PITCH_LIMIT) this.mouseLook.pitch = 0;
+  }
+
+  update(dt, alive, suppressed, reloading = false) {
+    if (alive) this.updateMouseLook(dt); else this.mouseLook.reset();
     if (!this.world) return;
+    this.ensureSafePosition();
     // Ease the *camera* ground height. Vertical speed is unbounded on a jump or
     // a fall, so those track instantly; walking and stairs use a slow constant
     // that filters the few centimetres a tread or a cobble adds -- which is the
@@ -292,7 +410,7 @@ export class Controls {
     this.eyeGround += (this.pos.y - this.eyeGround) * ease;
 
     const k = this.keys;
-    const wantsCrouch = k.has('ShiftLeft') || k.has('ShiftRight');
+    const wantsCrouch = k.has('KeyC') || k.has('ControlLeft') || k.has('ControlRight') || this.touchKeys.has('KeyC');
     // Refuse to stand up where the head would hit geometry: a body that crouched
     // into a low passage stays crouched on release instead of getting wedged.
     const canStand = !this.world.blocked(this.pos.x, this.pos.z, this.pos.y,
@@ -301,27 +419,43 @@ export class Controls {
     this.crouch = wantsCrouch || !canStand;
     // Stance changes get their own click so crouching never feels silent.
     if (this.enabled && this.crouch !== wasCrouch) this.onStance?.(this.crouch);
-    this.ads = this.mouse.right;
+    this.ads = this.mouse.right && this.canLook && alive && this.enabled && !typing() && !reloading;
 
     if (!alive || !this.enabled) {
       this.moveSpeed = 0;
+      this.sprinting = false; this.touchSprintAt = null;
+      this.vel.set(0,0,0);
+      this._jumpBuffer = this._coyote = 0;
+      this._jumpHeld = false;
       return;
     }
     // Arrow-key look is driven from the frame loop, but never while the chat
     // box has the keyboard.
-    if (!typing()) this._arrowLook(dt);
+    if (!typing()) {
+      this._arrowLook(dt);
+    }
 
     let fx = 0, fz = 0;
-    if (k.has('KeyW')) fx += 1;
-    if (k.has('KeyS')) fx -= 1;
-    if (k.has('KeyD')) fz += 1;
-    if (k.has('KeyA')) fz -= 1;
+    const canMove = !typing();
+    if (canMove && k.has('KeyW')) fx += 1;
+    if (canMove && k.has('KeyS')) fx -= 1;
+    if (canMove && k.has('KeyD')) fz += 1;
+    if (canMove && k.has('KeyA')) fz -= 1;
+    if (canMove && this.mobileMode && this.canLook) {
+      fx += this.touchMove.y; fz += this.touchMove.x;
+    }
     const len = Math.hypot(fx, fz);
-    if (len > 0) { fx /= len; fz /= len; }
+    if (len > 1) { fx /= len; fz /= len; }
 
+    const touchRun = this.mobileMode && this.canLook && Math.hypot(this.touchMove.x,this.touchMove.y) > .1 && !this.ads && !this.crouch && canMove;
+    if (!touchRun) this.touchSprintAt = null;
+    else if (this.touchSprintAt === null) this.touchSprintAt = this.inputNow() + 1500;
+    this.sprinting = canMove && len > .1 && !this.ads && !this.crouch &&
+      (k.has('ShiftLeft') || k.has('ShiftRight') || (touchRun && this.inputNow() >= this.touchSprintAt));
     let speed = this.combat.maxMoveSpeed * this.speedMult;
+    if (this.sprinting) speed *= this.combat.sprintMult || 1.35;
     if (this.crouch) speed *= 0.55;
-    if (this.ads) speed *= 0.62;
+    if (this.ads) speed *= this.combat.adsMoveMult || .62;
     if (suppressed) speed *= 0.92;
 
     const yawRad = (this.yaw * Math.PI) / 180;
@@ -329,28 +463,31 @@ export class Controls {
     const wishX = Math.cos(yawRad) * fx - Math.sin(yawRad) * fz;
     const wishZ = Math.sin(yawRad) * fx + Math.cos(yawRad) * fz;
 
-    const accel = this.grounded ? 46 : 13;
-    const target = new THREE.Vector3(wishX * speed, 0, wishZ * speed);
-    const dvx = (target.x - this.vel.x) * Math.min(1, accel * dt);
-    const dvz = (target.z - this.vel.z) * Math.min(1, accel * dt);
-    this.vel.x += dvx;
-    this.vel.z += dvz;
-    if (len === 0 && this.grounded) {
-      const damp = Math.min(1, 15 * dt);
-      this.vel.x -= this.vel.x * damp;
-      this.vel.z -= this.vel.z * damp;
-    }
+    // Exponential response is consistent at 30/60/144 Hz. A single release
+    // curve brakes without the old double damping or instant low-FPS snaps.
+    const accel = this.grounded ? (len === 0 ? 22 : 18) : 5.5;
+    const blend = 1-Math.exp(-accel*dt);
+    this.vel.x += (wishX*speed-this.vel.x)*blend;
+    this.vel.z += (wishZ*speed-this.vel.z)*blend;
+    if (len === 0 && Math.hypot(this.vel.x,this.vel.z)<0.015) this.vel.set(0,0,0);
 
-    // gravity + jump
-    if (this.grounded && k.has('Space')) {
+    // Edge-triggered jump with a small buffer and coyote window. Holding Space
+    // no longer auto-bounces on every landing; chat/blur cannot queue a jump.
+    const jump=canMove && (k.has('Space') || this.touchKeys.has('Space'));
+    this._jumpBuffer = jump && !this._jumpHeld ? .12 : Math.max(0,this._jumpBuffer-dt);
+    this._jumpHeld = jump;
+    this._coyote = this.grounded ? .1 : Math.max(0,this._coyote-dt);
+    if (this._jumpBuffer > 0 && this._coyote > 0) {
       this.vy = this.combat.jumpSpeed;
       this.grounded = false;
+      this._jumpBuffer = this._coyote = 0;
     }
     this.vy -= this.combat.gravity * dt;
 
     const nx = this.pos.x + this.vel.x * dt;
     const nz = this.pos.z + this.vel.z * dt;
-    const [rx, rz] = this.world.resolveMove(this.pos.x, this.pos.z, nx, nz, this.pos.y, this.bodyHeight);
+    const [rx, rz, supportY = this.pos.y] = this.world.resolveMove(this.pos.x, this.pos.z, nx, nz, this.pos.y, this.bodyHeight,
+      {returnHeight:true,followGround:this.grounded});
     const [cx, cz] = this.world.clampToBounds(rx, rz);
     // if a wall ate the motion, drop the velocity so we do not stick to it
     if (Math.abs(cx - nx) > 1e-4) this.vel.x = 0;
@@ -358,12 +495,11 @@ export class Controls {
     this.pos.x = cx;
     this.pos.z = cz;
 
-    let ny = this.pos.y + this.vy * dt;
-    // Query the surface under the *new* spot with the body's current height
-    // every frame -- nothing is cached, so a surface that has just dropped away
-    // can never keep the old height. The query height is the feet themselves, so
-    // a low surface is offered as the floor the moment the body is over it.
-    const floor = this.world.floorAt(this.pos.x, this.pos.z, this.pos.y);
+    let ny = (this.grounded ? supportY : this.pos.y) + this.vy * dt;
+    // Query the new spot using the support height reached by the sweep. Using
+    // the frame's old height here would undo a longer stair traversal. In the
+    // air, keep the real foot height; cliffs still fall under normal gravity.
+    const floor = this.world.floorAt(this.pos.x, this.pos.z, this.grounded ? supportY : this.pos.y);
     if (ny <= floor + 0.001) {
       ny = floor;
       this.vy = 0;
@@ -378,8 +514,18 @@ export class Controls {
       // the body drops to whatever is underneath.
       this.grounded = false;
     }
+    // Sweep the head upward too. Horizontal collision alone lets a jump put
+    // the eyes inside a ceiling before the next frame can reject movement.
+    if (this.vy > 0) {
+      const ceiling=this.world.ceilingAt(this.pos.x,this.pos.z,this.pos.y,this.bodyHeight);
+      if(ny+this.bodyHeight>=ceiling){
+        ny=Math.min(ny,ceiling-this.bodyHeight-.002);this.vy=0;
+      }
+    }
     this.pos.y = ny;
 
+    this.ensureSafePosition();
+    if(this.grounded && !this.world.blocked(this.pos.x,this.pos.z,this.pos.y,this.bodyHeight))this.safePos.copy(this.pos);
     this.moveSpeed = Math.hypot(this.vel.x, this.vel.z);
   }
 

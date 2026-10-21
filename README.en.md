@@ -1,7 +1,8 @@
 # Trench Front 堑壕前线
 
-A WW1-themed browser FPS: online team deathmatch over WebSocket, four classes (Assault / Medic /
-Support / Scout), three weapons each, and every playable character is an **anime-style girl**
+A WW1-themed browser FPS with team deathmatch and point control, four classes (Assault / Medic /
+Support / Scout), **30 weapons: 26 class primaries and four universal sidearms**, and every
+playable character is an **anime-style girl**
 (semi-realistic proportions, roughly 5.7 heads tall).
 
 No build step: the client is plain ES modules with an import map, and the server is one Python
@@ -11,6 +12,19 @@ browser with **Pyodide**, so solo-with-bots matches run exactly as they do again
 server — see *Deployment → Vercel*.
 
 > 中文说明见 [README.md](README.md)。
+
+### Current version at a glance
+
+- **Three maps**: Somme, Italy and the 240×240 m Procedural City. The city has 128 enterable buildings,
+  a central park, eight vehicles in seven variants and **15 Solo bots by default**.
+- Primaries per class: **Assault 6 / Medic 5 / Support 6 / Scout 9**. Every class can choose APX Carry,
+  G17, Desert Eagle or Flare Pistol as a separate secondary; each slot keeps its own ammunition.
+- Desktop uses native pointer lock; mobile is an explicit joystick/button mode. No cursor/edge steering.
+- The latest stair fix follows walkable surfaces during each collision substep and uses real sloped
+  undersides for headroom. See [stair behavior and tests](#stair-reliability-and-headroom).
+
+**Guide:** [Run locally](#running-it) · [Controls](#controls) · [Deploy](#deployment) ·
+[Map details](docs/proc-city.md) · [Arsenal and reloads](docs/arsenal-and-sidearms.md).
 
 ---
 
@@ -73,7 +87,9 @@ port is busy (**the console prints the real port**). `Ctrl+C` stops it.
 The server listens on every interface, so any other device on the same network can simply open
 the printed `LAN` URL (`http://192.168.1.23:8080`) — nothing else to configure.
 
-In multiplayer, players are grouped by an **8-digit room code** and rooms never see each other:
+**The grouping, capacity and expiry rules below describe the optional Python server’s legacy protocol/API. The main-menu multiplayer controls now use the browser-hosted approval lobby in the next section; a saved server address does not take over that lobby. Different devices still require invite pairing.**
+
+The legacy server protocol groups players by an **8-digit room code** and rooms never see each other:
 
 - **Create a room**: the server hands out an 8-digit code, shown in the top-right corner for the
   whole match (`1958 0121` style, spaced so it can be read out loud). Send it to your friends.
@@ -115,24 +131,46 @@ the browser of **whoever created it** (the same in-page Pyodide engine solo uses
 connect straight to it. Nothing goes through a third-party service — no relay, no account, no key:
 
 - **Two tabs of one browser**: press *Create room*, then type the 8-digit code into another tab
-  (*Join with code*) and deploy. The two tabs talk over the browser's own `BroadcastChannel`.
+  (*Join with code*), press **Request to join**, and wait for the host to accept on the main page.
+  Both tabs must use the **same origin and browser storage partition**
+  (not different Vercel deployment URLs or a normal/private window pair). They use `BroadcastChannel`.
 - **Two different computers**: use *Invite a friend*. The host presses *Create an invite code*
   (a long piece of text starting with `TFi1.`) and sends it over; the friend's page takes it with
   *Join with an invite code* and produces an answer code (`TFa1.`), which goes back to the host and
   is pasted into the same box (*Pair up*). That builds a **direct WebRTC data channel** between the
-  two pages (`js/p2p.js`); the match traffic only ever travels over it. If two home connections cannot
-  find each other (NAT), tick *Different networks* to add a public STUN server that helps the two ends
-  discover each other — the data itself does not go through it.
+  two pages (`js/p2p.js`); the match traffic only ever travels over it. **Pair up reports success only
+  after the data channel is open; pairing is not admission.** The host then accepts the request
+  on the main page. Guests no longer deploy individually. Generate a separate invite for each friend.
+  Without external services, this requires a network that allows a direct connection (normally LAN
+  or reachable public addresses). For different home networks, **both players** can enable
+  *Different networks* **before generating their codes**, adding an optional external STUN service.
+  STUN helps discover addresses; it does not relay gameplay or guarantee a connection. Symmetric NAT,
+  blocked UDP or restrictive firewalls can still require **TURN**, which is **not provided by Vercel**.
+  A Vercel-only deployment cannot guarantee multiplayer across those networks.
+- **Host approval and synchronized start**: creating a room **keeps the host on the main page**, with
+  named join requests, Accept/Reject actions, a roster, and host-only map/rules controls. Accepted
+  guests **automatically open character selection**, choose primary/secondary weapons, and press
+  **Ready**. The host uses **Choose character** to configure themselves. **Start game** is enabled
+  only when all approved guests are ready. Once the host finishes loading the match/map, **everyone
+  enters automatically**—no second guest Deploy click. Changing class/weapons or returning to the
+  menu clears guest readiness. Leave/reject/close/timeout are explicit; a failed engine boot can be
+  retried in the same lobby without losing approvals or RTC pairing.
+  New sessions cannot join after launch; pending requests are told the match started. An already
+  approved session can still auto-rejoin a lost seat. Refreshing creates a new session and needs a
+  new host lobby/approval. Desktop players still click the canvas for native pointer lock after
+  automatic entry. See [the lobby protocol and checks](docs/host-approved-lobby.md).
 - **The room code exists the moment you press Create room** (it no longer waits for the in-page
   engine to boot). It shows in the top-right HUD chip and on the class screen, and **clicking the chip
-  copies an invite link** (`https://your-site/?code=1958 0121`) that joins the room when opened.
+  copies an invite link** (`https://your-site/?code=1958 0121`) that pre-fills the room code. A short
+  room code/link alone only connects tabs in the same browser storage partition; a different
+  computer still needs the invite/answer exchange.
 - **The host's browser is the authority for that match**: hits, score, respawns and the map are all
   decided there; the others are clients. That is why **every host can pick their own map and several
   rooms can run different maps at the same time** — something the Python server cannot do, since
   `combat.py` holds one world state per process.
 - **Pause and leaving**: press **Esc** for the menu. *Carry on* returns to the fight (while paused the
-  whole match on the host's machine stands still, and the others are told so), *Invite a friend* hands
-  out an invite code on the spot, and *Leave the match* goes back to the menu (the host's room closes
+  whole match on the host's machine stands still, and the others are told so), *Invite a friend* still
+  opens pairing tools (new sessions must wait for the next lobby), and *Leave the match* goes back to the menu (the host's room closes
   with it and the others are told). Esc can never trap you in a match.
 - Chat, scoreboard, kill feed and hit markers work exactly as on the LAN. If the host closes the
   page, everyone else is told *lost contact with the host* and can rejoin another room from the menu.
@@ -151,21 +189,367 @@ connect straight to it. Nothing goes through a third-party service — no relay,
 
 The game needs no plugins, but two browser environments restrict pages and both are handled:
 
-- **Pages that cannot lock the pointer** (inside an `iframe`, preview panes, sandboxed previews):
-  pointer lock is refused outright. The game switches to **cursor steering** — push the cursor to
-  the left/right edge to turn, towards the top/bottom edge to look up/down, hold the left button
-  and drag for fine aim, arrow keys also turn. Firing, aiming down sights, crouching, jumping,
-  reloading and abilities all keep working, and a hint appears at the top of the screen once.
-  **Pressing `Esc` always hands the mouse back** (the view switches to *mouse handed back — click
-  the view to continue*); clicking continues steering, and where pointer lock is available the
-  click locks the pointer again. **To get normal mouse lock back, open the same address in a new
-  tab.**
-- **Environments without WebSocket** (HTTP-only proxies, some preview panes): the client falls
-  back to a **long-poll** channel (`POST /api/poll`) carrying the same messages. Gameplay is
-  unchanged; the menu just notes that polling is in use.
+- **Mouse look is native pointer lock only**: click the game view to capture the mouse. Moving the
+  mouse turns the camera; **Esc releases the mouse and opens the pause menu**. Clicking to continue
+  requests native lock again. There is **no cursor steering, edge turning or drag-to-aim fallback**.
+  Failed requests can be retried on the next click; temporary failures do not permanently disable
+  pointer lock. Blur, Esc and leaving a match clear held input and cancel ability charging.
+- **Embedded pages / previews**: pointer lock works in an iframe **when the parent permits it**.
+  If you own the embed, include `allow-pointer-lock` in its sandbox permissions, for example:
+
+  ```html
+  <iframe src="https://your-game.vercel.app/"
+          sandbox="allow-scripts allow-same-origin allow-pointer-lock"></iframe>
+  ```
+
+  If the parent preview forbids pointer lock, the game leaves the mouse free and shows a retry /
+  **Open in new tab** action instead of switching controls. A child page cannot override the parent's
+  sandbox. Use a top-level tab in a browser that supports the Pointer Lock API; browsers without
+  that API cannot provide native mouse capture.
+- **Vercel-only deployment without WebSocket**: multiplayer uses the browser-hosted engine plus
+  `BroadcastChannel` / WebRTC described above. It needs **neither `/ws` nor `/api/poll`**. There is no
+  always-on game server or shared room state in Vercel Functions. Blocking WebSocket does not block
+  WebRTC automatically, but blocking WebRTC/UDP can still prevent cross-computer play.
+- **A separately hosted Python server behind an HTTP-only proxy**: only this topology supports
+  fallback to `POST /api/poll`, carrying the same messages. Long-poll is **not** a Vercel-only fallback.
 - Also: a wrong or stale server address falls back to **the page's own server** with a note in the
   menu, and blocked local storage or missing WebGL produce a clear message on the loading screen
   instead of hanging there.
+
+
+### Spawn protection, recoil and map safety
+
+- Every initial spawn, respawn and new round grants **up to five seconds of host-enforced protection**
+  to players and bots. Moving, firing an accepted shot or throwing a grenade ends **that player's own**
+  shield immediately; an inactive opponent keeps theirs. Stopping never restores it within the same life.
+  While active, it blocks bullets, blast/fire damage and flash blindness. A blue shield bubble and
+  health-column countdown show the remaining time.
+  Shield deadlines cannot be extended within a life. Delayed/repeated packets and asynchronous
+  map loading cannot restart the countdown; only an authoritative new spawn renews it.
+  Looking around, ADS, crouching in place, switching and reloading do not remove an idle shield;
+  rejected/dry shots or unavailable grenades do not count. An accepted offensive scout flare does.
+  Movement intent and actual accepted displacement are checked by the host; tiny rounding noise is
+  tolerated, but sustained slow movement cannot preserve protection by claiming `move=false`.
+  `tools/test-survival.py` covers these transitions. The browser RTC suite checks each player's own
+  cancellation and both clients' remote state on all maps; `tools/test-map-shields.py` separately
+  waits the real five-second **idle** expiry and checks damage, recovery and a new-life grant.
+  Gameplay commands carry the life ID captured when sent. The host rejects an old-life input,
+  shot or throw arriving after respawn, so queued idle input cannot strip the new spawn shield.
+- Firing immediately kicks the weapon backward and raises the **actual aim**, with per-gun strength,
+  bounded sideways recoil and reduced kick while ADS. Pull down to compensate during a burst. The
+  camera, crosshair and subsequent shot ray stay aligned; recoil never pushes the player off a ledge.
+- Movement sweeps the full path on client and host to prevent thin-wall tunnelling on slow frames or
+  late packets. Bounds, floor support and invalid-position guards restore the last safe grounded
+  position, including holes leading to a model map's invisible backstop. Real basement floors and
+  ramps remain playable. Host recovery is replicated without refilling health/ammo or renewing immunity.
+
+### Stair reliability and headroom
+
+**Fixed:** intermittent stalls/rubber-banding when a delayed movement packet spans a longer part of a
+flight. Previously, every collision sample used the packet’s original foot height: a continuous slope
+could look like a step higher than 0.65 m. Horizontal movement stopped early while the authority could
+still accept the requested vertical position. Jumping under stacked stairs also tested the bottom of
+an axis-aligned bounding box instead of the actual inclined underside, sometimes missing a head hit.
+
+**How movement works now**
+
+1. Client `World.resolveMove` and Python/Pyodide `combat.resolve_move` sweep the full horizontal path
+   in samples no longer than **0.175 m** (half the 0.35 m player radius).
+2. Grounded movement updates its supported foot height at every accepted sample. The **0.65 m step
+   limit applies per sample**, not to the whole packet; this does not remove speed validation or allow
+   climbing a tall wall. The caller uses the resulting support height rather than querying from stale Y.
+3. Every rise checks the whole standing/crouched body at the new height. A step beneath a low ceiling
+   is rejected if the body cannot fit; crouching only helps where its actual shorter body fits.
+4. Drops larger than one step become falls. Airborne sweeps keep their real foot height instead of
+   accumulating a ground-following rise. Grounded descent follows the ramp without briefly floating over each tread.
+5. `World.ceilingAt` / `combat.ceiling_at` evaluate a stair slab’s **local slope height minus thickness**.
+   Upward motion is capped just below that underside on both client and authority. Legacy solid wedge
+   ramps still use their base underside; ordinary flat floors/ceilings keep their flat bounds.
+
+**Map geometry is unchanged:** city stories are 3 m, standing characters 1.70 m, and all **163 stair
+flights** use continuous 22 cm sloped collision slabs with 2.78 m separation/headroom between stacked
+flights. Treads remain visual, not individual plank colliders; upper floors keep real stairwell openings.
+No map regeneration, physics engine, npm install or frontend build is needed for this runtime fix.
+
+**Walking the stairs / troubleshooting**
+
+- Enter at the low end and walk or sprint up; no jump is required. On upper levels, use the landing
+  and side hall to reach the next flight’s low end. Walking into a wall, guard rail or the high side of
+  a flight is still blocked intentionally. The side hall is not another sloped flight.
+- If an older room still exhibits the problem, leave the match, refresh **all** participants (especially
+  the browser host) and create a fresh room so its Pyodide engine loads the new Python/JS files.
+  A Python-backed host must also restart `server/server.py`; refreshing only a guest cannot update it.
+- Browser and authority must load the same deployment. This change does not rewrite the seed-1942
+  map artifact. If a specific spot still fails, report the map, building/location, direction, stance,
+  input mode and whether it happens only with latency; a screenshot/video helps locate it.
+
+**Reproducible checks** (Node is test-only, not a game/deployment requirement):
+
+```sh
+# Python stdlib; Node >=22.15 adds exact Python/browser-math parity for 978 sweeps.
+STAIR_JS_PARITY=1 python tools/test-stairs.py
+# Actual shipped Controls + World, using inert event wiring only; Node >=22.15.
+node tools/test-stairs.mjs
+# Existing geometry/ray/route checks remain available.
+python tools/test-proc-city.py
+node tools/test-city-openings.mjs
+```
+
+On Windows without shell-style environment assignment, run `python tools/test-stairs.py` for the
+six standalone Python cases; set `STAIR_JS_PARITY=1` in your shell to enable the seventh parity case.
+`tools/test-stairs.mjs` checks **20,864 traversals** across every city flight, both directions, three
+lateral lanes plus diagonals, walking/sprinting/crouching/jumping and 10/20/60/144 Hz simulation steps.
+These rates are movement-test inputs, not measured rendering FPS; the production frame loop still
+caps its movement delta. All 978 delayed sweeps match Python results. Head/body overlap is checked
+every frame, not only arrival at the destination.
+
+`tools/test-stairs-browser.mjs` (in `node tools/test-vercel.mjs`) checks **1,630 actual browser
+traversals**, including joystick movement and automatic touch sprint after 1.5 s. With external Python
+Playwright and `CHROMIUM_EXECUTABLE` configured, `CITY_ONLY_LIVE=1 CITY_LIVE=1 python tools/test-expanded-assets.py`
+also checks a real **500 ms delayed packet in Pyodide**, before the usual Solo/sidearm/death/multiplayer
+checks. `CITY_SKIP_SCREENSHOTS=1` and `CITY_SOFTWARE_GPU=1` are optional test-only switches for headless
+software rendering. No physical-phone, deployed-Vercel/cross-NAT or FPS claim is implied.
+
+**Verified for this fix (2026-10-19):** 126 native Python tests across ten suites (parity enabled),
+20,864 Controls traversals, 1,630 browser traversals, 162 camera collision checks, and the real
+Pyodide delayed-packet test passed. The live Solo/sidearm/death/mobile-layout/two-seat Relay smoke
+also passed. This is focused verification, not a claim that the entire optional browser runner or
+physical devices were rerun for every README feature.
+
+### Three uploaded scoped rifles
+
+Scout now offers **nine primary weapons**. The following table documents three of the uploaded scoped rifles. **Only `scope: true` weapons use the circular scope effect**,
+not the whole Scout class. The original SMLE, M95 and Springfield have no optic on their models;
+they retain visible iron-sight ADS with modest zoom instead of the scope mask.
+
+| Game name | Uploaded model | Action | Magazine | ADS FOV |
+| --- | --- | --- | --- | --- |
+| **Sentinel SR-1** | `sniper.glb` | Bolt action | 5 | 16° |
+| **AWP** | `sniper_rifle_-_awp.glb` | Bolt action | 5 | 14° |
+| **Longbow DMR** | `titanfall_2_weapon_longbow-dmr_sniper.glb` | Semi-automatic | 10 | 20° |
+
+All three are normalized to a 1.28 m carry envelope with calibrated muzzle/hand contacts,
+existing gunshot recordings with individual sound trims, and new authoritative loadout/ammo/reload entries.
+The Longbow's legacy specular/glossiness diffuse textures are restored at load time so it does not render white.
+Model authors, sources and embedded license restrictions are in
+[`public/models/guns/CREDITS.md`](public/models/guns/CREDITS.md). The AWP's embedded license is non-commercial;
+verify the supplied licenses/permissions before commercial redistribution.
+
+`python tools/test-snipers.py` verifies all nine Scout loadouts and the seven optic-equipped models across the arsenal,
+firing/ammo/reload and the actual uploaded files. Scope overlays are limited to `sentinel`, `awp`,
+`longbow`, `ar15`, `gm6`, `m170` and `pgm`. Browser checks cover all thirty imported models, their
+ADS anchors and the current Scout selection layout on desktop/touch; SMLE/M95/Springfield keep iron sights.
+
+### Weapon presentation and smoke
+
+- Guns share gun-local trigger/support grips, reload/feed points and receiver-ejection sockets across
+  first-person arms and third-person IK. Imported models calibrate their muzzle to the actual front
+  geometry instead of retaining a procedural gun's placeholder barrel length.
+- Each of the 30 imported guns has mesh-measured hand contacts. Imported character hands use a
+  calibrated palm/wrist frame, opposed thumbs and curled finger joints (with a lighter trigger-index
+  curl), rather than putting an open wrist directly on the grip. The same orientation follows ADS,
+  recoil and reloads. Fallback gloves have rounded palms and separate bent fingers, with sleeves
+  ending at the wrist; their geometry is merged into one draw per hand.
+- Reloads have presentation, feed/magazine service, seating and recovery phases; the support hand
+  follows the feed while the trigger hand holds the weapon. Clip-fed rifles use a feeding motion.
+  Progress follows the authoritative reload timer and stops when the reload ends or is interrupted.
+- Recoil immediately raises aim; the weapon kicks backward and smoothly returns. First-person flashes track the animated muzzle;
+  third-person shots start at the avatar's barrel, not its chest. Brass leaves the receiver.
+  Each shot uses the eye/aim ray before its kick; subsequent shots follow the recoiled aim.
+- Smoke grenades use 36 bounded, layered, noise-textured puffs with outward expansion, rolling drift,
+  a buoyant crown and gradual dissipation. Inside-cloud fog follows the same density envelope.
+  Particle placement is seeded by effect id and animation is time-based, not frame-rate dependent.
+
+### Mobile mode: joystick and touch buttons
+
+Choose **Control mode → Mobile · Touch & joystick** in the main menu or pause menu. **Auto-detect**
+enables it for coarse-pointer touch devices; **Desktop** explicitly keeps mouse/keyboard controls.
+The choice is saved in your local profile. Touch mode does not request pointer lock and is never
+silently enabled because a desktop lock request failed.
+
+- **Left joystick:** analog movement with a dead zone; push further to move faster. Diagonals are
+  normalized, and the existing collision, crouch, jump and movement authority are unchanged.
+- **Right side:** swipe to aim. **Hold Fire and slide the same finger** to aim while shooting, so
+  two thumbs can move and shoot simultaneously. Separate pointer IDs support additional fingers.
+  If the look finger lifts while Fire is still held, aiming transfers to the Fire finger without
+  needing another press. Very short Fire/Jump taps survive between rendered frames; canceled fire
+  taps are discarded. Queued taps still obey normal weapon cooldown, ammo and reload rules.
+- **Aim / Crouch:** tap to toggle. **Jump:** press (holding does not auto-bounce). **Reload:** tap.
+- **Skill / Grenade:** hold to charge, release to throw; healing/ammo crates deploy on press.
+  **Cycle grenade** changes type. Touch buttons use the existing authoritative gameplay callbacks.
+- **View / Score / Chat / Pause:** switch camera, hold the scoreboard, type a message, or open the
+  pause menu without a hardware keyboard. Respawn and leave buttons remain ordinary touch targets.
+- Controls fit portrait/landscape layouts and use safe-area insets. The HUD and tutorial describe
+  touch controls. Pending movement, firing, toggles and charges clear on cancellation, lost capture,
+  blur, orientation/resize, pause, death, leaving or mode changes; cancellation does **not** throw.
+- **Look sensitivity** in the menu/pause panel affects both mouse and touch, retaining ADS zoom
+  scaling and the shared filtered camera/shot direction. Landscape generally leaves more view space.
+
+`tools/test-mobile.mjs` is included in `node tools/test-vercel.mjs`. It uses real Chromium touch
+injection for multi-finger movement/look/fire, analog 30/60/144 Hz movement, ADS precision, action
+buttons, interrupted gestures, saved/automatic mode selection and live deploy/fire/reload/grenades,
+score/chat, pause/resume, death/respawn and leaving. Layout checks cover 320×568, 568×320,
+844×390 and 390×844, with at least 44px button targets, unobstructed centers, no button/joystick
+or score/tools overlap, and readable ammo. Quick-tap authority checks include SMG and bolt rifle. Tested with mobile browser
+emulation, not physical iOS/Android devices; GPU performance and browser support still vary.
+Set `MOBILE_SCREENSHOT=/tmp/mobile.png` when running the suite to capture the portrait fixture.
+
+### Fullscreen, custom touch layout, sprint and sniper optics
+
+- Mobile **Deploy** and **Resume** request native fullscreen directly from the tap; **Pause → Full screen**
+  retries it. Browser/iframe permissions cannot be overridden. Unsupported browsers show an explanation;
+  on iOS, use **Add to Home Screen** and launch there when native fullscreen is unavailable.
+- **Pause → Customize touch layout:** drag the joystick and bottom combat buttons. **Save layout** persists
+  positions locally; **Cancel** discards edits and **Reset layout** restores the current orientation's defaults.
+  Portrait and landscape have separate layouts. Overlapping controls cannot be saved; positions are clamped
+  after resize, with the native layout as a safe fallback if a smaller screen no longer fits the saved one.
+  Editing keeps the match paused, and dragging Fire does not shoot.
+- **Shift** sprints at **1.35×** walking speed. Crouch moved to **C** (Ctrl also works). On mobile, hold the
+  joystick off-center for **more than 1.5 seconds** to sprint; releasing/centering it, aiming, crouching or
+  interrupted input resets the timer. The joystick outline highlights sprinting.
+- **Aim** slows movement to **62%** of walking speed and overrides sprint. Client and authoritative engine
+  share these multipliers. Only the three optic-equipped rifles get a circular scope, black outer mask, lens shading and centered
+  graduated reticle; the gun/arms hide while scoped, but HUD/touch controls stay above the optic.
+- Third-person rifles follow the **animated chest**, not the unanimated avatar root or previous-frame
+  wrists. A bind-calibrated torso attachment removes bone-axis/scale differences, and pitch pivots at
+  the trigger grip. The right hand stays on that grip even during reload/throw gestures; only the support
+  hand releases. Support contact is fitted nearer the receiver for short arms, without shrinking the gun
+  or changing first-person sockets, hit rays or weapon statistics.
+- Flashbangs use bright, full-screen white before fading. Cover still protects players; range/facing
+  determine recovery time rather than allowing visibility through a translucent veil.
+
+`tools/test-mobile-features.mjs` covers sprint timing/priority, the real layout editor (drag/save/reset/cancel,
+collision checks, rotation and sanitized persistence), and fullscreen success/denial/unsupported paths.
+It is part of `node tools/test-vercel.mjs`; live mobile tests also exercise actual touch editing, sprint and
+scoping. `python tools/test-movement.py` checks engine sprint/ADS/crouch authority. Third-person stability
+checks run through hold, run, fire, reload, throw and sprint on all four shipped skeletons.
+`tools/test-weapon-hold.mjs` measures **23,040 animated frames** (4 skins × 30 guns), all eight translated
+run directions, turning, crouch and ±89° pitch against the anatomical chest and both hand contacts.
+The previous root-local test missed visible torso-relative drift; this regression fails the previous
+implementation. `tools/test-live-weapon-hold.mjs` also observes actual local and interpolated remote
+avatars in the main game loop. Both are included in the browser suite. Use
+`WEAPON_HOLD_SCREENSHOT=/tmp/hold.png` for the new full-character hold or `TP_SCREENSHOT=/tmp/tp.png`
+for the existing hand fixture. Tests use browser emulation, not physical phones.
+
+### Non-overlapping UI and transparent touch controls
+
+Menu content and weapon lists keep their natural height instead of being squeezed over buttons;
+short desktop windows and phones scroll to the action/footer. The language switch has a separate
+header outside the menu scrollport. Room/mode/settings/footer rows wrap, and tall modals scroll.
+The in-game score, room-copy button and objective cards now share a flow layout, rather than
+competing fixed offsets. Mobile portrait loadout summaries sit in their own row; landscape uses
+the free center lane for room/objective information. The room code remains a real, reachable button.
+
+Mobile game buttons use translucent backgrounds (16–18% idle tint, 24% held tint), opaque text,
+light outlines and fully rounded circles/pills. The joystick is lighter too. Only the backgrounds
+are faded, so labels stay readable; desktop/menu button styling remains separate.
+
+`tools/test-layout.mjs`, included in `node tools/test-vercel.mjs`, adds 172 layout checks in English
+and Chinese across desktop and mobile sizes. It covers menus, selection/deploy, settings, pause,
+invites and the multiplayer + point-control HUD, including scroll reachability, non-overlapping
+button rectangles, room-code hit testing, and transparent/rounded idle and held touch styles.
+Set `LAYOUT_SCREENSHOT=/tmp/layout.png` for a portrait HUD fixture screenshot. These are browser
+layout/emulation checks, not a claim that every physical phone/browser has been tested.
+
+### Stable mouse input and mixed bot skills
+
+- Pointer-lock packets are coalesced once per frame with a short (~8 ms) filter. Non-finite input,
+  oversized warp packets and large recenter packets just after locking/resizing are rejected.
+  A per-frame turn limit and bounded backlog prevent a stalled frame from producing a sudden spin.
+  Ordinary movement and fast multi-packet flicks retain their total travel; extreme stalled backlogs
+  are deliberately capped. Camera and firing use the **same filtered aim**, including zoom/ADS.
+- **Mouse sensitivity (25–200%)** is available in the main menu and Esc pause menu. Both sliders
+  stay in sync and use the existing local profile setting; it survives reloads when local storage
+  is allowed. Lock changes, Esc, blur, hidden tabs, resizing and respawning clear pending movement.
+  This remains native pointer lock only: no free-cursor steering is introduced.
+- Bots mix **Recruit / Regular / Veteran** skills on each team, visible on the Tab scoreboard.
+  Recruits react in 550–1000 ms, turn more slowly, have wider horizontal/vertical aim error and
+  longer pauses. Regulars react in 300–600 ms; veterans in 150–300 ms with tighter tracking and
+  shorter pauses. These are reaction delays **after acquisition**, not guaranteed time-to-first-shot.
+  Each team's six-bot rotation is Recruit, Regular, Veteran, Recruit, Regular, Regular; smaller
+  teams use its prefix. Most bots are not veterans, and each bot keeps its tier after respawning.
+  Health, damage, LOS/smoke, friendly-lane safety, cover, class abilities and weapon authority remain
+  shared; weaker bots still navigate and play objectives rather than becoming stuck or omniscient.
+
+`node tools/test-mouse.mjs` checks input spikes, first-lock movement, 24/60/144 Hz precision, fast
+flicks and stalled backlogs. `node tools/test-vercel.mjs` also checks actual native-lock integration,
+saved menu/pause sensitivity, mixed-tier live rosters and translated scoreboard labels alongside
+all existing aiming/shooting/multiplayer tests. `python tools/test-ai.py` has 31 regressions covering
+skill, sampled prediction, frame-rate-independent drift, hesitation, tactic commitments, objective
+spread, LOS safety and 15 bots running for 40 simulated seconds on each of the three maps.
+
+### Smarter solo bots and collision-safe cameras
+
+- **Less scripted decisions:** each life gets its own steadiness/aggression and runtime-random choices,
+  not the same fixed match seed. Bots commit to push/flank/strafe/withdraw plans for 1.3–3.1 seconds,
+  or stop to hold for 350–850 ms. Flank waypoints are checked against bounds, floors and collision,
+  then use existing bounded navigation; an unsafe candidate falls back to strafing. Cover/reload
+  decisions still take priority. Holding no longer drifts sideways from separation steering.
+- **Fallible tracking:** aim follows tier-timed sight samples, with velocity estimated only from those
+  observations—not the target's live/hidden velocity. Prediction is capped at 180 ms and 1.2 m per
+  axis, so sudden direction changes can fool it. Aim error eases smoothly rather than snapping,
+  grows instead of shrinking at long range, and increases under suppression.
+- At each new burst, recruits/regulars/veterans have a **22% / 13% / 7%** chance to hesitate for
+  **180–550 ms**. This is a missed/delayed firing opportunity, not a hit probability. Together with
+  imperfect tracking, overcommitted pushes and individual traits, it introduces real mistakes
+  without adding damage, health, collision or ammunition privileges.
+- Objective choices account for allies already assigned/near a point and public capture threats,
+  and stay committed for 1.8–3.5 seconds rather than changing every frame. City lookout choices
+  vary; strafe changes can keep the same side instead of mechanically alternating left/right.
+- Bots acquire enemies through a field of view, solid line of sight and smoke checks. They briefly
+  investigate a frozen last-seen position instead of tracking hidden players through walls. Target
+  hysteresis, reaction time, weapon-specific engagement distances and short bursts keep fights readable.
+- Low-health/reloading bots seek occluding cover, reload partial magazines when safe, avoid teammates
+  in their firing lane, and place healing/ammo crates when their nearby team needs them. Cached,
+  bounded A* handles investigation/cover routes; map flow, swept steps and stuck recovery handle travel.
+  They still use the human authoritative ammo, fire-rate, damage and ability paths. The existing
+  Solo-only 50% chance to discard an eligible bot-to-human bullet hit is unchanged; the new tracking
+  mistakes/hesitations are separate from that relief. This is tactical AI, not machine learning or
+  an external service.
+- FP/TP cameras use a swept near-plane-sized collision volume against map solids, including ramps,
+  floors and ceilings. TP retracts at walls; FP resolves near-plane overlap, including wide screens.
+  Jumping also stops at ceilings. A fully contracted TP camera hides the local body, not other players.
+  Camera correction never moves the player's body or authoritative shooting ray.
+- All 30 guns retain flashes for at least one rendered frame, even at low frame rates. Local and remote
+  flashes follow the posed muzzle; brass keeps its per-gun size and smoke fades independently. Remote
+  sounds now use the actual gun's decoded sample. Accepted-shot sequence numbers prevent duplicate or
+  missed remote effects from short firing flags and repeated/out-of-order snapshots (older hosts retain
+  the cadence-limited fallback). FX pools remain bounded.
+
+### Static-deployment browser regression tests
+
+Run with Node.js 22.17+ on Linux (or provide your own Chromium via `CHROMIUM_EXECUTABLE`):
+
+```sh
+npm install --prefix /tmp/maxs-fpv-browser-tests playwright-core@1.64.1 @sparticuz/chromium@153.0.0
+node tools/test-vercel.mjs
+```
+
+The test serves only `public/` and the static API shims, disables WebSocket, and blocks external
+requests. It checks actual Pyodide host/guest gameplay (welcome, state, input, firing, reloading,
+abilities and chat), separate-room isolation, real WebRTC across isolated browser contexts,
+duplicate delivery over two transports, joining during host startup, invalid codes/timeouts,
+departure cleanup, native lock/retry/Esc/relock, permitted iframe locking, and denied sandbox requests
+without alternative steering. This is a local
+static-deployment test, **not** a live Vercel deployment or a cross-NAT connectivity guarantee.
+The same command also runs `tools/test-effects.mjs`: 30 imported models / 210 weapon poses,
+third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
+and an actual solo deploy/fire/reload/grenade render. `python tools/test-grenades.py` covers
+21 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
+visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q controls and effects. `tools/test-hands.mjs` additionally exercises
+all four shipped skeletons across 960 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
+30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
+hold/run/fire grips. Set `HAND_SCREENSHOT=/tmp/hands.png` to capture hip/ADS/reload and fallback gloves.
+`tools/test-survival.mjs` adds 60 real-aim recoil cases, 8,064 map movement frames at 20/60/144fps,
+shield replication/expiry and disposal, plus live respawn protection/HUD and client/host recovery.
+Run `python tools/test-survival.py` for 20 authoritative shield/safety regressions, including independent
+movement/fire cancellation, slow/spoofed movement, packet noise, rejected actions, throws and fresh lives.
+`tools/test-camera.mjs` adds 162 collision checks and live FP/TP camera wiring checks.
+`tools/test-arsenal.mjs` verifies all 30 guns in FP/TP/remote modes, decoded audio, slow-frame flashes,
+shot deduplication and pool cleanup; the actual solo game also fires all 30 guns in FP and TP (60 cases).
+Run `python tools/test-ai.py` for 31 deterministic AI/engine tests, including 60-second simulated matches
+on both shipped maps and 15-bot/40-second simulations on all three maps. Browser regressions can take a few minutes on software-rendered Chromium.
+Use `TEST_DEPS` to change the external test-dependency directory; no npm build step is added to Vercel.
 
 ---
 
@@ -176,18 +560,164 @@ The game needs no plugins, but two browser environments restrict pages and both 
 | `W` `A` `S` `D` | Move |
 | Left mouse button | Fire (hold to keep firing with automatic weapons) |
 | Right mouse button | Aim down sights / raise the weapon (tighter spread, narrower view) |
-| `Shift` | Crouch (half height, the only way through low passages) |
+| `Shift` (hold) | Sprint (+35% movement speed; disabled by aiming/crouching) |
+| `C` / `Ctrl` | Crouch (half height, the only way through low passages) |
 | `Space` | Jump |
 | `R` | Reload |
-| `Q` | Use your class ability |
+| `Q` | Use your class ability (hold/release to throw smoke or a flare) |
+| `G` (hold/release) | Charge and throw the selected grenade |
+| `B` | Cycle frag → incendiary → smoke → flash |
 | `V` | First / third person camera |
 | `Tab` (hold) | Scoreboard |
 | `Enter` | Chat input (`Esc` cancels) |
-| `Esc` | Hand the mouse back (works in pointer lock *and* in cursor steering) |
+| `Esc` | Release pointer lock and open the pause menu |
 
-Click the screen to continue: where pointer lock is available it locks again, and in an
-`iframe` / preview pane that refuses it you go back to cursor steering. The first entry into a
-match needs one click before the view turns.
+Click the screen to continue with native pointer lock. The first entry into a match needs one click
+before the mouse turns the view. If the browser refuses capture, click to retry or open the game in
+its own tab; the game never switches to a different mouse control scheme.
+
+### Grenades and throwing
+
+Every class has a **separate two-charge grenade slot**. **B** selects a type; hold **G** for up to
+900 ms to increase throwing speed, then release. Aim upward for a longer lob or downward for a
+short toss. The gold preview follows gravity and previews wall, ramp and ground bounces. Throws
+inherit part of your validated movement, lose energy on impact and settle instead of sliding forever.
+Fuses start **on release**, not while charging; Esc, blur, opening chat, death and loss of native
+pointer lock cancel an unthrown grenade without spending a charge. The shared inventory refills
+24 seconds after the second grenade is used, and respawning restores both. Q abilities are separate.
+
+| Type | Detonation and effect |
+| --- | --- |
+| **Frag** | 2.6-second fuse; a sharp pressure flash, metal fragments, sparks, dusty smoke and a layered blast report. Up to 120 damage with radial falloff inside 7 m. |
+| **Incendiary** | Bursts on impact (3-second safety fuse); fuel spreads onto the floor below the contact. Animated flames and embers burn for 7 seconds, dealing 28 damage/second within 4 m. |
+| **Smoke** | 1.8-second fuse; small ignition pop followed by the existing 14-second, 13 m sight-blocking cloud. |
+| **Flash** | 1.6-second fuse; exposed players within 14m get a fully opaque **white screen**, then a smooth recovery (not a strobe). Distance/facing change duration, solid cover blocks exposure, and bots temporarily lose sight too. |
+
+Solid cover blocks blast/fire damage and flash exposure. Frag/fire can hurt the thrower but not
+teammates; suicide never awards a kill or team point. Flashes can affect either team. Scout flares
+now visibly burn too, without turning their spotting ability into an incendiary attack.
+
+The browser host solves each trajectory and broadcasts a timed bounce path, rather than accepting
+a client-selected landing point. Python authority and the JavaScript preview share fixed-step
+physics tested on both maps, both ramp axes, thin walls and bounds. Joining mid-round retains the
+remaining lifetime of existing smoke/fire and in-flight grenades. Detonation/smoke textures are
+procedural; throwable bodies use the included uploaded GLBs. Everything runs with the existing
+Vercel-only browser engine: no new backend, external asset service or broker.
+
+#### Uploaded grenade bodies and more grounded effects
+
+The flying balls are replaced by your uploaded models: **M26 for frag**, **Hand Grenade for
+incendiary/flash** (different identification collars), and **Toon Grenade for smoke**, without its
+expanded black outline shells. Original textures, levers and pull rings remain. These are adaptations
+of the supplied grenade-shaped art, not exact replicas of four different real-world devices.
+Models are centered/upright and fitted inside the unchanged **0.09 m collision radius**. Downloads
+are cached once per file (three files, about 20 MB total); clones share geometry/materials. A detailed
+body/cap/lever/pull-ring fallback stays visible during loading or a failed request—never a ball.
+Scout flares use a slim red cartridge instead of a sphere.
+
+Tumble follows the host path and stops when the body settles, rather than spinning in place until
+the fuse ends. The smoke body stays beneath its venting cloud, including for late arrivals.
+- Frag uses a sub-second pressure flash followed by non-emissive dust, seeded metal fragments and
+  sparks. Cosmetic fragments stop at solid surfaces; the **2.4-second visual tail adds no damage**.
+- Incendiary fire uses irregular rising flame tongues, cooler smoke wisps, embers and temporary
+  ground darkening. Fire placement checks floors and walls; it is not a floating giant glow sphere.
+- Smoke keeps its existing authoritative sight-blocking radius/density and layered cloud, with a
+  smaller vent/ignition puff. Flash uses a brief **white** environmental blink without orange fire
+  or shrapnel; the full-white host-authorized blindness and recovery are unchanged.
+- Two fixed, shadowless light slots handle nearby illumination, rather than adding a light per
+  explosion. Sparks and debris use instanced batches. Sounds layer a sharp crack, lower body and
+  air/debris tail, with softer smoke/flare ignition and a separate flash report.
+
+Run **`node tools/test-grenade-upgrade.mjs`** for the focused static-browser regression (same external
+test dependencies as the Vercel suite). It checks all three actual GLBs/four type presentations with
+rendered pixels, physical bounds, 20/60/144 Hz paths/rest, cache sharing, failed/pending loads, wall
+stops, effect lifetimes, light cleanup and the existing 150 Python/JS trajectory-parity cases.
+It also runs real main.js native G/B/Q throws, persistent fire/expiry, full-white flash/fade, pause
+cancellation, separate inventories and leave cleanup. `GRENADE_ASSETS_ONLY=1` skips the live-game
+portion; `GRENADE_MODEL_SHOTS=/tmp/grenade` saves model close-ups. The full Vercel suite includes
+the new model checks too. These are browser/physics regressions, not physical-phone FPS benchmarks.
+See [grenade model/effect details](docs/grenade-models-and-effects.md) and the
+[embedded asset credits](public/models/guns/CREDITS.md).
+
+### Point control (new match rules)
+
+Choose **Match rules → Point control** before Solo or hosting Multiplayer. Deathmatch remains
+available and is the default. Guests always inherit the host's rules; choosing something else
+locally cannot switch a running room. Both Somme and Italy have three authored, navigable points:
+**A / B / C**. Their flags, circles and HUD cards show ownership, capture progress, contests,
+direction and distance.
+
+- Stand within **5 m**, on the same floor and with an unobstructed line to the flag. A solo capture
+  takes **5 seconds**; two teammates capture faster (extra players do not stack beyond two).
+- Both teams inside contest the point: neither side advances. Enemy-owned flags must first be
+  neutralized, then captured. Abandoned partial progress recovers; captured flags stay owned.
+- Control **all three flags for 15 continuous seconds** to win. Contesting or beginning an enemy
+  neutralization resets this final hold, even before ownership changes. The HUD shows the countdown.
+- Kills still count in individual stats, but **cannot win this mode**. At the eight-minute timeout,
+  the team owning more flags wins; equal ownership is a draw. New rounds reset flags and respawn
+  players. Solo bots route toward objectives, capture them and defend against pressure.
+
+The existing static/browser-host transports carry rules and objective snapshots, including for
+late joins. No extra server, broker or deployment service is needed.
+
+### Lighting and character movement
+
+Neutral filmic highlight rolloff, cooler daylight/fog, balanced sky fill and a softer rim improve
+readability without adding an expensive full-scene shadow pass. Imported characters use soft lit
+materials with a modest painted-albedo fill; **original texture maps, tints and alpha/cutout rules
+are preserved**. The Italy scenery keeps its baked lighting. Shared-texture contact shadows now
+stay on the floor and fade/spread when characters jump, with no duplicate shadow discs.
+
+Movement acceleration/braking is frame-rate independent; release is responsive rather than icy.
+Jumping has a **120 ms buffer / 100 ms coyote window**, and holding Space no longer auto-bounces.
+Chat cannot keep a character moving. Direction changes preserve animation stride phase and use
+sector hysteresis; slow/crouched movement has a slower cadence, fallback gaits ease in/out, and
+remote avatars turn smoothly along the shortest angle. Native pointer lock remains the only mouse
+look scheme; there is no drag or cursor steering fallback.
+
+### Frame-rate and shooting-cover improvements
+
+- Static Somme boxes and their outlines are instanced by material, without removing scenery.
+  The same-scene overhead WebGL check renders the same triangles with **159 → 95 draw calls**.
+  Map transforms are frozen after loading (including Italy), avoiding repeated static-node matrix work.
+- First person no longer animates a second invisible full-body avatar. Off-screen remote rigs are
+  culled and skip pose evaluation; visible rigs use distance-based 60 / 30 / 15 / 8 Hz animation
+  budgets while their position and facing still update each frame. Simulation/network rates are unchanged.
+- The 3D buffer starts within a two-million-pixel / 1.5× DPR budget and adapts gradually under sustained
+  load, recovering detail when headroom returns. CSS HUD/text stays sharp. This may soften the 3D
+  image on slower hardware; it targets smoother frames, not a guaranteed FPS on every device.
+  Background-tab stalls are ignored. Diagnostics: `window.__trench.app.performance.stats`.
+- Visual bullet rays now use the collision grid and match authoritative wall/floor/solid-ramp hits.
+  No 5 cm near-wall exemption: an embedded origin stops immediately. Muzzles animated past cover
+  cannot start a tracer on its far side; each muzzle-to-end tracer is clipped again against solids.
+- Authority checks the entire segment from its eye to a reported firing origin, so the existing
+  1.5 m network tolerance cannot hop a thin wall. Non-finite directions are rejected. Ramp sides
+  and undersides are solid, but rays above the actual slope still pass. No wall penetration is added;
+  shooting remains continuous hitscan, preserving range/damage/lag compensation and normal open shots.
+
+Validation: `python tools/test-shooting.py` adds 10 cover/security cases, including all 30 guns and
+bots. The full `node tools/test-vercel.mjs` runner adds **612 Python/JS ray parity cases**, grid-vs-linear
+checks (15,281 vs 1,135,260 candidate tests), batching/quality-budget regressions, and actual-game
+wall-blocked damage/tracers, rejected origin hops, open hits and off-screen pose skipping.
+These are local/static-browser measurements, not live Vercel or real-device FPS guarantees.
+
+### Aiming down sights
+
+Hold the right mouse button for ADS. Each imported gun now has a geometry-calibrated sight
+anchor: lateral bore offsets (including MP18) are centered, tall receivers/magazines stay below
+the reticle, and idle/walking bob no longer drags fully raised sights off target. Zoom scales
+mouse sensitivity to the actual camera FOV, giving scout rifles precise control rather than
+magnifying the same hip-fire mouse movement. A bright central dot stays visible.
+
+When playing third-person, holding ADS temporarily uses the eye-aligned first-person sight view;
+release returns to the selected third-person view. The camera, visible weapon, borrowed arms and
+shot effects use the same view choice. Reload/death/chat/lost native lock cancel ADS; holding RMB
+resumes it after reload. The first held RMB can both acquire native pointer lock and aim. Shot
+origin/direction and hit decisions remain authoritative and unchanged.
+
+`tools/test-aim.mjs` adds all-15-model sight/clear-ray checks, zoom sensitivity and input-state
+regressions, plus real-game FP/TP hits with SMG, LMG and bolt rifles, reload resume and release/Esc.
+It runs as part of `node tools/test-vercel.mjs`.
 
 ### The four classes
 
@@ -196,23 +726,24 @@ match needs one click before the view turns.
 | Assault | Close-quarters burst · 100 hp · ×1.08 movement | **Smoke grenade** — a wide cloud that blocks sight lines; enemies inside cannot be spotted by flares | MP18 Bergmann, Automatico M1918, Hellriegel M1915 |
 | Medic | Mid-range sustain · 100 hp | **Medic box** — heals you and nearby teammates continuously until you place the next one | Cei-Rigotti, RSC M1917 (6 rounds, 50 per shot), Fedorov Avtomat (26 rounds) |
 | Support | Suppressive fire · 110 hp · ×0.94 movement | **Ammo crate** — refills reserve ammo for you and nearby teammates; hits suppress the enemy | Lewis Gun (97-round drum), BAR M1918, Chauchat M1915 (20 rounds, automatic but very slow) |
-| Scout | Long-range sniping · 90 hp | **Flare** — spots enemies in the area for the whole team | SMLE MkIII, Mannlicher M95 (5 rounds, straight-pull), Springfield M1903 |
+| Scout | Long-range sniping · 90 hp | **Flare** — spots enemies in the area for the whole team | SMLE MkIII, Mannlicher M95 (5 rounds, straight-pull), Springfield M1903; Sentinel SR-1, AWP and Longbow DMR |
 
-The scout's bolt-action rifles kill with **one shot to the head or torso** inside their range.
+Scout rifles have different damage/range profiles; the M95 and semi-automatic Longbow DMR are not torso one-shot rifles.
 
 Bolt mechanism: the **Mannlicher M95** is a straight-pull, so it cycles while you are still aiming
-down sights; the other two (SMLE, Springfield) only cycle **after you release the right button** —
-you cannot fire the next round with the sights up.
+down sights; SMLE, Springfield, Sentinel SR-1 and AWP only cycle **after you release the right button** —
+you cannot fire the next round with the sights up. The semi-automatic Longbow DMR needs no manual bolt cycle.
 
 ### Three ways in
 
-The three buttons in the main menu:
+The main-menu options (match rules are selected separately):
 
 | Mode | What it does |
 | --- | --- |
-| Multiplayer | Online team deathmatch, humans only by default; the *AI bots* switch adds 4 / 6 / 8 / 12 of them |
+| Multiplayer | Host or join human-only deathmatch / point control; no bots |
 | Solo | You plus AI teammates against AI enemies; bots are forced on and the switch becomes a read-only indicator |
 | Setup | Import a skinned glTF/GLB, map its bones to the game's joints, tune the pose and upload it for everyone |
+| Tutorial | Private, bot-free practice with 11 action-based lessons |
 
 Bots go through exactly the same server-authoritative firing path as human players; there is no
 special-case AI logic.
@@ -224,8 +755,11 @@ straight from your browser.
 
 The *Tutorial* button in the main menu (it blinks gently on a fresh profile) walks you through the
 whole loop: move → turn with the mouse → fire → aim → reload → crouch / jump → use an ability →
-scoreboard / chat → room codes. Each step only ticks when you **actually perform it**, and the
-panel tells you what to do next. The practice match is solo (no bots, nobody shoots at you), you
+**cycle and throw a grenade → capture a real point** → scoreboard / view → room codes (11 lessons). Each step only ticks when you **actually perform it**, and the
+panel tells you what to do next. The practice match is private Somme point control (no bots, nobody shoots at you). Ability and
+grenade lessons require an accepted host effect, and capture requires authoritative ownership;
+cycling alone or a cancelled/rejected throw cannot complete them. During play only the current
+lesson is expanded. Press Enter on the final room-code lesson to finish and return to the menu. You
 can skip it at any time or restart it from the panel, and finishing it is remembered on this
 machine (`tf.profile`) so it stops offering itself.
 
@@ -281,7 +815,7 @@ shown for both sides. The models keep their original colours; nobody gets dyed t
 
 ### Weapon models
 
-All 12 primary weapons use imported glTF models (`public/models/guns/<weapon-id>.glb`), hot-swapped
+All 26 primary weapons and four sidearms use imported glTF models (`public/models/guns/`, mapped by `guns.js`), hot-swapped
 in by `guns.js` once downloaded, over a procedural placeholder (first person, your own third-person
 body and remote players all share the same `buildWeapon` path).
 
@@ -290,11 +824,11 @@ body and remote players all share the same `buildWeapon` path).
 | Assault | `mp18` / `auto1918` / `hellriegel` |
 | Medic | `cei` / `rsc1917` / `federov` |
 | Support | `lewis` / `bar` / `chauchat` |
-| Scout | `smle` / `m95` / `springfield` |
+| Scout | `smle` / `m95` / `springfield` / `sentinel` / `awp` / `longbow` |
 
 - Each model's **longest axis is aligned to +Z (muzzle) with +Y up**, and its length is normalised
   to the same envelope as the procedural gun (SMG 0.92 m / rifle 1.12 m / LMG 1.22 m / bolt 1.28 m)
-  so the hand-IK grip anchors did not have to change.
+  with per-model palm-contact sockets measured on the normalized mesh.
 - Models are parsed once and shared through `clone(true)`; the procedural gun stays until the swap,
   so you never see empty hands.
 - Some models in the asset pack point backwards (muzzle at −Z) or use spec-gloss materials (an
@@ -306,7 +840,7 @@ body and remote players all share the same `buildWeapon` path).
 
 ### How each weapon fires
 
-The twelve guns differ in more than numbers: muzzle flash, sound, recoil, ejected casings and
+The thirty guns differ in more than numbers: muzzle flash, sound, recoil, ejected casings and
 tracers all have their own character, all of it in the `fx` block of
 `public/shared/weapons.json` (**presentation only — the server never reads it**, and a bad edit is
 clamped back into range by `gunfx.js` instead of breaking a match).
@@ -333,7 +867,9 @@ own rate of fire** — a Lewis does not sound like a rifle.
 ## Match rules
 
 - First side to **75 kills** wins, or whoever leads when the **8-minute** clock runs out.
-- Death costs 3 seconds; respawning lets you change class and weapon for free.
+- After a 3-second death cooldown, choose a class, primary weapon and pistol secondary for free,
+  then press **Redeploy**. Human players stay in the picker until they confirm; bots still
+  respawn automatically. Class/primary changes and language switches preserve the selected pistol.
 - **Breathing health regen**: 8 seconds without taking a bullet or blast starts the regen, which
   refills to full in another 8 seconds (capped at your own maximum). Any damage resets the 8-second
   timer; medic-box healing stacks with it. The same rule applies to humans and bots.
@@ -452,7 +988,7 @@ FPS web game demo/
     │   └── host.py             # in-page host: collects room output as JSON for js/local.js,
     │                           #   plus RelayHost: a multi-player room that tags every frame
     ├── shared/                 # the single data source shared by Python and JS
-    │   ├── weapons.json        # 12 weapons + 4 classes + the global combat constants
+    │   ├── weapons.json        # 30 weapons + 4 classes + the global combat constants
     │   ├── map.json            # map A collision boxes / cover / spawns / navigation points
     │   ├── maps.json           # map list (default map, per-map scene settings)
     │   ├── maps/cs_italy.json  # the second map
@@ -486,11 +1022,11 @@ FPS web game demo/
         ├── character.js        # the anime girl: hair / clothes / accessories / walk and run animation
         ├── rig.js              # external rigs: parsing / joint mapping / normalisation / Setup UI
         ├── viewmodel.js        # first-person arms and weapon view model
-        ├── controls.js         # pointer lock, mouse look (cursor steering when lock is refused), client movement
+        ├── controls.js         # native pointer lock, mouse look, retry/release, client movement
         ├── hud.js              # all the DOM / HUD logic
         ├── audio.js            # procedural WebAudio sound (no audio files)
         ├── net.js              # WebSocket client (with long-poll fallback) + remote-player interpolation
-        ├── tutorial.js         # the nine-step tutorial, driven by real input
+        ├── tutorial.js         # 11 real-input lessons including G/B grenades and point capture
         ├── storage.js          # safe localStorage / sessionStorage wrapper (falls back to memory)
         └── main.js             # orchestration and the main loop
 ```
@@ -543,9 +1079,175 @@ FPS web game demo/
   (8 / 18 / 16) that are repositioned rather than allocated and destroyed, so 900 rpm weapons do
   not make the GC stutter. Muzzle light uses **two always-present** `PointLight`s in the scene
   (intensity 0 when idle): lights that come and go make three.js recompile the whole world's
-  shaders, while permanent ones just cost a little per-pixel work. Camera recoil only moves the
-  **render** camera — the crosshair and the server-shared aim ray do not move a pixel, so it feels
-  like "the picture shakes" rather than "the bullets fly anywhere".
+  shaders, while permanent ones just cost a little per-pixel work. Recoil now changes **real aim**
+  with reduced kick in ADS; the rendered camera and next shot ray stay aligned, rather than only
+  shaking the picture. The viewmodel still has its own damped backward kick.
 - **Anime rendering**: four-band `MeshToonMaterial` steps, inverted-hull outlines and a hair
   highlight band; no real-time shadows (a dark disc under the feet stands in), and every face and
   portrait is drawn procedurally on a canvas with no image assets.
+
+
+Gameplay regressions: `python tools/test-control.py` covers 19 point-rule, room-authority,
+restart and real-map/bot cases, alongside the existing AI and grenade tests. The browser runner
+adds 21 movement/tutorial/material/shadow checks, real WebRTC mode and owned-flag late joins,
+and a real menu → deploy → G/B lesson → WASD captures → interrupted hold → all-point victory →
+round restart flow. Run `node tools/test-vercel.mjs` for the full suite.
+
+### Procedural City (`proc_city`)
+
+Select **Procedural City** in the map picker. The expanded seed **1942** is **240 × 240 m**:
+four times the previous width/depth and **16× its area**. Its 128 buildings form 64 attached pairs,
+with 109 internal door connections, eight interior uses and 1–4 stories. Building coverage is now
+54.7% (previously 22.8%); vehicle streets are reduced from 18 to five, with narrow pedestrian alleys
+between blocks instead. It includes 151 low-wall cover sections, only eight parked vehicles in seven variants (including the three
+uploaded cars), 128 shop awnings, 240 other vegetation/street placements and varied furniture/room contents. Smooth stacked stair slabs,
+openings, bullet-blocking walls and three-dimensional bot routes use the same committed collision JSON
+in Python, Pyodide and the browser.
+No npm, frontend build or new physics dependency is required.
+
+The arsenal now includes **all 30 uploaded gun models** (26 primaries and 4 sidearms). Choose an
+**APX Carry, G17, Desert Eagle or Flare Pistol** as your secondary. Switch with **1 / 2 / X**, or the
+mobile **Switch weapon** button. Ammunition is independent; pistols have close two-handed poses,
+and long guns have individual model/grip/hip/ADS calibration rather than a shared placement.
+
+City generator version 7 avoids the old repeated opening grid with **six facade rhythms** and
+**1,044 exterior windows**. Door positions, window widths/sills,
+and shared-wall portal positions/heights vary. All **256 exterior doors** and **109 internal
+connections** remain; visible closed bays now provide more solid cover. Entrances, lookout routes,
+and curb cuts follow the real openings. Refresh and start a new city match to load the changed map.
+
+Version 7 adds a **72 × 18 m central pocket park**, twelve mixed trees, paths, benches, shrubs,
+flowers and rubble. **15 Solo bots** are the city default; explicit per-map choices remain remembered.
+Warmer lighting, brighter interior fill and varied textured/tinted surfaces replace the uniform look.
+Local instancing, decorative-only distance LOD and a static sun shadow reduce the rendering budget:
+the fixed near-park check submits **70.8% fewer triangles**, though draw calls increase; this is not an FPS claim.
+
+All **30 guns have distinct procedural reload profiles**, shared by FP and imported/procedural TP hands,
+with feed sockets calibrated against the actual models and authoritative reload progress. These animate
+the gun and hands, not newly separated magazine/bolt meshes. Tests cover 9,030 VM/glove frames,
+960 imported FP poses and 720 imported TP reload poses across four skeletons.
+
+See [map generation and validation](docs/proc-city.md) and
+[arsenal, secondary inventory and controls](docs/arsenal-and-sidearms.md).
+
+`node tools/test-protection.mjs` checks capped, non-renewing per-life deadlines, delayed/replayed
+packets, old seat/life rejection, respawn teleports and remote-clock cleanup without a browser.
+`tools/test-vehicles.mjs` (included in the browser runner) loads all seven vehicle variants, verifies
+all eight canonical cover bounds and material groups, and renders the three newly uploaded cars.
+For a running static preview, set `CITY_ORIGIN` and `CHROMIUM_EXECUTABLE`, then run
+`python tools/test-map-shields.py` with test-only Python Playwright installed. It waits a real five
+seconds on **all three maps**, checks authoritative damage before/after expiry, remote countdowns,
+position recovery without renewal, and a new protection grant only after respawning.
+
+## Third-person gun placement tool
+
+Open **`/gun-lab.html`** (also linked in the main menu as **Gun Lab**). Select any catalog gun and one
+of the four actual character rigs or the procedural fallback; adjust XYZ position in metres and XYZ
+rotation in degrees while the real third-person hands follow. Orbit/zoom, camera presets, animation
+poses, aim pitch, freeze and hold-to-compare make placement easy to inspect.
+
+Click **Record this gun** for each gun you tune, then **Download JSON** or **Copy recorded** and send
+the complete JSON file/text to me. Per-gun drafts/records survive reloads when local storage works;
+you can import exported files to continue later. The tool previews only: it does not automatically
+change matches or first-person placement. No npm/build/backend is required.
+
+See [the full lab guide](docs/gun-placement-lab.md) for coordinates, recording/import semantics,
+storage/error handling, the export format and developer tests.
+
+## Kill feedback and death animation
+
+Confirmed eliminations now have an animated gold hit marker, a compact victim-name card,
+a separate headshot treatment and a short multi-kill counter. Feedback follows the authoritative
+kill event, not a predicted hit, and never shakes the killer's camera or interrupts aiming.
+
+Characters no longer disappear instantly: both the four imported rigs and the procedural avatar
+react to the impact, buckle, fall away from the attacker when its position is available, and settle.
+Bodies remain briefly visible (up to 4.2 seconds, or until respawn). Being killed hides first-person
+hands immediately, transitions to a collision-checked view of your collapse, then reveals the
+existing class/primary/pistol redeploy panel after roughly one second. The real respawn countdown
+starts immediately; camera/UI timing uses real elapsed time so low frame rates do not extend it.
+Reduced-motion preferences remove the camera roll/animated travel and simplify kill feedback.
+
+These are bounded **keyframed visual effects, not a physics ragdoll**: they do not change health,
+ballistics, movement, hitboxes, scoring, spawn protection or networking. See
+[implementation, limitations and regression tests](docs/combat-animation.md).
+
+## Crouch correction and multiplayer reliability
+
+Crouching now uses a deep, balanced squat rather than a shallow standing pose with backwards
+thighs: shared eased hip/knee/ankle motion, grounded feet, shorter crouched steps, a lowered pelvis,
+and a level weapon with the existing hand IK. All four imported characters and the procedural
+fallback are covered. Standing/running transitions are smoothed; the authoritative capsule,
+eye height, speed and hit rules have not changed. The deeper pose also revealed and fixed stale
+skinned-mesh matrices during crouched death floor-clearance checks.
+
+Three important multiplayer lifecycle issues are corrected:
+
+- **Paired RTC survives Deploy.** An explicitly created/paired room wins over a remembered
+  optional backend address. Previously that address could close a working RTC connection before
+  falling back to a fresh, unpaired channel; even malformed saved addresses are now bypassed.
+- **Authority does not need rendering.** The host ticks independently of animation frames;
+  incoming relay activity also advances it when timers throttle. Catch-up is bounded, and close
+  cancels the tick timer. Explicit Esc pause remains a real host pause. This cannot prevent an OS
+  from suspending the host browser entirely: keep the host page open and active when possible.
+- **Pause is coordinated.** Guest heartbeats preserve their seat while their local pause menu is
+  open. Host pause/resume is signalled, movement/fire are blocked while paused, and authority
+  rejects paused gameplay commands. Sending chat during a pause does not falsely resume guests.
+
+**Vercel-only is preserved:** no build, required backend, broker, or signalling service.
+The 8-digit code works between same-origin tabs in the same browser storage partition.
+**Independent browsers/devices must exchange the invite and answer codes first.** Optional STUN
+is not TURN; restrictive NAT/firewalls may still block direct RTC. These fixes do not claim
+universal internet connectivity.
+
+A complete local-browser run of `node tools/test-multiplayer.mjs` checks the actual menu pairing
+flow with BroadcastChannel/WebSocket/external requests disabled, keyboard crouch/walk replication,
+pause/heartbeat handling, both directions of kill/death/redeploy, ammo/reload, departure and
+fresh menu-based pairing/rejoining without resetting the host.
+Somme, Italy and Procedural City also pass early-join, host-rule, private-ammo, chat, per-player shield cancellation
+and host-close checks with host rendering disabled. These are local RTC tests, not a two-network
+or deployed-Vercel certification. Full procedures, regression commands and exact limitations:
+[crouch and multiplayer checks](docs/crouch-and-multiplayer-checks.md).
+
+### Missing / flashing first-person character arms
+
+First-person shoulder placement now accounts for the uploaded rigs' actual arm reach, rather
+than using standing/hat height as a shoulder calibration. A bounded, camera-only mount fit keeps
+the character's own sleeves/hands on the gun through bob, recoil, sprint and reload; it does not
+stretch bones or move the third-person/gameplay body. Unsupported/missing custom rigs still have
+the connected procedural fallback. Reload presentation keeps its service contacts within view
+instead of lowering both hands completely below the screen.
+
+The gun and arms now share a small dedicated depth pass after the world, so close walls cannot
+alternately clip them away. They still depth-test against each other, use the map's lighting and
+pooled muzzle-flash lights, and are hidden in third person, an actual scope, death and after leaving.
+Wall collision, hitboxes and authoritative eye-based bullet obstruction are unchanged. Discarded
+character instances also release their own skeleton GPU textures without disposing shared art.
+
+`tools/test-first-person-arms.py` checks **rendered pixels**, not just visible flags or bone counts:
+all four imported characters plus the procedural fallback, all 30 guns, desktop/portrait framing,
+29,160 fitted poses at 20/60/144 Hz, 2,100 rendered samples and 120 close-wall cases. It also runs
+the real game entry point through character changes, authoritative primary/pistol switching,
+third-person/scope transitions, pause/resume, missing-skin fallback/recovery and leave cleanup.
+Run with `public/` served on port 8080, test-only Python Playwright installed, and
+`CHROMIUM_EXECUTABLE=/path/to/chromium python tools/test-first-person-arms.py`.
+
+### Host-approved lobby checks
+
+```sh
+node tools/test-room-lobby-unit.mjs
+node tools/test-room-lobby.mjs
+```
+
+The browser check uses the same external test-only dependencies as `tools/test-vercel.mjs`.
+It exercises native approval/rejection/retry, automatic selection, host-only map/rules, readiness,
+failed engine boot with pairing preserved, synchronized launch, unapproved joins/spoofed leave,
+approved-seat rejoin, live departure, and bilingual/narrow layouts. Two isolated contexts also
+exchange real offer/answer codes with BroadcastChannel and WebSocket disabled, retain their
+paired channels through launch, and exchange chat. Run heavy WebGL suites sequentially to avoid
+software-renderer memory contention. This is local static-host verification, not cross-NAT or
+real-phone certification; no production Node/npm, build step or required backend was added.
+
+### Landing page and bottom actions
+
+The operations-room landing page uses a battlefield hero and two setup cards: callsign/room approval on the left, map/rules on the right. Multiplayer and Solo have a dedicated launch bar. The lower section separates tutorial, character setup and control preferences; advanced server/keybind help is collapsible, with diagnostic/Gun Lab/color-repair links in the footer. Narrow screens stack naturally without covering controls. Existing approval/Ready/host-Start behavior is preserved. See [landing design and checks](docs/landing-redesign.md).

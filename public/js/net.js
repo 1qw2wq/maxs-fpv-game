@@ -12,6 +12,7 @@
 // could not join a match at all, it only ever showed 无法连接服务器.
 
 import { t } from './i18n.js';
+import { ProtectionClock } from './protection-clock.js';
 
 const TAU = Math.PI * 2;
 const WS_TIMEOUT_MS = 6000;
@@ -63,6 +64,8 @@ export class Net {
     this._pingSent = 0;
     this._pingTimer = null;
     this._lastMe = null;
+    this.protection = new ProtectionClock();
+    this.remoteProtection = new Map();
     this._lastState = null;
     this._outbox = [];
     this._closed = false;
@@ -79,6 +82,11 @@ export class Net {
    */
   async connect(url, opts = {}) {
     this._closed = false;
+    this.id = null;
+    this._lastMe = this._lastState = null;
+    this.snaps.length = 0;
+    this.protection.reset();
+    this.remoteProtection.clear();
     // Identity of this poll session. Deliberately fresh per page load: a reload
     // must look like a new client so the join's own tab id can evict the page
     // it replaced, instead of colliding with the entry still registered on the
@@ -231,6 +239,12 @@ export class Net {
   _dispatch(m, at) {
     switch (m.t) {
       case 'welcome':
+        if (this.id !== m.id || !this._lastMe) {
+          this.protection.reset();
+          this.remoteProtection.clear();
+          this.snaps.length = 0;
+          this._lastMe = this._lastState = null;
+        }
         this.id = m.id;
         this.team = m.team;
         this.interpDelay = m.cfg?.interpDelayMs ?? 120;
@@ -238,13 +252,30 @@ export class Net {
         this.h.onWelcome?.(m);
         this._startPing();
         break;
-      case 'state':
-        this.snaps.push({ t: at ?? performance.now(), s: m });
+      case 'state': {
+        // Retransmitted/out-of-order relay frames must not resurrect old shields,
+        // bodies, health or positions after a newer authoritative snapshot.
+        if (Number.isFinite(m.tick) && Number.isFinite(this._lastState?.tick) && m.tick <= this._lastState.tick) break;
+        const receivedAt = at ?? performance.now();
+        const present = new Set();
+        for (const p of m.ps || []) {
+          present.add(p.i);
+          let clock = this.remoteProtection.get(p.i);
+          if (!clock) this.remoteProtection.set(p.i, clock = new ProtectionClock());
+          clock.accept(p.life, p.sh, !!p.al, receivedAt);
+        }
+        for (const id of this.remoteProtection.keys()) if (!present.has(id)) this.remoteProtection.delete(id);
+        this.snaps.push({ t: receivedAt, s: m });
         if (this.snaps.length > this.maxSnaps) this.snaps.shift();
         this._lastState = m;
         this.h.onState?.(m);
         break;
+      }
       case 'me':
+        if (this.id !== null && m.id !== this.id) break;
+        if (Number.isSafeInteger(m.life) && Number.isSafeInteger(this._lastMe?.life) && m.life < this._lastMe.life) break;
+        if (Number.isFinite(m.tick) && Number.isFinite(this._lastMe?.tick) && m.tick < this._lastMe.tick) break;
+        this.protection.accept(m.life, m.shieldMs, !!m.alive, at ?? performance.now());
         this._lastMe = m;
         this.h.onMe?.(m);
         break;
@@ -283,10 +314,10 @@ export class Net {
   /**
    * @param {string} room  8-digit code to join, or '' to host a new room
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
     this.send({
-      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
-      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+      solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     });
   }
 
@@ -294,23 +325,28 @@ export class Net {
     this.send({ t: 'bots', on, n });
   }
 
+  // Capture the life NOW, not at queue flush: old input after respawn must
+  // never move the fresh body or cancel its shield. Legacy hosts ignore it.
   input(pos, yaw, pitch, flags) {
-    this.send({ t: 'input', p: [r2(pos.x), r2(pos.y), r2(pos.z)], r: [r2(yaw), r2(pitch)], s: flags });
+    this.send({ t: 'input', life: this._lastMe?.life, p: [r2(pos.x), r2(pos.y), r2(pos.z)], r: [r2(yaw), r2(pitch)], s: flags });
   }
 
   fire(origin, dir) {
-    this.send({ t: 'fire', o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
+    this.send({ t: 'fire', life: this._lastMe?.life, o: [r2(origin.x), r2(origin.y), r2(origin.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
   }
 
-  reload() { this.send({ t: 'reload' }); }
+  switchWeapon(slot) { this.send({t:'switch', life:this._lastMe?.life, ...(slot ? {slot} : {})}); }
+  reload() { this.send({ t: 'reload', life: this._lastMe?.life }); }
   /** Ability cast. `land` is the aim preview's landing point for a thrown one. */
-  ability(dir, land) {
-    const msg = { t: 'ability' };
+  ability(dir, land, power) {
+    const msg = { t: 'ability', life: this._lastMe?.life };
     if (dir) msg.d = [r3(dir.x), r3(dir.y), r3(dir.z)];
+    if (Number.isFinite(power)) msg.power = Math.max(0, Math.min(1, power));
     if (land) msg.p = [r2(land.x), r2(land.y), r2(land.z)];
     this.send(msg);
   }
-  respawn(cls, weapon) { this.send({ t: 'respawn', c: cls, w: weapon }); }
+  grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', life: this._lastMe?.life, kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
+  respawn(cls, weapon, secondary) { this.send({ t: 'respawn', life: this._lastMe?.life, c: cls, w: weapon, secondary }); }
   chat(text) { this.send({ t: 'chat', m: text }); }
 
   // -------------------------------------------------- interpolation sampling
@@ -344,7 +380,9 @@ export class Net {
     const B = (b === a) ? A : index(b);
 
     for (const [id, pb] of B) {
-      const pa = A.get(id) || pb;
+      let pa = A.get(id) || pb;
+      // Respawn is a teleport, never interpolate a live body across the map.
+      if (pa.life !== pb.life || pa.al !== pb.al) pa = pb;
       const dt = Math.max(0.001, (b.t - a.t) / 1000);
       const dx = pb.p[0] - pa.p[0];
       const dz = pb.p[2] - pa.p[2];
@@ -356,6 +394,11 @@ export class Net {
         pitch: pa.pi + (pb.pi - pa.pi) * k,
         speed: Math.hypot(dx, dz) / dt,
         flags: pb.f,
+        shotSeq: pb.sq,
+        reloading: (pb.ri||0)>Math.max(0,performance.now()-b.t),
+        reloadProgress: pb.rt?Math.min(1,Math.max(0,1-((pb.ri||0)-Math.max(0,performance.now()-b.t))/pb.rt)):0,
+        shieldMs: pb.life !== undefined && pb.life !== this.remoteProtection.get(id)?.life
+          ? 0 : this.remoteProtection.get(id)?.remaining(performance.now()) || 0,
         alive: pb.al,
         name: pb.n, cls: pb.c, weapon: pb.w, team: pb.tm, skin: pb.sk || '',
         hp: pb.hp, kills: pb.k, deaths: pb.d,

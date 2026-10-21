@@ -6,6 +6,7 @@ and reused by both the hit registration and the bot AI.
 """
 
 import json
+import heapq
 import math
 from collections import deque
 from pathlib import Path
@@ -30,9 +31,11 @@ THROW = COMBAT["throw"]
 CLASSES = {c["id"]: c for c in WEAPONS_DATA["classes"]}
 WEAPONS = {w["id"]: w for w in WEAPONS_DATA["weapons"]}
 
+SECONDARIES = [w["id"] for w in WEAPONS_DATA["weapons"] if w.get("slot") == "secondary"]
 CLASS_WEAPONS = {}
 for _w in WEAPONS_DATA["weapons"]:
-    CLASS_WEAPONS.setdefault(_w["class"], []).append(_w["id"])
+    if _w.get("slot") != "secondary":
+        CLASS_WEAPONS.setdefault(_w["class"], []).append(_w["id"])
 
 TEAMS = WEAPONS_DATA["teams"]
 
@@ -69,6 +72,7 @@ DECOR = {}
 # footprint touches, so a query only ever visits the handful of boxes near it.
 GRID_CELL = 2.0
 GRID = {}
+RAMP_PLANES = {}
 
 # Navigation flow field, one per team: cell -> the one step that shortens the
 # walk to the enemy's spawn area. Cells are finer than the collision grid so a
@@ -81,7 +85,8 @@ NAV_FLOW = {}
 
 def _build_grid():
     """Rebuild GRID from SOLID. Called by set_map."""
-    global GRID
+    global GRID, RAMP_PLANES
+    RAMP_PLANES = {}
     g = {}
     c = GRID_CELL
     for b in SOLID:
@@ -262,11 +267,9 @@ def blocked(x, z, y, height=None):
     or ``crouchHeight`` while crouched -- so a low passage the crouched body fits
     through stops blocking it.
 
-    A ramp is a solid wedge: walkable on its slope but solid underneath. Where
-    the slope is within one step of the feet the body is on the ramp (fine);
-    where it is higher the body would be inside the wedge. Skipping ramps
-    outright is what used to let a body walk into a ramp footprint from the side
-    and then drop through the (unfloored) footprint to the backstop slab.
+    Ramps are closed wedges or finite-thickness sloped slabs. Bodies may step
+    onto the top surface or pass below a raised underside, never inside the
+    solid volume. City stair slabs preserve headroom between stacked flights.
     """
     h = COMBAT["playerHeight"] if height is None else height
     for b in _near(x, z, PLAYER_RADIUS):
@@ -276,14 +279,12 @@ def blocked(x, z, y, height=None):
             continue
         if b["t"] == "ramp":
             surface = ramp_height(b, x, z)
-            # Walkable on the slope (within a step) and passable underneath a
-            # higher flight *only where a real floor carries the body*. The
-            # generator drops the floor under every ramp footprint, so a body
-            # that steps in below the slope has nothing to stand on and would
-            # drop to the backstop slab -- the "between the ground and the
-            # texture" wedge bots used to get stuck in. Allow the move only when
-            # floor_at confirms support; otherwise the body is inside the wedge.
-            if surface - y > STEP_UP_MAX and floor_at(x, z, y) <= FLOOR_BASE + 1e-6:
+            underside = surface-b['thickness'] if b.get('thickness') else b['y']-b['h']*.5
+            # City stair slabs have parallel sloped undersides, preserving
+            # 2.78m of headroom between stacked flights. Legacy ramps remain wedges.
+            if underside >= y+h:
+                continue
+            if surface-y > STEP_UP_MAX:
                 return True
             continue
         top = b["y"] + b["h"] * 0.5
@@ -293,21 +294,64 @@ def blocked(x, z, y, height=None):
     return False
 
 
-def resolve_move(old, target, y, height=None):
-    """Slide the move along walls: full move, then X-only, then Z-only, else stay.
+def resolve_move(old, target, y, height=None, return_height=False, follow_ground=True):
+    """Sweep and slide in XZ while following supported walkable surfaces.
 
-    ``old`` and ``target`` are both full [x, y, z] positions; only X and Z are
-    used here, so the Z component must come from index 2 (index 1 is the feet
-    height and would collapse every body onto the map's centre line).
+    Old/target are [x,y,z]. Keep the pair return for existing callers; movement
+    authority requests the sampled support height as a third result. Each step
+    still obeys STEP_UP_MAX and checks headroom at the raised foot height.
     """
-    nx, nz = target[0], target[2]
-    if not blocked(nx, nz, y, height):
-        return nx, nz
-    if not blocked(nx, old[2], y, height):
-        return nx, old[2]
-    if not blocked(old[0], nz, y, height):
-        return old[0], nz
-    return old[0], old[2]
+    steps = max(1, math.ceil(math.hypot(target[0]-old[0], target[2]-old[2]) / (PLAYER_RADIUS * 0.5)))
+    dx, dz = (target[0]-old[0])/steps, (target[2]-old[2])/steps
+    x, z, feet = old[0], old[2], y
+    supported = follow_ground and abs(floor_at(x, z, feet)-feet) <= .05
+
+    def attempt(px, pz):
+        nonlocal x, z, feet, supported
+        if blocked(px, pz, feet, height):
+            return False
+        next_y, grounded = feet, supported
+        if supported:
+            floor = floor_at(px, pz, feet)
+            if feet-floor <= STEP_UP_MAX:
+                next_y = floor
+            else:
+                grounded = False
+            if next_y != feet and blocked(px, pz, next_y, height):
+                return False
+        x, z, feet, supported = px, pz, next_y, grounded
+        return True
+
+    for _ in range(steps):
+        if not attempt(x+dx, z+dz) and not attempt(x+dx, z):
+            attempt(x, z+dz)
+    return (x, z, feet) if return_height else (x, z)
+
+
+def ceiling_at(x, z, feet_y, height=None):
+    """Lowest real underside above the head; mirrors World.ceilingAt."""
+    h = COMBAT["playerHeight"] if height is None else height
+    ceiling = math.inf
+    for b in _near(x, z, PLAYER_RADIUS):
+        if abs(x-b["x"]) > b["w"]/2+PLAYER_RADIUS or abs(z-b["z"]) > b["d"]/2+PLAYER_RADIUS:
+            continue
+        underside = ramp_height(b,x,z)-b["thickness"] if b["t"] == "ramp" and b.get("thickness") else b["y"]-b["h"]/2
+        if underside >= feet_y+h-.001:
+            ceiling = min(ceiling, underside)
+    return ceiling
+
+
+def is_void_floor(x, z, y):
+    """A model map's unrendered backstop is rescue terrain, not a playable floor."""
+    if not MAP_BY_ID.get(CUR_MAP_ID, {}).get("scene") or y > FLOOR_BASE + 0.05:
+        return False
+    for b in _near(x, z, PLAYER_RADIUS):
+        if abs(x-b["x"]) > b["w"]*0.5+PLAYER_RADIUS or abs(z-b["z"]) > b["d"]*0.5+PLAYER_RADIUS:
+            continue
+        top = ramp_height(b,x,z) if b["t"] == "ramp" else b["y"]+b["h"]*0.5
+        if abs(top-y) <= 0.05:
+            return False
+    return True
 
 
 def floor_at(x, z, feet_y):
@@ -415,6 +459,9 @@ def _build_nav():
     _build_grid, since it queries blocked().
     """
     global NAV_FLOW
+    if MAP_DATA.get("bot_nav"):
+        NAV_FLOW = {}  # Authored multistorey graph replaces the dense 2D flood.
+        return
     c = NAV_CELL
     ix0 = int(math.floor(BOUNDS["minX"] / c))
     ix1 = int(math.floor(BOUNDS["maxX"] / c))
@@ -508,6 +555,58 @@ def nav_dir(x, z, team):
     return (vx / n, vz / n)
 
 
+def waypoint_route(start, goal):
+    """3D authored graph for multi-storey maps; old 2D flow fields stay intact.
+
+    Edges are bidirectional walkable corridors, including sampled smooth ramps.
+    A nearest-node choice alone can jump floors/walls: validate each attachment
+    with the SAME swept capsule/floor queries used by live bot movement.
+    """
+    graph = MAP_DATA.get("bot_nav")
+    if not graph:
+        return []
+    nodes = {n['id']: n['p'] for n in graph['nodes']}
+    def attaches(a, b):
+        length = math.hypot(a[0]-b[0], a[2]-b[2])
+        feet = a[1]
+        for k in range(1, max(1, math.ceil(length/.18))+1):
+            t = k/max(1, math.ceil(length/.18))
+            x,z = a[0]+(b[0]-a[0])*t, a[2]+(b[2]-a[2])*t
+            if blocked(x,z,feet):
+                return False
+            floor = floor_at(x,z,feet)
+            if feet-floor > STEP_UP_MAX:
+                return False
+            feet=floor
+        return abs(feet-b[1]) < .4
+    def nearest(p):
+        for key in sorted(nodes,key=lambda k:dist3(p,nodes[k])):
+            if attaches(p,nodes[key]):
+                return key
+        return None
+    begin,end=nearest(start),nearest(goal)
+    if begin is None or end is None:
+        return []
+    adjacent={k:[] for k in nodes}
+    for a,b in graph['edges']:
+        cost=dist3(nodes[a],nodes[b]);adjacent[a].append((b,cost));adjacent[b].append((a,cost))
+    queue=[(0,begin)];costs={begin:0};parents={}
+    while queue:
+        cost,key=heapq.heappop(queue)
+        if cost>costs[key]:continue
+        if key==end:
+            path=[end]
+            while path[-1]!=begin:path.append(parents[path[-1]])
+            result=[nodes[k][:] for k in reversed(path)]
+            if attaches(nodes[end],goal):result.append(list(goal))
+            return result
+        for nxt,weight in adjacent[key]:
+            value=cost+weight
+            if value<costs.get(nxt,float('inf')):
+                costs[nxt]=value;parents[nxt]=key;heapq.heappush(queue,(value,nxt))
+    return []
+
+
 def random_spawn(team, rng):
     """A validated spawn as ([x, y, z], yaw).
 
@@ -595,40 +694,40 @@ def ray_box(origin, d, box, max_t):
 
 
 def ray_ramp(origin, d, b, max_t):
-    """Ray vs a ramp's sloped top surface. Returns t or None.
+    """Ray vs a closed wedge/sloped slab, including its sides and underside.
 
-    The ramp is a walkable slope built from a staircase, so only its top plane is
-    solid to a ray: a bullet skims up the treads instead of stopping on an
-    invisible bounding box.
+    Clip against the real slope, not its AABB roof or an open top plane.
+    Planes are cached until the collision grid/map is rebuilt.
     """
-    x0 = b["x"] - b["w"] * 0.5
-    x1 = b["x"] + b["w"] * 0.5
-    z0 = b["z"] - b["d"] * 0.5
-    z1 = b["z"] + b["d"] * 0.5
-    y0, y1 = b["y0"], b["y1"]
-    if b.get("ax") == "z":
-        if abs(z1 - z0) < 1e-9:
+    key = id(b)
+    shape = RAMP_PLANES.get(key)
+    if shape is None:
+        x0, x1 = b['x']-b['w']/2, b['x']+b['w']/2
+        z0, z1 = b['z']-b['d']/2, b['z']+b['d']/2
+        along_z = b.get('ax') == 'z'
+        slope = (b['y1']-b['y0']) / max(1e-6, b['d'] if along_z else b['w'])
+        shape = [(1,0,0,x1),(-1,0,0,-x0),(0,0,1,z1),(0,0,-1,-z0),
+                 (0,-1,0,-(b['y']-b['h']/2)),
+                 (0 if along_z else -slope,1,-slope if along_z else 0,
+                  b['y0']-slope*(z0 if along_z else x0))]
+        if b.get('thickness'):
+            shape[4] = (0 if along_z else slope, -1, slope if along_z else 0,
+                        b['thickness']-b['y0']+slope*(z0 if along_z else x0))
+        RAMP_PLANES[key] = shape
+    enter, leave = 0.0, max_t
+    for nx, ny, nz, offset in shape:
+        start = nx*origin[0]+ny*origin[1]+nz*origin[2]-offset
+        speed = nx*d[0]+ny*d[1]+nz*d[2]
+        if abs(speed) < 1e-9:
+            if start > 0:
+                return None
+        elif speed < 0:
+            enter = max(enter,-start/speed)
+        else:
+            leave = min(leave,-start/speed)
+        if enter > leave:
             return None
-        s = (y1 - y0) / (z1 - z0)
-        n = (0.0, 1.0, -s)
-        c = y0 - s * z0
-    else:
-        if abs(x1 - x0) < 1e-9:
-            return None
-        s = (y1 - y0) / (x1 - x0)
-        n = (-s, 1.0, 0.0)
-        c = y0 - s * x0
-    denom = n[0] * d[0] + n[1] * d[1] + n[2] * d[2]
-    if abs(denom) < 1e-9:
-        return None
-    t = (c - (n[0] * origin[0] + n[1] * origin[1] + n[2] * origin[2])) / denom
-    if t < 0.0 or t > max_t:
-        return None
-    hx = origin[0] + d[0] * t
-    hz = origin[2] + d[2] * t
-    if not (x0 - 1e-6 <= hx <= x1 + 1e-6 and z0 - 1e-6 <= hz <= z1 + 1e-6):
-        return None
-    return t
+    return enter
 
 
 def ray_world(origin, d, max_t, skip_ground=False):
@@ -807,7 +906,7 @@ def validate_shared_data():
     """Cheap startup assertion so a broken JSON never reaches a live match."""
     problems = []
     for w in WEAPONS_DATA["weapons"]:
-        if w["class"] not in CLASSES:
+        if w["class"] not in CLASSES and not (w.get("slot") == "secondary" and w["class"] == "secondary"):
             problems.append("weapon %s has unknown class %s" % (w["id"], w["class"]))
         for key in ("dmg", "rpm", "mag", "reloadMs", "spreadDeg", "rangeM", "falloff", "zoomFov"):
             if key not in w:

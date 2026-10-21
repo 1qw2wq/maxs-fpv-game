@@ -6,12 +6,29 @@
 // match-level event handling.
 
 import * as THREE from 'three';
+import {RoomLobby} from './room-lobby.js';
+import {renderRoomLobby} from './room-lobby-view.js';
 import { loadConfig } from './config.js';
 import { World } from './map.js';
+import { ObjectivesView } from './objectives.js';
+import { updateContactShadow } from './lighting.js';
+import { rayWorld, safeMuzzle, clipTracer } from './ballistics.js';
+import { AdaptiveResolution, poseInterval } from './performance.js';
+import { resolveCamera } from './camera-collision.js';
+import { ArmPresentation, bodyVisibleAtDistance } from './avatar-visibility.js';
 import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
-import { GunFx, gunStyle, tracerRound } from './gunfx.js';
+import { FirstPersonPass } from './first-person-pass.js';
+import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
+import { simulateThrow } from './throwing.js';
+import { buildGrenadeEffect, updateGrenadeEffect, grenadeVisualDuration, createGrenadeLights, updateGrenadeLights } from './grenadefx.js';
+import { createGrenadeProjectile, updateGrenadeProjectile, disposeGrenadeProjectile, preloadGrenadeModels } from './grenade-models.js';
+import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
+import { updateSpawnShield } from './spawn-shield.js';
+import { MobileControls } from './mobile-controls.js';
+import { requestMobileFullscreen } from './mobile-fullscreen.js';
+import { smooth } from './death-motion.js';
 import { Hud } from './hud.js';
 import { Sfx } from './audio.js';
 import { Net } from './net.js';
@@ -74,8 +91,10 @@ const app = {
   // rounds), which is what the per-gun cadence is judged on.
   tracerStats: { spawned: 0 },
   effects: [],
-  // {t0} while Q is held on a thrown ability; null otherwise
+  // {t0, source, kind} while Q/G is charging; null otherwise
   charge: null,
+  grenadeKind: 'frag',
+  flash: null,
   // the map's own fog/background, saved while a smoke screen overrides them
   smokeBase: null,
   smokeOn: false,
@@ -85,7 +104,7 @@ const app = {
   cameraMode: 'fp',
   myTeam: 0,
   myId: null,
-  loadout: { cls: 'assault', weapon: 'mp18', skin: '' },
+  loadout: { cls: 'assault', weapon: 'mp18', secondary:'apx', skin: '' },
   suppressed: false,
   lastReloading: false,
   wasAlive: true,
@@ -93,6 +112,7 @@ const app = {
   resultShown: false,
   _sbOpen: false,
   settings: null,
+  mobile: null,
   // Map choice: picked in the menu, but the server is the one that decides.
   // mapData caches each map's JSON so a re-pick costs no network round trip.
   mapPick: null,
@@ -187,10 +207,11 @@ async function boot() {
       t('请在浏览器设置里打开「使用硬件加速」「使用图形加速」后重开页面；若仍不行，换 Chrome / Edge / Firefox 试试。'));
     return;
   }
-  app.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  app.performance = new AdaptiveResolution(app.renderer,{width:innerWidth,height:innerHeight,dpr:devicePixelRatio});
   app.renderer.setSize(innerWidth, innerHeight);
   app.renderer.outputColorSpace = THREE.SRGBColorSpace;
-  app.renderer.toneMapping = THREE.NoToneMapping;
+  app.renderer.toneMapping = THREE.NeutralToneMapping;
+  app.renderer.toneMappingExposure = 1.06;
 
   // A driver reset (tab suspended for a long time, GPU driver restart) leaves a
   // black screen but the game keeps running. Say so instead of looking frozen.
@@ -199,6 +220,7 @@ async function boot() {
   });
 
   app.scene = new THREE.Scene();
+  app.objectiveView = new ObjectivesView(app.scene);
   app.camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 600);
 
   // The world is built by setMap() on deploy: a model map is 92 MB and has no
@@ -214,9 +236,11 @@ async function boot() {
 
   app.fxGroup = new THREE.Group();
   app.scene.add(app.fxGroup);
+  app.grenadeLights = createGrenadeLights(app.fxGroup);
   app.gunfx = new GunFx({ group: app.fxGroup, scene: app.scene });
 
   addEventListener('resize', () => {
+    app.performance.resize(innerWidth,innerHeight,devicePixelRatio);
     app.renderer.setSize(innerWidth, innerHeight);
     app.camera.aspect = innerWidth / innerHeight;
     app.camera.updateProjectionMatrix();
@@ -247,6 +271,7 @@ async function boot() {
   setupPause();
   setupInvite();
   wireControls();
+  app.mobile = new MobileControls(app.controls, { parent: app.hud.el.hud, onPause: () => togglePause(true), layout: profile.load().touchLayout, onLayoutSave: touchLayout => profile.save({touchLayout}) });
   app.hud.screen('menu');
   requestAnimationFrame(loop);
 }
@@ -370,7 +395,7 @@ function setupLanguage() {
     const l = getLang();
     // The chip offers the *other* language, which is what a player looking for
     // a way out of Chinese wants to see.
-    if (chip) chip.textContent = l === 'en' ? '中文' : 'EN';
+    if (chip) chip.textContent = l === 'en' ? '中文 / ZH' : 'EN';
     zh?.classList.toggle('on', l === 'zh');
     en?.classList.toggle('on', l === 'en');
   };
@@ -439,6 +464,10 @@ function setupLocalPanel() {
   resetBtn?.addEventListener('click', () => {
     if (!window.confirm(t('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？'))) return;
     profile.reset();
+    const mode = document.querySelector('.control-mode');
+    if (mode) { mode.value = 'auto'; mode.dispatchEvent(new Event('change')); }
+    const slider = document.querySelector('.mouse-sensitivity');
+    if (slider) { slider.value = '100'; slider.dispatchEvent(new Event('input')); }
     for (const key of ['tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig']) store.remove(key);
     app.hud.setRoomMode('create', '');
     app.hud.setRoomHistory([]);
@@ -462,14 +491,16 @@ function setupTutorial() {
       app.hud.screen('select');
       app.hud.setBotsVisible(false);
       app.hud.selectClass(app.loadout.cls, 0);
-      app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+      app.hud.pickWeapon(app.loadout.cls, app.loadout.primary || app.loadout.weapon || app.loadout.cls);
     },
     onFinish: (completed) => {
       profile.save({ tutorialDone: true });
+      if (completed && app.playing) leaveMatch();
       app.hud.menuError('');
       app.hud.toast(completed ? t('新手指引完成，祝你玩得开心') : t('随时可以在主菜单重新打开新手指引'), 2600);
     },
   });
+  app.tut.setMobileMode(app.controls.mobileMode);
   // First visit: offer the walkthrough instead of leaving the player to guess.
   if (!profile.load().tutorialDone) {
     app.hud.setTutorialHint?.();
@@ -487,9 +518,19 @@ function setupTutorial() {
  * change settings, or leave the match.
  */
 function setupPause() {
+  document.getElementById('btn-touch-layout').onclick = () => {
+    if (!app.controls.mobileMode) return;
+    app.hud.hidePause();
+    app.mobile.editLayout(() => { app.paused = false; togglePause(true); });
+  };
+  const fullscreen = () => requestMobileFullscreen(app.controls.mobileMode, text => app.hud.toast(t(text)));
+  for (const id of ['btn-deploy','btn-pause-resume','btn-mobile-fullscreen']) {
+    document.getElementById(id)?.addEventListener('click', fullscreen, {capture:true});
+  }
   app.hud.bindPause({
     onResume: () => togglePause(false),
     onSettings: () => {
+      app.roomLobby?.ready(false);
       app.sfx.resume();
       app.settings.open();
     },
@@ -498,6 +539,7 @@ function setupPause() {
   });
   // Esc itself: `controls` releases the mouse, then tells us here.
   app.controls.onEscape = () => {
+    if (app.mobile.editing) { app.mobile.finishLayout(false); return; }
     if (!app.playing) return;
     togglePause(!app.paused);
   };
@@ -510,12 +552,17 @@ function togglePause(on) {
   // A room running in this tab (solo engine or a hosted match) stops with it.
   if (app.net) app.net.paused = want;
   if (want) {
+    clearFlash();
+    document.getElementById('scope-overlay').classList.add('hidden');
+    document.body.classList.remove('scope-active');
+    app.clickPending = false;
+    app.controls.releaseLook();
     app.hud.showPause({
       host: !!app.relayHostCode,
       note: app.relayHostCode
         ? t('房号 {code} · 你是房主，这一局在你的浏览器里运行；离开后别人会失去这一局。',
           { code: formatCode(app.relayHostCode) })
-        : t('按 Esc 打开这个菜单；「继续战斗」回到战场。'),
+        : t(app.controls.mobileMode ? '点击继续战斗返回战场。' : '按 Esc 打开这个菜单；「继续战斗」回到战场。'),
     });
   } else {
     app.hud.hidePause();
@@ -532,10 +579,16 @@ function togglePause(on) {
  * back), and a guest simply says goodbye.
  */
 function leaveMatch() {
+  closeRoomLobby();
+  clearDeathPresentation();deathImpacts.clear();app.killedBy=null;app.hud.resetCombatFeedback();
   app.leaving = true;
   app.paused = false;
   app.hud.hidePause();
   app.playing = false;
+  clearEffects();
+  document.getElementById('scope-overlay').classList.add('hidden');
+  document.body.classList.remove('scope-active');
+  app.objectiveView?.setState(null);
   try { app.controls.releaseLook(); } catch { /* nothing to release */ }
   app.controls.enabled = false;
   // A hosted room goes with the match: guests are told (the relay's own goodbye)
@@ -603,7 +656,7 @@ function setupInvite() {
       app.hud.inviteStatus(t('正在配对…'));
       try {
         await ch.acceptAnswer(text);
-        app.hud.inviteStatus(t('配对成功：这位朋友已经连上你了，他现在能进这一局'), true);
+        app.hud.inviteStatus(t('配对成功；请回主页面接受这位玩家的加入申请。'), true);
         app.hud.toast(t('朋友已直连进来'), 3200);
       } catch (err) {
         app.hud.inviteStatus(err?.message || t('回答码用不了'), false);
@@ -614,7 +667,7 @@ function setupInvite() {
       try {
         const res = await joinByInvite(text);
         app.hud.el.inviteCode.value = res.answer;
-        app.hud.inviteStatus(t('已接上房主，房号 {code}：把上面这段回答码发回给房主', { code: formatCode(res.room) }), true);
+        app.hud.inviteStatus(t('回答码已生成，房号 {code}：发回房主，完成配对后等待房主接受。', { code: formatCode(res.room) }), true);
       } catch (err) {
         app.hud.inviteStatus(err?.message || t('邀请码用不了'), false);
       }
@@ -648,6 +701,7 @@ function openInvite(mode) {
 
 /** Guest side of the invite exchange: learn the room, connect, return an answer. */
 async function joinByInvite(text) {
+  if(app.playing)throw Error(t('请先离开当前对局。'));
   const parsed = await parseCode(text);
   if (!parsed || parsed.kind !== 'invite') throw new Error(t('这不像一个邀请码：它应以 TFi1 开头（回答码是发给房主的）'));
   const room = String(parsed.room || '').replace(/\D/g, '');
@@ -656,18 +710,121 @@ async function joinByInvite(text) {
   app.roomCode = room;
   profile.save({ roomMode: 'join', room });
   app.hud.setRoomMode('join', room);
-  await connectRelay({ room, solo: false });
+  await requestRoom(room);
   const res = await app.net.acceptInvite(text);
   if (res.room) { app.relayHostCode = ''; }
-  app.hud.setRoomCode('');
+  app.hud.setRoomCode(room);
   return { room: res.room || room, answer: res.answer };
+}
+
+function updateRoomLobby(){
+  renderRoomLobby(app.roomLobby,app.hud,app.data);
+  const button=app.hud.el.modeMulti;
+  button.querySelector('b').textContent=t(app.roomLobby?'选择角色':app.roomMode==='join'?'申请加入':'创建房间');
+  button.querySelector('span').textContent=t(app.roomLobby?'房主控制地图与开始，其他玩家自动进入':app.roomMode==='join'?'先申请并由房主接受，再选择角色':'创建大厅，选择地图，带领小队出发。');
+  button.disabled=!!app.roomLobby&&(app.roomLobby.phase!=='waiting'||app.roomLobby.selfStatus!=='approved');
+}
+function closeRoomLobby(notify=true){
+  const lobby=app.roomLobby;app.roomLobby=null;lobby?.close(notify);
+  app.hud.setRoomLink('');
+  app.connectionSerial=(app.connectionSerial||0)+1;
+  if(!app.playing){
+    app.net?.close();app.net=null;app.netUrl=null;
+    app.roomChannel?.close();app.roomChannel=null;app.relayHostCode='';
+    app.hud.setRoomCode('');
+  }
+  updateRoomLobby();
+}
+function installRoomLobby(role,channel,id){
+  const lobby=new RoomLobby({role,channel,id,code:channel.room,name:app.hud.playerName,map:app.mapPick,
+    gameMode:document.getElementById('game-mode').value,
+    onChange:l=>{
+      if(app.roomLobby!==l)return;
+      if(role==='guest'){
+        app.mapPick=l.config.map;app.hud.setMapPick(l.config.map);
+        document.getElementById('game-mode').value=l.config.gameMode;
+      }
+      updateRoomLobby();
+    },
+    onLeave:id=>{if(role==='host')app.net?._dropGuest?.(id);},
+    onApproved:()=>{if(app.roomLobby===lobby){app.hud.closeInvite();app.enterRoomSelect('multi');updateRoomLobby();}},
+    onStart:async(config,selection)=>{
+      if(app.roomLobby!==lobby)return;
+      app.hud.closeInvite();
+      const opts={...(selection||app.lobbySelection()),name:lobby.name,map:config.map,gameMode:config.gameMode,
+        solo:false,bots:false,botCount:0,room:role==='guest'?lobby.code:''};
+      const ok=await deploy(opts);
+      if(ok===false&&app.roomLobby===lobby){
+        if(role==='host'){lobby.failed();app.hud.toast(t('启动失败，请重试或返回大厅。'),4500);}
+        else lobby.end('launch');
+      }
+    },
+    onClosed:reason=>{
+      if(app.roomLobby!==lobby)return;
+      if(app.playing)leaveMatch();else closeRoomLobby(false);
+      app.hud.closeInvite();app.hud.screen('menu');
+      app.hud.menuError(t(reason==='denied'?'房主拒绝了申请。':reason==='started'?'对局已开始，请等待下一个大厅。':reason==='timeout'?'未收到房主回应，请检查房号或完成邀请码配对。':reason==='full'?'房间已满。':reason==='launch'?'进入对局失败，请返回大厅重试。':'房间已关闭或连接已断开。'));
+    },
+  });
+  app.roomLobby=lobby;app.hud.setRoomCode(lobby.code);
+  app.hud.setRoomLink(role==='host'?joinLink(lobby.code):'');
+  updateRoomLobby();return lobby;
+}
+async function requestRoom(room){
+  if(app.roomLobby?.role==='guest'&&app.roomLobby.code===room)return;
+  closeRoomLobby();
+  app.roomMode='join';app.roomCode=room;app.hud.setRoomMode('join',room);
+  await connectRelay({room});
+  installRoomLobby('guest',app.net.channel,app.net.sid);
 }
 
 function setupMenu() {
   // Everything personal lives in this browser only (see profile.js): the name,
   // the loadout, the room codes and the local stats. No database anywhere.
   const saved = profile.load();
-  let botCount = saved.soloBots;
+  const modeSelectors = [...document.querySelectorAll('.control-mode')];
+  const coarsePointer = matchMedia('(pointer: coarse)');
+  let controlMode = saved.controlMode;
+  const applyControlMode = () => {
+    const mobile = controlMode === 'mobile' || (controlMode === 'auto' && coarsePointer.matches && navigator.maxTouchPoints > 0);
+    app.controls.setMobileMode(mobile);
+    document.body.classList.toggle('mobile-mode', mobile);
+    for (const select of modeSelectors) select.value = controlMode;
+    app.tut?.setMobileMode(mobile);
+    if (mobile && app.playing && !app.paused) app.controls.requestLock();
+    updateLockHint();
+  };
+  applyControlMode();
+  for (const select of modeSelectors) select.addEventListener('change', () => {
+    controlMode = select.value;
+    profile.save({ controlMode });
+    applyControlMode();
+  });
+  coarsePointer.addEventListener('change', () => { if (controlMode === 'auto') applyControlMode(); });
+  const mouseSliders = [...document.querySelectorAll('.mouse-sensitivity')];
+  const setSensitivity = (percent) => {
+    const value = Math.max(25, Math.min(200, percent));
+    app.controls.sensitivity = profile.DEFAULT_PROFILE.sensitivity * value / 100;
+    app.controls.mouseLook.reset();
+    for (const slider of mouseSliders) {
+      slider.value = String(value);
+      slider.closest('label').querySelector('output').textContent = `${value}%`;
+    }
+  };
+  setSensitivity(Math.round(saved.sensitivity / profile.DEFAULT_PROFILE.sensitivity * 100));
+  for (const slider of mouseSliders) slider.addEventListener('input', () => {
+    setSensitivity(Number(slider.value));
+    profile.save({ sensitivity: app.controls.sensitivity });
+  });
+  let botChoices={};
+  try{const raw=JSON.parse(store.get('tf.mapBots')||'{}');if(raw&&typeof raw==='object'&&!Array.isArray(raw))botChoices=raw;}catch{};
+  const selectBotCount=id=>{
+    const picked=Number(botChoices[id]);
+    const n=[0,4,6,8,12,15,16].includes(picked)?picked:(app.data.mapById[id]?.recommendedBots??saved.soloBots);
+    for(const b of document.querySelectorAll('#bot-count button'))b.classList.toggle('on',Number(b.dataset.n)===n);
+    return n;
+  };
+  let botCount = selectBotCount(app.mapPick);
   let mode = 'multi';
   app.roomMode = saved.roomMode;
   app.roomCode = saved.room;
@@ -691,14 +848,15 @@ function setupMenu() {
   refreshRoomList();
   showStaticHint();
 
-  const enterSelect = (which) => {
+  const enterSelect = app.enterRoomSelect = (which) => {
     mode = which;
     app.sfx.resume();
     // Bots belong to solo only; multiplayer is humans only.
     app.hud.setBotsVisible(which === 'solo');
     app.hud.screen('select');
     app.hud.selectClass(app.loadout.cls, 0);
-    app.hud.pickWeapon(app.loadout.cls, app.loadout.weapon || app.loadout.cls);
+    app.hud.pickWeapon(app.loadout.cls, app.loadout.primary || app.loadout.weapon || app.loadout.cls);
+    updateRoomLobby();
   };
 
   // Multiplayer is entered through a room code: creating one makes you the
@@ -710,44 +868,47 @@ function setupMenu() {
     if (code.length !== 8) return t('请输入房主给你的 8 位房号（例如 1234 5678）');
     return '';
   };
-  const enterMulti = () => {
-    const problem = roomProblem();
-    if (problem) {
-      app.hud.menuError(problem);
-      app.hud.setRoomMode('join', app.hud.joinCode);
+  const enterMulti = async () => {
+    if(app.roomLobby){
+      if(app.roomLobby.selfStatus==='approved'&&app.roomLobby.phase==='waiting')enterSelect('multi');
       return;
     }
-    app.hud.menuError('');
-    enterSelect('multi');
+    if(app.roomMode!=='join'){await createLobby();return;}
+    const problem=roomProblem();if(problem){app.hud.menuError(problem);return;}
+    if(app.lobbyConnecting)return;app.lobbyConnecting=true;
+    try{await requestRoom(app.hud.joinCode);}
+    catch(error){app.hud.menuError(error.message||t('联机通道不可用'));}
+    finally{app.lobbyConnecting=false;}
+  };
+  const createLobby=async()=>{
+    if(app.hostRoomPending)return;
+    if(app.roomLobby?.role==='host'){updateRoomLobby();return;}
+    app.hostRoomPending=true;app.hud.el.roomCreate.disabled=true;
+    try{
+      closeRoomLobby();mode='multi';app.hud.menuError('');
+      if(await hostNow())installRoomLobby('host',app.roomChannel,app.roomChannel._wireId);
+    }finally{app.hostRoomPending=false;app.hud.el.roomCreate.disabled=false;}
   };
 
   app.hud.bindMenu({
     onMulti: enterMulti,
-    onSolo: () => enterSelect('solo'),
+    onSolo: () => {closeRoomLobby();enterSelect('solo');},
     onSettings: () => {
+      app.roomLobby?.ready(false);
       app.sfx.resume();
       app.settings.open();
     },
-    onBotCount: (n) => { botCount = n; profile.save({ soloBots: n }); },
+    onBotCount: (n) => { botCount = n; botChoices[app.mapPick]=n; store.set('tf.mapBots',JSON.stringify(botChoices)); profile.save({ soloBots: n }); },
     onRoomMode: (m) => {
+      closeRoomLobby();
       app.roomMode = m;
       app.hud.menuError('');
       app.hud.setRoomMode(m, app.roomCode);
+      updateRoomLobby();
     },
     // One click, one room: hosting starts immediately instead of waiting for
     // the deploy button (and for a broker probe that no longer exists).
-    onHost: async () => {
-      app.hud.menuError('');
-      if (app.relayHostCode) {
-        app.hud.toast(t('房间 {code} 已经开着了：把房号发给朋友，或按 Esc →「邀请朋友」生成跨电脑邀请码',
-          { code: formatCode(app.relayHostCode) }), 4200);
-        return;
-      }
-      app.sfx.ui();
-      const ok = await hostNow();
-      if (!ok) return;
-      enterMulti();
-    },
+    onHost: createLobby,
     onInvite: () => {
       app.hud.menuError('');
       openInvite(app.relayHostCode ? 'host' : 'guest');
@@ -764,48 +925,61 @@ function setupMenu() {
         : t('房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）', { code: formatCode(code) }), 3200);
     },
     onTutorial: () => {
+      closeRoomLobby();
       app.hud.menuError('');
       app.tut?.open();
     },
     onMap: (id) => {
+      if(app.roomLobby&&!app.roomLobby.configure({map:id}))return;
       app.sfx.ui();
       app.mapPick = id;
+      botCount=selectBotCount(id);
       app.hud.setMapPick(id);
       store.set('tf.mapId', id);
     },
   });
   app.hud.buildMaps(app.data.maps, app.mapPick);
+  app.hud.secondary=saved.secondary;
+  if(app.data.classById[saved.cls]) {
+    app.loadout.cls=saved.cls;
+    const primary=app.data.weaponsByClass[saved.cls].find(w=>w.id===saved.weapon)||app.data.weaponsByClass[saved.cls][0];
+    app.loadout.weapon=app.loadout.primary=primary.id;
+  }
   if (saved.name) app.hud.el.name.value = saved.name;
 
+  app.lobbySelection=()=>{
+    const sel=app.hud.selected||{cls:app.loadout.cls,weapon:app.loadout.primary};
+    app.loadout={...app.loadout,...sel,primary:sel.weapon};const practice=!!app.tut?.active;
+    return {name:app.hud.playerName,cls:sel.cls,weapon:sel.weapon,secondary:sel.secondary,
+      bots:practice?false:mode==='solo',botCount:mode==='solo'?botCount:0,skin:app.loadout.skin||'',
+      solo:practice||mode==='solo',gameMode:practice?'control':document.getElementById('game-mode').value,
+      room:!practice&&mode==='multi'&&multiNeedsCode()?app.hud.joinCode:'',map:practice?'somme':app.mapPick};
+  };
   app.hud.buildSelect(
-    (clsId) => {
-      app.sfx.ui();
-      app.hud.selectClass(clsId, 0);
-      app.hud.pickWeapon(clsId, app.data.weaponsByClass[clsId][0].id);
+    clsId=>{
+      app.sfx.ui();app.hud.selectClass(clsId,0);app.hud.pickWeapon(clsId,app.data.weaponsByClass[clsId][0].id);
     },
-    () => {
-      const sel = app.hud.selected || { cls: app.loadout.cls, weapon: app.data.weaponsByClass[app.loadout.cls][0].id };
-      app.loadout = { ...app.loadout, ...sel };
-      const practice = !!app.tut?.active;
-      deploy({
-        name: app.hud.playerName,
-        cls: sel.cls,
-        weapon: sel.weapon,
-        // The walkthrough is a solo match with nobody shooting at the player.
-        bots: practice ? false : mode === 'solo',
-        botCount: mode === 'solo' ? botCount : 0,
-        skin: app.loadout.skin || '',
-        solo: practice || mode === 'solo',
-        // Solo is its own private room; multiplayer either hosts (no code) or
-        // joins the code the player typed.
-        room: mode === 'multi' && multiNeedsCode() ? app.hud.joinCode : '',
-      });
+    ()=>{
+      const opts=app.lobbySelection(),l=app.roomLobby;
+      if(l){if(l.role==='host')l.start();else l.ready(true,opts);updateRoomLobby();return;}
+      deploy(opts);
     },
-    () => {
-      app.hud.setBotsVisible(mode === 'solo');
-      app.hud.screen('menu');
-    },
+    ()=>{app.roomLobby?.ready(false);app.hud.setBotsVisible(mode==='solo');app.hud.screen('menu');updateRoomLobby();},
   );
+  document.getElementById('btn-lobby-invite').onclick=()=>openInvite('host');
+  document.getElementById('btn-lobby-copy').onclick=()=>app.hud.copyRoomLink();
+  document.getElementById('btn-lobby-choose').onclick=()=>{
+    if(app.roomLobby?.phase==='waiting'&&app.roomLobby.selfStatus==='approved')enterSelect('multi');
+  };
+  document.getElementById('btn-lobby-leave').onclick=()=>{closeRoomLobby();app.hud.screen('menu');};
+  document.getElementById('lobby-requests').onclick=e=>{
+    const b=e.target.closest('button[data-lobby-action]');if(!b)return;
+    const l=app.roomLobby;if(l?.role!=='host')return;
+    if(b.dataset.lobbyAction==='approve')l.approve(b.dataset.sid);else l.reject(b.dataset.sid);
+  };
+  for(const id of ['class-row','weapon-row','secondary-row'])document.getElementById(id).addEventListener('click',()=>app.roomLobby?.ready(false));
+  document.getElementById('game-mode').addEventListener('change',()=>app.roomLobby?.configure({gameMode:document.getElementById('game-mode').value}));
+  onLangChange(updateRoomLobby);updateRoomLobby();
 
   for (const cls of app.data.classes) {
     const card = app.hud.classCards[cls.id];
@@ -933,9 +1107,7 @@ const staticHint = () => t('连不上服务器：单机可以在这里直接开�
   + '想用自建服务端，就在下方「服务器地址」填后端地址（例如 your-app.onrender.com）。');
 
 /** The menu line a static copy of the page shows: how multiplayer works here. */
-const localEngineHint = () => t('静态托管：单机与多人都不需要服务器——'
-  + '点「创建房间」你就是房主：把 8 位房号发给朋友（同一浏览器多开标签页即可进），'
-  + '或用「邀请朋友」的邀请码让另一台电脑直连过来。');
+const localEngineHint = () => t('浏览器房主联机：同浏览器用房号，其他设备先交换邀请码与回答码。');
 
 function showStaticHint() {
   const configured = !!(app.hud.serverAddress || app.serverPick);
@@ -1013,8 +1185,17 @@ function startRelayLobby() {
  */
 /** The handlers a match needs, whichever transport ends up carrying it. */
 function netHandlers(label) {
+  const serial=app.connectionSerial=(app.connectionSerial||0)+1;
   return {
-    onWelcome: onWelcome,
+    onWelcome:m=>{
+      if(serial!==app.connectionSerial)return;
+      onWelcome(m,serial).catch(error=>{
+        if(serial!==app.connectionSerial)return;
+        console.error('[trench] match load failed',error);
+        closeRoomLobby();app.controls.enabled=false;app.hud.screen('menu');
+        app.hud.menuError(error.message||t('无法进入战场'));
+      });
+    },
     onState: onState,
     onMe: onMe,
     onMessage: onMessage,
@@ -1026,8 +1207,10 @@ function netHandlers(label) {
       else app.hud.menuError(text);
     },
     onClose: () => {
+      if(app.roomLobby&&!app.leaving){app.roomLobby.end('closed');return;}
       if (!app.playing || app.leaving) return;
       app.playing = false;
+      clearEffects();
       app.paused = false;
       app.hud.hidePause();
       app.controls.releaseLock();
@@ -1149,8 +1332,10 @@ async function connectRelay(opts = {}) {
     // The room opened from the menu is the same one the match will use.
     app.deployChannel = hosting ? app.roomChannel : null;
     app.netUrl = url;
+    const net=app.net,menuHandlers=app.deployChannel?.h;
     try {
-      await app.net.connect('', { code, channel: app.deployChannel });
+      await net.connect('', { code, channel: app.deployChannel });
+      if(app.net!==net){net.close();throw Error(t('已取消'));}
       app.deployChannel = null;
       app.relayKind = app.net.relayKind || '';
       app.relayLabel = app.net.relayLabel || '';
@@ -1158,9 +1343,11 @@ async function connectRelay(opts = {}) {
     } catch (err) {
       console.error('[trench] the relay could not be opened', err);
       app.hud.menuError(err.message || t('联机通道不可用'));
-      app.net.close();
-      app.net = null;
-      app.netUrl = null;
+      if(menuHandlers&&app.roomLobby?.role==='host'&&net.channel===app.roomChannel&&!app.roomChannel._closed){
+        app.roomChannel.h=menuHandlers;net.channel=null;
+      }
+      net.close();
+      if(app.net===net){app.net=null;app.netUrl=null;}
       throw err;
     }
   }
@@ -1175,6 +1362,7 @@ async function connectRelay(opts = {}) {
  * minute, which is exactly what players reported.
  */
 async function hostNow() {
+  const serial=app.connectionSerial;
   app.roomMode = 'create';
   app.roomCode = '';
   profile.save({ roomMode: 'create' });
@@ -1184,9 +1372,11 @@ async function hostNow() {
       const code = app.relayHostCode || createRoomCode();
       // Just the channel: the code is ready in milliseconds, and the engine
       // boots later, when the match is actually deployed.
-      app.roomChannel = await openRoomChannel(code, {
-        onMessage: (topic, text) => app.net?._onRelay?.(text),
+      const channel = await openRoomChannel(code, {
+        onMessage: (topic, text, sender) => app.net?._onRelay?.(text,sender),
       });
+      if(serial!==app.connectionSerial){channel.close();return false;}
+      app.roomChannel=channel;
       app.relayHostCode = code;
       app.relayKind = app.roomChannel.kind;
       app.relayLabel = app.roomChannel.label;
@@ -1203,14 +1393,23 @@ async function hostNow() {
 }
 
 async function deploy(opts) {
+  const lobbyAtStart=app.roomLobby;
+  if(!opts.solo&&app.roomLobby&&!['starting','started'].includes(app.roomLobby.phase))return false;
   app.hud.menuError('');
+
+  // An explicit invite/created room wins over a remembered backend address.
+  // Trying connectNet first closes the working RTC channel irreversibly.
+  const pairedRoom=!opts.solo&&!!opts.room&&app.net?.code===String(opts.room).replace(/\D/g,'')
+    &&app.net?.channel?.peerCount>0;
+  const createdRoom=!opts.solo&&!opts.room&&app.relayHostCode&&app.roomChannel?.connected;
+  const pinnedRelay=pairedRoom||createdRoom||(!opts.solo&&!!app.roomLobby);
 
   let primary;
   try {
-    primary = normalizeServer(app.hud.serverAddress);
+    primary = normalizeServer(pinnedRelay?'':app.hud.serverAddress);
   } catch (err) {
     app.hud.menuError(err.message);
-    return;
+    return false;
   }
   store.set('tf.server', app.hud.serverAddress);
 
@@ -1225,10 +1424,10 @@ async function deploy(opts) {
   const here = { host: location.host, secure: location.protocol === 'https:' };
   const typed = !!(app.hud.serverAddress || '').trim();
   const candidates = [];
-  if (typed) candidates.push(primary);
+  if (typed&&!pinnedRelay) candidates.push(primary);
   // A static origin cannot also be a game server, so it is skipped rather than
   // waited on: the health probe has already said what this origin is.
-  if (!app.localEngine) candidates.push(here);
+  if (!app.localEngine&&!pinnedRelay) candidates.push(here);
   // Solo plays itself; multiplayer needs other people, and on a static upload
   // the only way to reach them is a room hosted by one of the players.
   candidates.push(opts.solo
@@ -1253,7 +1452,7 @@ async function deploy(opts) {
             : t('房主模式：这一局在你这里运行——把房号发给朋友（同一浏览器多开标签页），或用「邀请朋友」的邀请码跨电脑直连'))
           : (app.net.peers
             ? t('已直连房主（跨电脑点对点，没有经过任何服务器）')
-            : t('已加入房间：对局在房主的浏览器里运行（同一浏览器的标签页之间直通）')));
+            : t('正在加入房间：等待房主确认；跨浏览器或跨设备需要先完成邀请码与回答码配对')));
         if (opts.room) app.hud.setRoomMode('join', String(opts.room).replace(/\D/g, ''));
       } else if (server !== primary) {
         // Keep what the player typed, but say which server we really reached.
@@ -1272,7 +1471,11 @@ async function deploy(opts) {
     app.hud.menuError(app.backendHere === false
       ? t('无法连接服务器（{hosts}）· {hint}', { hosts: failed, hint: staticHint() })
       : t('无法连接服务器（{host}）', { host: failed }));
-    return;
+    return false;
+  }
+  if(lobbyAtStart&&app.roomLobby!==lobbyAtStart){
+    if(!app.roomLobby){app.net?.close();app.net=null;app.netUrl=null;}
+    return false;
   }
   // The room list, the character library and the upload endpoint now follow the
   // server that actually answered -- on a static deployment that is not this
@@ -1281,7 +1484,7 @@ async function deploy(opts) {
   // Remember the loadout locally before the handshake, so the menu comes back
   // exactly as the player left it even if the join fails.
   profile.save({
-    name: opts.name, cls: opts.cls, weapon: opts.weapon, skin: opts.skin || '',
+    name: opts.name, cls: opts.cls, weapon: opts.weapon, secondary:opts.secondary, skin: opts.skin || '',
     roomMode: opts.solo ? app.roomMode : (opts.room ? 'join' : 'create'),
     mapId: opts.map || app.mapPick,
   });
@@ -1290,7 +1493,8 @@ async function deploy(opts) {
   // keep running another room's map instead.
   app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
-    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '');
+    opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm', opts.secondary || 'apx');
+  return true;
 }
 
 // ----------------------------------------------------------------- map swap
@@ -1300,9 +1504,19 @@ async function deploy(opts) {
  * server's between-round vote funnel through here; only the server's choice is
  * authoritative at match time.
  */
+const pendingMapLoads = new Map();
 async function setMap(mapId) {
   const meta = app.data.mapById[mapId] || app.data.mapById[app.data.defaultMapId];
   if (app.mapId === meta.id && app.world) return;
+  // Welcome and the first authoritative map event can arrive together. Share
+  // their in-flight load instead of decoding two full kits/environments.
+  if(pendingMapLoads.has(meta.id))return pendingMapLoads.get(meta.id);
+  const pending=installMap(meta);
+  pendingMapLoads.set(meta.id,pending);
+  try {return await pending;} finally {pendingMapLoads.delete(meta.id);}
+}
+
+async function installMap(meta) {
   app.mapLoading = true;
   app.hud.showMapLoad(t('正在装载地图 · {name}', { name: nameOf(meta) }));
   try {
@@ -1335,16 +1549,21 @@ async function setMap(mapId) {
 
 // ------------------------------------------------------------------ welcome
 
-async function onWelcome(m) {
+async function onWelcome(m,serial) {
+  clearDeathPresentation();deathImpacts.clear();app.killedBy=null;app.hud.resetCombatFeedback();
+  const meBeforeLoad=app.net?.lastMe;
+  app.lastRecoverySeq = 0;
+  app.shieldUntil = 0;
   app.playing = false;
   app.myId = m.id;
   app.myTeam = m.team;
-  app.loadout = { cls: m.cls, weapon: m.weapon, skin: m.skin || app.loadout.skin || '' };
+  app.loadout = { cls: m.cls, weapon: m.weapon, primary:m.weapon, secondary:m.secondary||'apx', skin: m.skin || app.loadout.skin || '' };
 
   // The world must exist before anything can be positioned in it. Waiting here
   // is safe: state/me/spawn messages only touch the HUD and controls, and tick()
   // is gated on app.playing.
   await setMap(m.mapId || app.data.defaultMapId);
+  if(serial!==undefined&&serial!==app.connectionSerial)return;
 
   app.cfg = m.cfg;
   const cls = app.data.classById[m.cls];
@@ -1369,7 +1588,7 @@ async function onWelcome(m) {
     app.hud.setRoomHistory(profile.load().recentRooms);
   }
   app.hud.screen('game');
-  // Steering mode needs no prompt: the mouse already turns the view.
+  // Native lock needs an explicit user gesture when the browser requires it.
   app.hud.setLockHint(!app.controls.canLook);
   // every match starts in first person
   app.cameraMode = 'fp';
@@ -1382,8 +1601,16 @@ async function onWelcome(m) {
   // so joining mid-round does not miss the medic's and support's boxes.
   for (const fx of m.fx || []) spawnEffect(fx);
 
+  // Snapshots keep arriving while a large map decodes. Do not let the
+  // welcome's old primary overwrite a newer acknowledged active weapon.
+  const newestMe=app.net?.lastMe;
+  if(newestMe&&newestMe!==meBeforeLoad&&newestMe.id===m.id)onMe(newestMe);
+  if(serial!==undefined&&serial!==app.connectionSerial)return;
   app.playing = true;
+  app.roomLobby?.started();
+  preloadGrenadeModels();
   app.matchStartedAt = performance.now();
+  if (app.controls.mobileMode) app.controls.requestLock();
   app.tut?.onDeploy();
   app.last = performance.now();
   app.sfx.resume();
@@ -1435,18 +1662,34 @@ function resetRemoteWorld() {
 function wireControls() {
   const c = app.controls;
   c.onFireDown = () => { app.clickPending = true; c.requestLock(); };
-  c.onReload = () => { app.net?.reload(); app.tut?.notify('reload'); };
+  c.onWeaponSwitch = (slot) => {
+    if(!app.playing || app.paused || !app.net?.lastMe?.alive || !c.canLook)return;
+    cancelCharge(); c.mouse.left=false; c.mouse.right=false; c.touchFirePending=false;
+    app.net.switchWeapon(slot);
+  };
+  c.onReload = () => {
+    if (!app.playing || app.paused) return;
+    app.net?.reload(); app.tut?.notify('reload');
+  };
   c.onAbilityDown = () => {
-    if (!app.net || !app.playing) return;
+    if (!app.net || !app.playing || app.paused) return;
     const me = app.net.lastMe;
     if (!me || !me.alive) return;
     const kind = app.data.classById[me.c].ability;
     // The lobbed abilities are charged on hold; the crates drop where you stand.
-    app.tut?.notify('ability');
     if (kind === 'smoke' || kind === 'flare') beginCharge();
     else { app.sfx.ability(kind); app.net.ability(c.aim()); }
   };
-  c.onAbilityUp = () => releaseCharge();
+  c.onAbilityUp = () => releaseCharge('ability');
+  c.onGrenadeDown = () => beginCharge('grenade');
+  c.onGrenadeUp = () => releaseCharge('grenade');
+  c.onGrenadeCycle = () => {
+    if (!app.playing || app.paused || app.charge) return;
+    const types = app.data.grenades;
+    app.grenadeKind = types[(types.findIndex(g=>g.id===app.grenadeKind)+1)%types.length].id;
+    app.tut?.notify('grenadeCycle');
+    app.sfx.ui();
+  };
   c.onAbilityCancel = () => cancelCharge();
   c.onScoreboard = (show) => {
     if (!app.playing) return;
@@ -1458,6 +1701,8 @@ function wireControls() {
   };
   c.onChat = () => {
     if (!app.playing) return;
+    if (app.tut?.active && app.tut.inGame && app.tut.current.last) { app.tut.finish(false); return; }
+    cancelCharge();
     app.hud.chatOpen((text) => { app.net.chat(text); c.requestLock(); });
   };
   c.onViewToggle = () => {
@@ -1470,17 +1715,14 @@ function wireControls() {
   // Crouching and standing both click, matching the view toggle's feedback.
   c.onStance = () => app.sfx.ui();
   c.onLockChange = (locked) => {
-    if (locked) app.mouseFreed = false;
+    if (locked) { app.mouseFreed = false; app.lockRefused = false; }
     updateLockHint();
   };
-  // Pointer lock refused (a page embedded in an iframe without the permission,
-  // a sandboxed preview pane): say so once, with the one thing that does help
-  // -- opening this page in a tab of its own -- instead of leaving the player
-  // with a mouse that seems dead.
+  // Report denial without changing the mouse control scheme.
   c.onLookMode = (mode) => {
     if (mode === 'unavailable') {
       app.lockRefused = true;
-      app.hud.toast(t('这个页面（多半是被嵌在 iframe 里）不允许锁定鼠标：请在新标签页打开本页，鼠标就能正常转视角'), 5200);
+      app.hud.toast(t('鼠标锁定失败：点击画面重试；若预览禁止锁定，请在新标签页打开'), 6500);
     }
     // Esc: the mouse is free until the player clicks the view again.
     if (mode === 'free') app.mouseFreed = true;
@@ -1491,7 +1733,7 @@ function wireControls() {
     updateLockHint();
   };
   document.getElementById('game').addEventListener('click', () => {
-    if (app.playing) { app.sfx.resume(); app.controls.requestLock(); }
+    if (app.playing && !app.paused) { app.sfx.resume(); app.controls.requestLock(); }
   });
 }
 
@@ -1516,13 +1758,8 @@ const formatCode = (code) => {
   return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d;
 };
 
-// Shown while the mouse is free in a page that refuses pointer lock: the way
-// back into the fight is a tab of its own, so say that instead of leaving the
-// player clicking a mouse that never comes back.
-const noLockHint = () => t('浏览器不允许这个页面锁定鼠标（多半是 iframe 预览面板）：'
-  + '点上面的「在新标签页打开」就能正常用鼠标转视角。现在可以用方向键转身。');
-// Shown after Esc, in a page that *can* lock the mouse: one click and the view
-// is yours again.
+// Only the embedding page can grant sandbox pointer-lock permission.
+const noLockHint = () => t('鼠标锁定失败：点击画面重试；若预览禁止锁定，请在新标签页打开');
 const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠标重新被锁定，按 Esc 再次释放）');
 
 /**
@@ -1533,6 +1770,7 @@ const resumeHint = () => t('已释放光标：点击画面继续（继续后鼠�
  */
 function updateLockHint(alive = true) {
   const c = app.controls;
+  if (c.mobileMode) { app.hud.setLockHint(false); return; }
   // The pause menu owns the screen while it is up: no prompt underneath it.
   const live = app.playing && !app.paused && alive && !app.deathShown;
   if (live && !c.canLook && app.lockRefused) {
@@ -1550,6 +1788,7 @@ function updateLockHint(alive = true) {
 
 function onState(st) {
   app.hud.updateTopbar(st);
+  app.objectiveView?.setState(st);
 
   // suppression is authored server-side on my own roster entry
   const mine = st.ps && st.ps.find((p) => p.i === app.myId);
@@ -1567,12 +1806,21 @@ function onState(st) {
   } else if (app.resultShown) {
     app.resultShown = false;
     app.hud.hideResult();
+    clearEffects();
   }
 
   if (app._sbOpen) app.hud.scoreboard(true, st.ps, st, app.myId, app.myTeam);
 }
 
 function onMe(me) {
+  const previousPrimary=app.loadout.primary,previousSecondary=app.loadout.secondary;
+  // The network clock is stamped once at receipt and can only shrink within
+  // this life. Replaying lastMe after a slow map decode cannot renew a shield.
+  app.shieldUntil = app.net?.protection?.until || 0;
+  if (me.recovery && me.recovery.seq !== app.lastRecoverySeq) {
+    app.lastRecoverySeq = me.recovery.seq;
+    app.controls.recoverPosition(me.recovery.p);
+  }
   const data = app.data;
   app.hud.updateMe(me);
   app.hud.setLoadout(me.c, me.w);
@@ -1581,9 +1829,10 @@ function onMe(me) {
   // app.loadout is not enough: doRespawn() writes it optimistically before the
   // server acknowledges, so the two already matched and this block was skipped —
   // the previous gun stayed on screen while the HUD named the new one.
-  if (me.c !== app.vmCls || me.w !== app.vmWeapon) {
+  if (me.c !== app.vmCls || me.w !== app.vmWeapon || me.w !== app.vm.weapon?.id) {
     app.vmCls = me.c;
     app.vmWeapon = me.w;
+    app.nextShot = 0;
     app.boltWait = false;
     app.pendingBolt = null;
     app.controls.setClass(data.classById[me.c]);
@@ -1591,13 +1840,19 @@ function onMe(me) {
     app.vm.setWeapon(data.weaponById[me.w] || data.weaponsByClass[me.c][0]);
   }
   if (app.loadout.cls !== me.c || app.loadout.weapon !== me.w) {
-    app.loadout = { ...app.loadout, cls: me.c, weapon: me.w };
+    app.loadout = { ...app.loadout, cls: me.c, weapon: me.w, primary:me.primary||me.w, secondary:me.secondary||'apx' };
   }
 
-  if (!!me.reloading !== app.lastReloading) {
-    app.lastReloading = !!me.reloading;
-    if (me.reloading) app.vm.startReload(me.reloadTotal || data.weaponById[me.w].reloadMs);
+  app.loadout.primary=me.primary||me.w;
+  app.loadout.secondary=me.secondary||'apx';
+  if(previousPrimary!==app.loadout.primary||previousSecondary!==app.loadout.secondary) {
+    profile.save({cls:me.c,weapon:app.loadout.primary,secondary:app.loadout.secondary});
   }
+  if(app.hud.secondary!==app.loadout.secondary)app.hud.pickSecondary(app.loadout.secondary);
+  const slotText=document.getElementById('weapon-slot');
+  slotText.textContent=(me.slot==='secondary'?'2 · ':'1 · ')+t(me.slot==='secondary'?'副武器':'主武器')+(me.equipIn>0?' · …':'');
+  app.lastReloading = !!me.reloading;
+  app.vm.syncReload(me.reloadTotal || data.weaponById[me.w].reloadMs, me.reloadIn, !!me.reloading);
 
   const alive = !!me.alive;
   if (alive && !app.wasAlive) {
@@ -1609,9 +1864,20 @@ function onMe(me) {
   app.wasAlive = alive;
 
   if (!alive) {
+    // Snapshots can arrive while the local render loop is paused. Hide the
+    // live avatar immediately, rather than leave hands/body behind the panel.
+    if (app.vm) {
+      app.vm.root.visible = false;
+      if (app.vm.armMeshes) app.vm.armMeshes.visible = false;
+    }
+    if (app.fpArms) app.fpArms.holder.visible = false;
+    if (app.self) app.self.root.visible = false;
+    fpArmPresentation.reset();
+    clearFlash();
+    cancelCharge();
     if (!app.deathShown) {
       app.deathShown = true;
-      app.hud.showDeath(app.killedBy?.name, app.killedBy?.weaponName, me.c, me.w);
+      app.hud.showDeath(app.killedBy?.name, app.killedBy?.weaponName, me.c, me.primary||me.w,me.secondary);
       app.hud.setRespawnReady(Math.ceil(me.respawnIn / 1000), doRespawn);
       app.controls.releaseLock();
     } else {
@@ -1624,8 +1890,9 @@ function onMe(me) {
 
 function doRespawn() {
   const sel = app.hud.deathSelection;
-  app.loadout = { ...app.loadout, ...sel };
-  app.net.respawn(sel.cls, sel.weapon);
+  app.loadout = { ...app.loadout, ...sel, primary:sel.weapon };
+  profile.save({cls:sel.cls,weapon:sel.weapon,secondary:sel.secondary});
+  app.net.respawn(sel.cls, sel.weapon, sel.secondary);
 }
 
 /**
@@ -1658,30 +1925,42 @@ async function onMessage(m) {
         // wedge can point back at it instead of just flashing everywhere
         if (Array.isArray(m.p)) app.hud.damageDirection(bearingTo(m.p));
         app.sfx.hurt(m.dmg);
+        if (m.zone === 'fire') app.hud.toast(t('遭受燃烧伤害'), 1000);
         if (m.zone === 'blast') app.hud.toast(t('遭受爆炸冲击'), 1200);
       }
       break;
     }
     case 'kill': {
+      rememberDeath(m);
       app.hud.addKill(m.k, m.v, m.w, m.head, app.myId);
       if (m.v.id === app.myId) {
-        app.killedBy = { name: m.k.n, weaponName: data.weaponById[m.w]?.name };
+        app.killedBy = { name: m.k.n, weaponName: nameOf(data.weaponById[m.w] || data.grenadeById[m.w] || { name: m.w }) };
         app.sfx.death();
       } else if (m.k.id === app.myId) {
         app.sfx.kill();
-        app.hud.toast(m.head ? t('爆头击杀！') : t('击杀 +1'), 1100);
+        app.hud.confirmKill(m.v.n,!!m.head);
       }
       break;
     }
     case 'spawn': {
+      clearDeathPresentation();deathImpacts.delete(app.myId);app.killedBy=null;app.hud.resetCombatFeedback();
       app.controls.reset(m.p, m.yaw);
       app.hud.hideDeath();
       app.deathShown = false;
       app.sfx.spawn();
       break;
     }
+    case 'flash':
+      if (app.playing && !app.paused && app.net?.lastMe?.alive) {
+        const now = performance.now(), old = app.flash;
+        app.flash = { start: now, dur: Math.max(100, m.ms || 0, old ? old.dur-(now-old.start) : 0),
+          strength: Math.min(1, Math.max(0, m.strength || 0, old?.strength || 0)) };
+        document.getElementById('flash-veil').style.opacity = '1';
+      }
+      break;
     case 'fx':
       spawnEffect(m.fx);
+      if (m.fx.by === app.myId && m.fx.k !== 'remove') app.tut?.notify(m.fx.slot === 'grenade' ? 'grenade' : 'ability');
       break;
     case 'chat':
       app.hud.chatLine(m.n, m.tm, m.m);
@@ -1719,57 +1998,16 @@ async function onMessage(m) {
 
 // Per-ability presentation. Smoke is a cloud of soft sprites, the medic/support
 // crates are solid boxes that stand until the server says otherwise, and the
-// scout's flare is a glowing ball of light.
+// scout's flare uses a small cartridge with a persistent red ignition.
 const FX_STYLES = {
-  smoke: { kind: 'cloud', proj: 0x9aa4ad },
+  smoke: { kind: 'cloud' },
   heal: { kind: 'crate' },
   ammo: { kind: 'crate' },
-  flare: { kind: 'sphere', color: 0xff5a5a, grow: 0.2, proj: 0xff6a4a, lit: true },
+  flare: { kind: 'detonation' },
+  frag: { kind: 'detonation' },
+  incendiary: { kind: 'detonation' },
+  flash: { kind: 'detonation' },
 };
-
-// The shell a thrown ability spends its flight as. One shared geometry (never
-// disposed) with a per-throw material, like the tracers.
-const projGeo = new THREE.SphereGeometry(0.09, 8, 6);
-
-/** Soft round puff shared by every smoke sprite; built once, reused everywhere. */
-let _smokeTex = null;
-function smokeTexture() {
-  if (_smokeTex) return _smokeTex;
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const rg = g.createRadialGradient(64, 64, 3, 64, 64, 62);
-  rg.addColorStop(0, 'rgba(233,237,241,0.92)');
-  rg.addColorStop(0.5, 'rgba(206,213,220,0.55)');
-  rg.addColorStop(1, 'rgba(188,196,204,0)');
-  g.fillStyle = rg;
-  g.fillRect(0, 0, 128, 128);
-  _smokeTex = new THREE.CanvasTexture(c);
-  _smokeTex.colorSpace = THREE.SRGBColorSpace;
-  return _smokeTex;
-}
-
-/** A dozen-odd sprites scattered through a squat cylinder: a cloud, not a ball. */
-function buildSmoke(fx) {
-  const grp = new THREE.Group();
-  grp.position.set(fx.p[0], fx.p[1], fx.p[2]);
-  const r = fx.r || 5.5;
-  const puffs = [];
-  for (let i = 0; i < 20; i++) {
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: smokeTexture(), color: 0xd8dee4, transparent: true, depthWrite: false, opacity: 0,
-    }));
-    const a = Math.random() * Math.PI * 2;
-    const rad = Math.sqrt(Math.random()) * r * 0.62;
-    const y = 0.4 + Math.random() * r * 0.85;
-    sprite.position.set(Math.cos(a) * rad, y, Math.sin(a) * rad);
-    const sc = r * (0.6 + Math.random() * 0.55);
-    sprite.scale.set(sc, sc, 1);
-    grp.add(sprite);
-    puffs.push({ sprite, spin: (Math.random() - 0.5) * 0.5, bob: Math.random() * 6.28, baseY: y });
-  }
-  return { obj: grp, puffs };
-}
 
 /** Medic/support crate: a solid box plus a ground ring showing the area it covers. */
 function buildCrate(fx) {
@@ -1829,55 +2067,46 @@ function spawnEffect(fx) {
 
   const now = performance.now();
   const rec = {
-    eid: fx.eid, start: now, dur: Math.max(300, fx.dur || 700),
-    persist: !!fx.persist, style,
+    eid: fx.eid, start: now, dur: Math.max(300, grenadeVisualDuration(fx.k, fx.dur || 700)),
+    persist: !!fx.persist, style, kind: fx.k,
   };
 
   if (style.kind === 'cloud') {
-    Object.assign(rec, buildSmoke(fx));
+    Object.assign(rec, buildSmokeCloud(fx));
     // kept so the veil can tell whether the camera is standing in this cloud
     rec.r = fx.r || 0;
+    rec.detonation = buildGrenadeEffect(fx, app.world);
+    rec.detonation.obj.position.set(0,0,0);
+    rec.obj.add(rec.detonation.obj);
   } else if (style.kind === 'crate') {
     Object.assign(rec, buildCrate(fx));
   } else {
-    const mat = new THREE.MeshBasicMaterial({
-      color: style.color, transparent: true, opacity: 0.62,
-      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 10), mat);
-    mesh.position.set(fx.p[0], fx.p[1], fx.p[2]);
-    const light = new THREE.PointLight(style.color, 26, 26, 2);
-    light.position.copy(mesh.position);
-    app.fxGroup.add(light);
-    rec.obj = mesh;
-    rec.light = light;
+    rec.detonation = buildGrenadeEffect(fx, app.world);
+    rec.obj = rec.detonation.obj;
   }
   app.fxGroup.add(rec.obj);
 
-  // A thrown ability spends its first `delay` ms in the air: a small shell flies
-  // the same arc the thrower's preview drew, and the cloud/flare only appears
-  // where it lands.
+  // Use the host's collision/bounce samples, never a client-invented curve.
+  // Late joiners receive age so an existing fire does not restart its lifetime.
+  const age = Math.max(0, fx.age || 0);
   const flyMs = fx.from && fx.delay > 0 ? fx.delay : 0;
-  if (flyMs > 0) {
-    const from = new THREE.Vector3(fx.from[0], fx.from[1], fx.from[2]);
-    const to = new THREE.Vector3(fx.p[0], fx.p[1], fx.p[2]);
-    const dist = Math.hypot(to.x - from.x, to.z - from.z);
-    const apex = dist * (app.data.combat.throw?.apexPerM ?? 0.26);
-    rec.flyMs = flyMs;
-    rec.flyStart = now;
-    rec.flyFrom = from;
-    rec.flyTo = to;
-    rec.flyCtrl = throwCurve(from, to, apex);
-    rec.proj = new THREE.Mesh(projGeo, new THREE.MeshBasicMaterial({ color: style.proj ?? 0xdddddd }));
-    rec.proj.position.copy(from);
+  rec.flyMs = flyMs;
+  rec.flyStart = now-age;
+  rec.start = now-age+flyMs;
+  rec.landed = age >= flyMs;
+  rec.playDetonation = flyMs > 0 && age < flyMs;
+  if (flyMs > 0 && (!rec.landed || fx.k === 'smoke')) {
+    rec.flyPath = fx.path;
+    rec.flyFrom = new THREE.Vector3(...fx.from);
+    rec.flyTo = new THREE.Vector3(...fx.p);
+    rec.flyCtrl = throwCurve(rec.flyFrom, rec.flyTo, rec.flyFrom.distanceTo(rec.flyTo)*0.26); // old-host compatibility
+    rec.proj = createGrenadeProjectile(fx.k, fx.eid);
+    rec.proj.position.copy(rec.flyFrom);
     app.fxGroup.add(rec.proj);
-    if (style.lit) {
-      rec.projLight = new THREE.PointLight(style.proj ?? 0xff6a4a, 18, 16, 2);
-      rec.projLight.position.copy(from);
-      app.fxGroup.add(rec.projLight);
-    }
-    rec.obj.visible = false;
-    rec.start = now + flyMs;
+    if(rec.landed){
+      if(rec.flyPath)updateGrenadeProjectile(rec.proj,rec.flyPath,flyMs);
+      else rec.proj.position.copy(rec.flyTo);
+    }else rec.obj.visible = false;
   }
   app.effects.push(rec);
 }
@@ -1886,15 +2115,14 @@ function disposeEffect(e) {
   e.obj?.removeFromParent();
   // three.js shares one geometry between all Sprites, so only meshes own theirs.
   e.obj?.traverse?.((o) => {
+    if (o.isInstancedMesh) o.dispose();
     if (o.isMesh && o.geometry) o.geometry.dispose();
     if (o.material) {
       for (const m of (Array.isArray(o.material) ? o.material : [o.material])) m.dispose();
     }
   });
   e.light?.removeFromParent();
-  // The shell shares projGeo with every other throw, so only its material goes.
-  e.proj?.removeFromParent();
-  e.proj?.material.dispose();
+  disposeGrenadeProjectile(e.proj);
   e.projLight?.removeFromParent();
 }
 
@@ -1908,12 +2136,27 @@ function removeEffect(eid) {
 }
 
 /** Drop every live effect, e.g. when the whole map is swapped between rounds. */
+function clearFlash() {
+  app.flash = null;
+  const veil = document.getElementById('flash-veil');
+  if (veil) veil.style.opacity = '0';
+}
+
 function clearEffects() {
+  clearFlash();
   for (const e of app.effects) disposeEffect(e);
   app.effects.length = 0;
+  for(const light of app.grenadeLights || [])light.intensity=0;
 }
 
 function updateEffects(now) {
+  const veil = document.getElementById('flash-veil');
+  if (app.flash && veil) {
+    const phase = Math.min(1,Math.max(0,(now-app.flash.start)/app.flash.dur));
+    const left = phase < .35 ? 1 : Math.max(0,1-(phase-.35)/.65);
+    veil.style.opacity = String(app.flash.strength*left);
+    if (!left) app.flash = null;
+  }
   for (let i = app.effects.length - 1; i >= 0; i--) {
     const e = app.effects[i];
     // Flight first: while the shell is in the air its payload stays hidden and
@@ -1921,30 +2164,39 @@ function updateEffects(now) {
     if (e.flyMs && !e.landed) {
       const f = (now - e.flyStart) / e.flyMs;
       if (f < 1) {
-        bezierPoint(e.flyFrom, e.flyCtrl, e.flyTo, Math.max(0, f), e.proj.position);
+        if (e.flyPath) updateGrenadeProjectile(e.proj,e.flyPath,Math.max(0,now-e.flyStart));
+        else {
+          bezierPoint(e.flyFrom,e.flyCtrl,e.flyTo,Math.max(0,f),e.proj.position);
+          updateGrenadeProjectile(e.proj,null,Math.max(0,now-e.flyStart));
+        }
         e.projLight?.position.copy(e.proj.position);
         continue;
       }
       e.landed = true;
-      e.proj.visible = false;
+      if(e.flyPath)updateGrenadeProjectile(e.proj,e.flyPath,e.flyMs);
+      else e.proj.position.copy(e.flyTo);
+      // The spent smoke canister stays underneath its venting plume.
+      e.proj.visible = e.kind === 'smoke';
       if (e.projLight) e.projLight.visible = false;
       e.obj.visible = true;
-      e.start = now;
     }
-    const k = (now - e.start) / e.dur;
+    if (e.playDetonation) {
+      e.playDetonation = false;
+      // A short pop must get at least one visible frame even after a long GPU
+      // stall. This affects only the visual burst, never the host's fuse/damage.
+      if (['frag','flash','smoke'].includes(e.kind)) e.detonationStart = now;
+      app.sfx.detonate(e.kind, e.obj.position.distanceTo(app.camera.position));
+    }
+    if (e.detonation) updateGrenadeEffect(e.detonation, now-(e.detonationStart ?? e.start));
+    const visualStart = e.kind === 'frag' || e.kind === 'flash' ? (e.detonationStart ?? e.start) : e.start;
+    const k = (now - visualStart) / e.dur;
     if (!e.persist && k >= 1) {
       disposeEffect(e);
       app.effects.splice(i, 1);
       continue;
     }
     if (e.puffs) {
-      // fade in over the first eighth, hold, then thin out over the last fifth
-      const op = 0.66 * Math.min(1, k / 0.12) * (k > 0.8 ? Math.max(0, 1 - (k - 0.8) / 0.2) : 1);
-      for (const pf of e.puffs) {
-        pf.sprite.material.opacity = op;
-        pf.sprite.material.rotation += pf.spin * 0.004;
-        pf.sprite.position.y = pf.baseY + Math.sin(now * 0.0004 + pf.bob) * 0.3;
-      }
+      updateSmokeCloud(e, now - e.start);
     } else if (e.style.kind === 'sphere') {
       const s = 1 + e.style.grow * k * 8;
       e.obj.scale.setScalar(s);
@@ -1954,6 +2206,7 @@ function updateEffects(now) {
       e.ring.material.opacity = 0.34 + 0.10 * Math.sin(now * 0.002);
     }
   }
+  updateGrenadeLights(app.grenadeLights || [],app.effects,app.camera.position);
 }
 
 // ------------------------------------------------------------ smoke vision
@@ -1988,7 +2241,7 @@ function updateSmokeVision() {
       const d = eye.distanceTo(e.obj.position);
       if (d >= e.r) continue;
       const k = Math.min(1, (e.r - d) / (e.r * SMOKE_EDGE));
-      if (k > deep) deep = k;
+      if (k * (e.density || 0) > deep) deep = k * (e.density || 0);
     }
   }
   if (deep <= 0 && !app.smokeOn) return;
@@ -2002,6 +2255,7 @@ function updateSmokeVision() {
     app.smokeBase = {
       fogColor: f ? f.color.getHex() : null, fogNear: f ? f.near : 0, fogFar: f ? f.far : 0,
       bg: bg?.isColor ? bg.getHex() : null,
+      bgTexture: bg?.isTexture ? bg : null,
       skyTransparent: world.sky ? world.sky.material.transparent : false,
     };
     app.smokeFog = new THREE.Fog(SMOKE_TINT.getHex(), SMOKE_NEAR, SMOKE_FAR);
@@ -2013,6 +2267,7 @@ function updateSmokeVision() {
     if (base.fogColor == null) world.scene.fog = null;
     else if (f) { f.color.setHex(base.fogColor); f.near = base.fogNear; f.far = base.fogFar; }
     else world.scene.fog = new THREE.Fog(base.fogColor, base.fogNear, base.fogFar);
+    if(base.bgTexture)world.scene.background=base.bgTexture;
     if (base.bg != null && world.scene.background?.isColor) world.scene.background.setHex(base.bg);
     if (world.sky) { world.sky.material.transparent = base.skyTransparent; world.sky.material.opacity = 1; }
     app.smokeOn = false;
@@ -2024,6 +2279,7 @@ function updateSmokeVision() {
   fog.near = base.fogNear + (SMOKE_NEAR - base.fogNear) * k;
   fog.far = base.fogFar + (SMOKE_FAR - base.fogFar) * k;
   world.scene.fog = fog;
+  if(base.bgTexture)world.scene.background=SMOKE_TINT.clone();
   if (base.bg != null && world.scene.background?.isColor) {
     world.scene.background.setHex(base.bg).lerp(SMOKE_TINT, k);
   }
@@ -2036,11 +2292,9 @@ function updateSmokeVision() {
 
 // ------------------------------------------------------- thrown ability aiming
 
-// Smoke and flare are lobbed, not placed: holding Q charges the throw and draws
-// the arc it will follow, so the landing spot is picked before the key is let go.
-// The arc is a quadratic Bezier whose crest scales with the throw's range, and it
-// is cut short at the first thing it meets -- ground or cover. The server is sent
-// the crest's landing point, so the marker and the real impact always agree.
+// Q keeps class abilities; G charges the grenade slot and B selects its type.
+// Preview and host share fixed-step gravity, inherited motion and sphere sweeps.
+// Fuses start on release (no cooking); losing lock/death/pausing cancels charge.
 
 /** Control point that lifts a Bezier's crest `apex` above the O-L chord. */
 function throwCurve(origin, end, apex) {
@@ -2061,47 +2315,13 @@ function bezierPoint(o, c, l, s, out) {
   );
 }
 
-/** March the arc to the first surface it meets; returns the polyline + impact. */
-function traceThrow(origin, dir, dist) {
-  const cfg = app.data.combat.throw;
-  const hl = Math.hypot(dir.x, dir.z) || 1e-6;
-  const end = new THREE.Vector3(origin.x + (dir.x / hl) * dist, origin.y,
-    origin.z + (dir.z / hl) * dist);
-  let ctrl = throwCurve(origin, end, dist * cfg.apexPerM);
-  const scratch = new THREE.Vector3();
-  const prev = origin.clone();
-  const impact = end.clone();
-  const N = 56;
-  for (let i = 1; i <= N; i++) {
-    bezierPoint(origin, ctrl, end, i / N, scratch);
-    const floor = app.world.floorAt(scratch.x, scratch.z, scratch.y);
-    if (scratch.y <= floor + 0.05) { impact.set(scratch.x, floor, scratch.z); break; }
-    if (app.world.blocked(scratch.x, scratch.z, scratch.y, 0.12)) { impact.copy(prev); break; }
-    prev.copy(scratch);
-  }
-  // The server pulls the landing back inside the map, so mirror that here: a
-  // flare's long reach must still mark the point it really comes down on.
-  const b = app.world.bounds;
-  impact.x = Math.min(Math.max(impact.x, b.minX + 1), b.maxX - 1);
-  impact.z = Math.min(Math.max(impact.z, b.minZ + 1), b.maxZ - 1);
-  impact.y = app.world.floorAt(impact.x, impact.z, impact.y);
-  // Redraw ending exactly on the impact so the dotted line touches the marker.
-  const realDist = Math.hypot(impact.x - origin.x, impact.z - origin.z);
-  ctrl = throwCurve(origin, impact, realDist * cfg.apexPerM);
-  const points = [];
-  for (let i = 0; i <= 24; i++) {
-    points.push(bezierPoint(origin, ctrl, impact, i / 24, new THREE.Vector3()));
-  }
-  return { points, impact };
-}
-
 let _arcLine = null;
 let _arcRing = null;
 
 function ensureArc() {
   if (_arcLine) return;
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(25 * 3), 3));
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(512 * 3), 3));
   _arcLine = new THREE.Line(geo, new THREE.LineDashedMaterial({
     color: 0xffe08a, dashSize: 0.34, gapSize: 0.22, transparent: true, opacity: 0.9,
     depthWrite: false,
@@ -2126,39 +2346,32 @@ function hideArc() {
   app.hud.setAbilityCharge(null);
 }
 
-/** Range the throw would reach at this charge, and the point it lands on. */
+/** This exact fixed-step preview is mirrored by the host's throw solver. */
 function aimThrow(power, kind) {
-  const cfg = app.data.combat.throw;
-  const origin = app.controls.eye();
-  const dir = app.controls.aim();
-  // A flare is lobbed far further than a smoke grenade, so the reach is per-kind.
-  const maxDist = kind === 'flare' ? cfg.flareMaxDist : cfg.smokeMaxDist;
-  const dist = cfg.minDist + (maxDist - cfg.minDist) * power;
-  return traceThrow(origin, dir, dist);
+  const flight = simulateThrow(app.world, app.controls.eye().toArray(), app.controls.aim().toArray(), power, kind,
+    app.data.combat.throw, app.data.grenades, [app.controls.vel.x, app.controls.vy, app.controls.vel.z], app.data.combat.maxMoveSpeed);
+  return { ...flight, points: flight.path.map(row=>new THREE.Vector3(row[1],row[2],row[3])), impact: new THREE.Vector3(...flight.p) };
 }
 
-function beginCharge() {
-  if (!app.playing || !app.world) return;
+function beginCharge(source = 'ability') {
+  if (!app.playing || app.paused || !app.world || app.charge || !app.controls.canLook) return;
   const me = app.net?.lastMe;
-  if (!me || !me.alive) return;
-  if (me.abilityIn > 0) return;      // still cooling down
-  app.charge = { t0: performance.now() };
+  if (!me?.alive) return;
+  if (source === 'grenade' && (me.grenadeIn > 0 || me.grenades === 0)) { app.hud.toast(t('手榴弹补充中'), 1000); return; }
+  if (source === 'ability' && me.abilityIn > 0) return;
+  app.charge = { t0: performance.now(), source, kind: source === 'grenade' ? app.grenadeKind : app.data.classById[me.c].ability };
 }
 
-function releaseCharge() {
+function releaseCharge(source = 'ability') {
   const charge = app.charge;
-  if (!charge) return;
+  if (!charge || charge.source !== source) return;
   cancelCharge();
-  if (!app.playing || !app.world) return;
-  const me = app.net?.lastMe;
-  if (!me || !me.alive) return;
-  const cfg = app.data.combat.throw;
-  const kind = app.data.classById[me.c].ability;
-  const power = Math.min(1, (performance.now() - charge.t0) / cfg.chargeMs);
-  const { impact } = aimThrow(power, kind);
-  app.sfx.ability(kind);
+  if (!app.playing || app.paused || !app.world || !app.net?.lastMe?.alive || !app.controls.canLook) return;
+  const power = Math.min(1, (performance.now()-charge.t0)/app.data.combat.throw.chargeMs);
+  app.sfx.ability(charge.kind);
   app.throwAt = performance.now();
-  app.net.ability(app.controls.aim(), impact);
+  if (source === 'grenade') app.net.grenade(app.controls.aim(), charge.kind, power);
+  else app.net.ability(app.controls.aim(), null, power);
 }
 
 function cancelCharge() {
@@ -2166,13 +2379,15 @@ function cancelCharge() {
   hideArc();
 }
 
-/** Runs every frame in the loop: draws the arc while Q is held. */
+/** Runs every frame: inventory readout and a charged Q/G throw preview. */
 function updateThrowAim(now) {
+  const powerNow = app.charge ? Math.min(1, (now-app.charge.t0)/app.data.combat.throw.chargeMs) : null;
+  app.hud?.updateGrenade(app.grenadeKind, app.net?.lastMe, app.charge?.source === 'grenade' ? powerNow : null, app.controls.mobileMode);
   if (!app.charge) return;
   const me = app.net?.lastMe;
   if (!app.playing || !app.world || !me || !me.alive) { cancelCharge(); return; }
   const cfg = app.data.combat.throw;
-  const kind = app.data.classById[me.c].ability;
+  const kind = app.charge.kind;
   const power = Math.min(1, (now - app.charge.t0) / cfg.chargeMs);
   const { points, impact } = aimThrow(power, kind);
   ensureArc();
@@ -2188,7 +2403,7 @@ function updateThrowAim(now) {
   _arcLine.visible = true;
   _arcRing.position.set(impact.x, impact.y + 0.03, impact.z);
   _arcRing.visible = true;
-  app.hud.setAbilityCharge(power);
+  if (app.charge.source === 'ability') app.hud.setAbilityCharge(power);
 }
 
 // ------------------------------------------------------------------ tracers
@@ -2197,6 +2412,7 @@ const tracerGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 5, 1, true);
 tracerGeo.rotateX(Math.PI / 2);
 
 function spawnTracer(from, to, style) {
+  to = clipTracer(app.world, from, to);
   const dir = new THREE.Vector3().subVectors(to, from);
   const len = dir.length();
   if (len < 0.4) return;
@@ -2228,59 +2444,98 @@ function updateTracers(now) {
 
 /** Nearest solid hit along a ray, using the same boxes the server collides against. */
 function rayEnd(origin, dir, maxT = 140) {
-  let best = maxT;
-  const boxes = app.world.solid;
-  for (let i = 0; i < boxes.length; i++) {
-    const b = boxes[i];
-    const lo = [b.x - b.w * 0.5, b.y - b.h * 0.5, b.z - b.d * 0.5];
-    const hi = [b.x + b.w * 0.5, b.y + b.h * 0.5, b.z + b.d * 0.5];
-    const o = [origin.x, origin.y, origin.z];
-    const d = [dir.x, dir.y, dir.z];
-    let tmin = 0, tmax = best, hit = true;
-    for (let a = 0; a < 3; a++) {
-      if (Math.abs(d[a]) < 1e-8) {
-        if (o[a] < lo[a] || o[a] > hi[a]) { hit = false; break; }
-      } else {
-        let t1 = (lo[a] - o[a]) / d[a];
-        let t2 = (hi[a] - o[a]) / d[a];
-        if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
-        if (t1 > tmin) tmin = t1;
-        if (t2 < tmax) tmax = t2;
-        if (tmin > tmax) { hit = false; break; }
-      }
-    }
-    if (hit && tmin > 0.05 && tmin < best) best = tmin;
-  }
-  return origin.clone().addScaledVector(dir, best);
+  const hit = rayWorld(app.world, origin, dir, maxT);
+  return origin.clone().addScaledVector(dir, hit ?? maxT);
 }
 
 // ---------------------------------------------------------------- game loop
 
+const firstPersonPass = new FirstPersonPass();
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min(0.05, app.last ? (now - app.last) / 1000 : 0.016);
+  const frameMs = app.last ? now-app.last : 16;
+  app.performance?.update(frameMs,now,app.playing&&!app.paused&&!document.hidden);
+  const dt = Math.min(0.05, frameMs / 1000);
   app.last = now;
   // Paused (Esc menu): the clock still runs for the effects that are already in
   // the air, but the match itself is frozen -- no input is sent, and a room
   // this browser is hosting stops advancing for everybody, which is what a
   // pause means.
+  app.mobile?.update(app.playing && !app.paused && !app.deathShown && !app.resultShown && !app.hud.inviteOpen && !app.settings?.visible && !document.hidden);
   if (app.playing && !app.paused) tick(dt, now);
   updateTracers(now);
   // Muzzle flashes, smoke, brass and the punch decay all ride one clock.
   app.gunfx?.update(dt);
   updateThrowAim(now);
   updateEffects(now);
+  app.objectiveView?.update(app.controls, now, app.playing);
   updateSmokeVision();
   if (app.settings?.visible) app.settings.render(dt);
-  app.renderer.render(app.scene, app.camera);
+  app.world?.group.getObjectByName('proc-city')?.userData.updateDetail?.(app.camera.position);
+  if(!app.playing)app.vm.root.visible=false;
+  firstPersonPass.render(app.renderer, app.scene, app.camera, app.vm.root, app.world?.group);
+}
+
+// Holding ADS always uses the eye-aligned camera, then restores the selected
+// third-person view on release. Shoulder-height zoom alone misses the aim ray.
+function thirdPersonView() { return app.cameraMode === 'tp' && !app.controls.ads; }
+
+const deathImpacts=new Map();
+const reducedDeathMotion=matchMedia('(prefers-reduced-motion: reduce)');
+function rememberDeath(m){
+  const victim=m.v.id===app.myId?app.self:app.remotes.get(m.v.id);
+  const killer=m.k.id===app.myId?app.self:app.remotes.get(m.k.id);
+  let direction=0;
+  if(victim&&killer&&victim!==killer){
+    const away=victim.root.position.clone().sub(killer.root.position);
+    away.applyAxisAngle(new THREE.Vector3(0,1,0),-victim.root.rotation.y);
+    if(away.lengthSq()>.001)direction=Math.atan2(away.x,away.z);
+  }
+  const side=String(m.v.id).split('').reduce((n,c)=>n+c.charCodeAt(0),0)%2?1:-1;
+  deathImpacts.set(m.v.id,{headshot:!!m.head,side,direction,at:performance.now()});
+  // Bound history even when players disconnect before their final snapshot.
+  for(const [id,info] of deathImpacts)if(performance.now()-info.at>6000)deathImpacts.delete(id);
+}
+function clearDeathPresentation(){
+  app.deathCamera=null;
+  document.body.classList.remove('player-dead','death-sequence');
+  document.getElementById('death-veil')?.classList.remove('show');
+}
+function updateDeathCamera(dt){
+  if(!app.deathCamera){
+    const position=app.controls.pos.clone(),direction=app.controls.aim();direction.y=0;
+    if(direction.lengthSq()<.01)direction.set(0,0,1);direction.normalize();
+    const side=new THREE.Vector3().crossVectors(direction,new THREE.Vector3(0,1,0));
+    app.deathCamera={elapsed:0,started:performance.now(),position,from:app.camera.position.clone(),
+      look:app.camera.position.clone().addScaledVector(app.controls.aim(),4),
+      desired:position.clone().addScaledVector(direction,-2.6).addScaledVector(side,.65).add(new THREE.Vector3(0,1.35,0))};
+    document.body.classList.add('player-dead');
+    document.getElementById('death-veil')?.classList.add('show');
+  }
+  const d=app.deathCamera;d.elapsed=(performance.now()-d.started)/1000;
+  const blend=reducedDeathMotion.matches?1:smooth(d.elapsed/.95);
+  document.body.classList.toggle('death-sequence',!reducedDeathMotion.matches&&d.elapsed<1.05);
+  const anchor=d.position.clone().add(new THREE.Vector3(0,.85,0));
+  const desired=d.from.clone().lerp(d.desired,blend);
+  resolveCamera(app.world,anchor,desired,app.camera,app.camera.position);
+  const focus=d.position.clone().add(new THREE.Vector3(0,THREE.MathUtils.lerp(1.15,.36,blend),0));
+  app.camera.lookAt(d.look.clone().lerp(focus,blend));
+  if(!reducedDeathMotion.matches)app.camera.rotateZ(Math.sin(Math.PI*Math.min(1,d.elapsed/.95))*.045);
+  app.camera.fov=THREE.MathUtils.lerp(app.camera.fov,78,Math.min(1,dt*9));
+  if(app.self){
+    app.self.root.visible=!!app.self.deathState?.visible&&app.camera.position.distanceTo(focus)>.70;
+    app.self.cameraBodyVisible=false;
+  }
 }
 
 function tick(dt, now) {
   const me = app.net.lastMe;
   const alive = me ? !!me.alive : true;
   const suppressed = app.suppressed;
+  if(alive&&app.deathCamera)clearDeathPresentation();
 
-  app.controls.update(dt, alive, suppressed);
+  const w = app.data.weaponById[me?.w || app.loadout.weapon];
+  app.controls.update(dt, alive&&!app.net.hostPaused, suppressed, !!me?.reloading);
 
   syncSelfAvatar(dt, alive);
 
@@ -2288,41 +2543,28 @@ function tick(dt, now) {
   // the eye, never the aim ray, so shooting and the server stay unchanged.
   const eye = app.controls.eye();
   const dir = app.controls.aim();
-  const tp = app.cameraMode === 'tp';
-  if (tp) {
-    const back = 3.1, up = 0.45;
-    app.camera.position.set(
-      eye.x - dir.x * back,
-      Math.max(app.world.groundY + 0.45, eye.y + up - dir.y * back),
-      eye.z - dir.z * back,
-    );
-    // look straight along `dir`, so the crosshair still marks the true aim ray
-    app.camera.lookAt(
-      app.camera.position.x + dir.x,
-      app.camera.position.y + dir.y,
-      app.camera.position.z + dir.z,
-    );
-  } else {
-    app.camera.position.copy(eye);
-    app.camera.lookAt(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z);
-  }
-  // Per-gun camera punch: applied to the rendered camera *after* it has been
-  // aimed, so the aim ray the crosshair and the server share is untouched -- a
-  // Springfield throws the picture around, an MP18 barely moves it.
-  const punch = app.gunfx;
-  if (punch && (punch.punchPitch || punch.punchYaw || punch.punchRoll)) {
-    const D = Math.PI / 180;
-    app.camera.rotateX(punch.punchPitch * D);
-    app.camera.rotateY(punch.punchYaw * D);
-    app.camera.rotateZ(punch.punchRoll * D);
-  }
-  // in third person the character body replaces the viewmodel
-  app.vm.root.visible = !tp;
+  const tp = thirdPersonView();
   app.camera.fov = THREE.MathUtils.lerp(app.camera.fov, aimFov(me), Math.min(1, dt * 12));
-  // First person borrows the character's own arms, and that model sits at the
-  // lens: the deeper near plane is what strips away the head, hair and chest
-  // that would otherwise fill the screen, leaving only the arms reaching in.
+  app.controls.lookFov = app.camera.fov;
+  // Arms-only geometry no longer relies on near-plane clipping to hide a body.
+  // Collision protects the full near-plane envelope, including wide screens.
   app.camera.near = tp ? 0.06 : FP_NEAR;
+  const desired = tp ? eye.clone().addScaledVector(dir, -3.1).add(new THREE.Vector3(0, 0.45, 0)) : eye;
+  resolveCamera(app.world, eye, desired, app.camera, app.camera.position);
+  // A contracted shoulder camera can reach the avatar's face. Hide only the
+  // local body there instead of filling the screen with its hair/inside mesh.
+  if (app.self) {
+    const visible = alive && tp && bodyVisibleAtDistance(!!app.self.cameraBodyVisible, app.camera.position.distanceTo(eye));
+    app.self.cameraBodyVisible = visible;
+    app.self.root.visible = visible;
+  }
+  app.camera.lookAt(app.camera.position.clone().add(dir));
+  if(!alive)updateDeathCamera(dt);
+  // in third person the character body replaces the viewmodel
+  const scoped = alive && app.controls.ads && w.scope === true;
+  document.getElementById('scope-overlay').classList.toggle('hidden', !scoped);
+  document.body.classList.toggle('scope-active', scoped);
+  app.vm.root.visible = alive && !tp && !scoped;
   app.camera.updateProjectionMatrix();
 
   // 30 Hz input upload
@@ -2330,18 +2572,27 @@ function tick(dt, now) {
   if (app.inputAcc >= 1 / 30) {
     app.inputAcc = 0;
     app.net.input(app.controls.pos, app.controls.yaw, app.controls.pitch, {
+      sprint: app.controls.sprinting,
+      ads: app.controls.ads,
       crouch: app.controls.crouch,
       move: app.controls.moveSpeed > 0.5,
       ground: app.controls.grounded,
     });
   }
 
+  app.vm.update(dt, {
+    ads: app.controls.ads,
+    sprinting: app.controls.sprinting,
+    moveSpeed: app.controls.moveSpeed,
+    viewFov: app.camera.fov,
+  });
+  syncFpArms();
+
   // firing — the rate here is a courtesy; the server is the real gate
-  const w = app.data.weaponById[me?.w || app.loadout.weapon];
 
   // bolt rifles (every one except the straight-pull M95) only chamber the next
   // round after the player has come out of the sights and released the aim
-  // button; the M95 works the bolt while still scoped
+  // button; the M95 works the bolt while still aiming
   if (app.boltWait && !app.controls.mouse.right) app.boltWait = false;
   // Scoped bolt shot: the cycle sound plays the moment the sights come off.
   if (app.pendingBolt && !app.controls.mouse.right) {
@@ -2349,8 +2600,11 @@ function tick(dt, now) {
     app.pendingBolt = null;
   }
 
-  const wantShot = w.auto ? app.controls.mouse.left : (app.clickPending && app.controls.mouse.left);
-  if (alive && wantShot && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
+  // A quick touch tap can begin AND end between slow rendered frames. Keep
+  // one trigger edge, not an entire extra burst; canceled gestures clear it.
+  const trigger = app.controls.mouse.left || app.controls.touchFirePending;
+  const wantShot = w.auto ? trigger : (app.clickPending && trigger);
+  if (alive && !app.net.hostPaused && !me?.equipIn && wantShot && (!me?.reloading || (w.clip && me.mag >= 1)) && !app.boltWait && app.controls.canLook && now >= app.nextShot) {
     if (me && me.mag <= 0) {
       // Dry magazines only reload when there is spare ammo left to draw on.
       if (me.reserve > 0) app.net.reload();
@@ -2361,7 +2615,19 @@ function tick(dt, now) {
       if (w.shape === 'bolt' && !w.straightPull) app.boltWait = true;
     }
   }
+  // Recoil moves the real aim, not a disconnected camera-only animation.
+  // Updating here makes even a single shot visible in its first rendered frame.
+  if(alive){
+    app.camera.lookAt(app.camera.position.clone().add(app.controls.aim()));
+    if(app.gunfx?.punchRoll)app.camera.rotateZ(app.gunfx.punchRoll*Math.PI/180);
+  }
+  const shield = document.getElementById('spawn-shield-status');
+  const shieldMs = alive ? Math.max(0, (app.shieldUntil || 0) - now) : 0;
+  shield.classList.toggle('hidden', shieldMs <= 0);
+  if(shieldMs>0)shield.title=t('移动、开火或投掷手榴弹会结束自己的出生保护');
+  shield.textContent = shieldMs > 0 ? t('出生保护 · {seconds}秒', {seconds: Math.ceil(shieldMs/1000)}) : '';
   app.clickPending = false;
+  app.controls.touchFirePending = false;
 
   // footstep audio
   if (alive && app.controls.grounded && app.controls.moveSpeed > 1.2) {
@@ -2370,12 +2636,6 @@ function tick(dt, now) {
   }
 
   updateRemotePlayers(dt, me);
-  app.vm.update(dt, {
-    ads: app.controls.ads,
-    sprinting: false,
-    moveSpeed: app.controls.moveSpeed,
-  });
-  syncFpArms();
 
   updateCrosshair(w, suppressed);
   updateLockHint(alive);
@@ -2385,6 +2645,7 @@ function tick(dt, now) {
     ads: app.controls.ads,
     crouch: app.controls.crouch,
     airborne: !app.controls.grounded,
+    objectivesOwned: app.net.lastState?.gameMode === 'control' ? app.net.lastState.s[app.myTeam] : 0,
   });
 }
 
@@ -2403,6 +2664,9 @@ function fireOnce(w, eye, dir) {
   // sound's own trim. Two guns of the same shape are meant to feel different.
   const style = gunStyle(w);
   app.vm.kick(style.kick.vm);
+  // Apply this shot's pose before reading sockets, not one frame afterwards.
+  app.vm.update(0, { ads: app.controls.ads, sprinting: app.controls.sprinting, moveSpeed: app.controls.moveSpeed, viewFov: app.camera.fov });
+  syncFpArms();
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
   app.sfx.shot(w, style);
   if (w.shape === 'bolt' && !w.straightPull) {
@@ -2413,25 +2677,25 @@ function fireOnce(w, eye, dir) {
   }
 
   const end = rayEnd(eye, dir);
-  // Third person plays the trail against the player's own body, so it has to
-  // leave from the middle of the chest. The viewmodel muzzle hangs off the
-  // camera, which in third person sits several metres behind the avatar, so
-  // using it there would start the trail out behind the character. First person
-  // keeps the muzzle -- the gun is right on screen and that is where the round
-  // actually leaves.
+  // Visuals leave the actual animated barrel; ballistics stay on eye/aim.
   const from = new THREE.Vector3();
-  if (app.cameraMode === 'tp') {
-    const c = app.controls;
-    from.set(c.pos.x, c.pos.y + c.bodyHeight * 0.72, c.pos.z);
+  const eject = new THREE.Vector3();
+  let attachment = null;
+  if (thirdPersonView()) {
+    if (!app.self?.muzzleWorld(from)) from.copy(eye);
+    if (!app.self?.ejectWorld?.(eject)) eject.copy(from);
+    attachment = app.self?.root.getObjectByName('weapon-muzzle') || null;
   } else {
-    const muzzle = new THREE.Vector3();
-    if (app.vm.muzzle) app.vm.muzzle.getWorldPosition(muzzle);
-    else muzzle.copy(eye);
-    from.copy(muzzle.distanceTo(eye) < 3 ? muzzle : eye);
+    if (!app.vm.shotWorld(from, eject) || from.distanceTo(eye) > 3) {
+      from.copy(eye); eject.copy(eye);
+    } else attachment = app.vm.muzzle;
   }
-  app.gunfx.fire(w, from, dir);
+  if (!safeMuzzle(app.world, eye, from)) attachment = null;
+  const barrelDir = attachment ? attachment.getWorldDirection(new THREE.Vector3()) : dir;
+  app.gunfx.fire(w, from, barrelDir, { eject, attachment });
   const rounds = (app.shotRounds[w.id] = (app.shotRounds[w.id] || 0) + 1);
-  if (tracerRound(style, rounds)) spawnTracer(from, end, style);
+  if (!w.utility && tracerRound(style, rounds)) spawnTracer(from, end, style);
+  app.controls.applyRecoil(style.kick);
 }
 
 function updateCrosshair(w, suppressed) {
@@ -2439,7 +2703,8 @@ function updateCrosshair(w, suppressed) {
   const spread = w.spreadDeg * 7.0 + move * 11 + (app.controls.grounded ? 0 : 7) + (suppressed ? 9 : 0);
   const adsFactor = app.controls.ads ? 0.25 : 1;
   app.hud.crosshair(Math.max(3, spread * adsFactor));
-  app.hud.el.crosshair.style.opacity = app.controls.ads ? '0.35' : '1';
+  app.hud.el.crosshair.style.opacity = '1';
+  app.hud.el.crosshair.classList.toggle('aiming', app.controls.ads);
 }
 
 /**
@@ -2457,23 +2722,35 @@ function syncSelfAvatar(dt, alive) {
   const cls = app.data.classById[app.loadout.cls];
   const skinId = app.loadout.skin || DEFAULT_CLASS_SKIN[cls.id] || '';
   const renderKey = `${cls.id}|${skinId}|${skinId && app.charTemplates.has(skinId) ? 'ext' : 'builtin'}`;
-  if (app.self && app.self.renderKey !== renderKey) {
+  if (alive && app.self && app.self.renderKey !== renderKey) {
     app.self.destroy();
     app.self = null;
   }
   if (!app.self) {
     app.self = makeRemoteGirl(cls, app.data.teamById[app.myTeam], skinId);
     app.self.renderKey = renderKey;
+    app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
     app.self.marker.visible = false;   // never mark the player for themselves
     app.scene.add(app.self.root);
   }
 
   const c = app.controls;
-  app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
-  app.self.setAlive(alive);
-  app.self.root.visible = alive && app.cameraMode === 'tp';
-  app.self.root.position.copy(c.pos);
-  app.self.root.rotation.y = yawToRotation(c.yaw);
+  if(alive)app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
+  app.self.setAlive(alive,deathImpacts.get(app.myId));
+  app.self.root.visible = alive ? thirdPersonView() : app.self.deathState.visible;
+  if(alive||!app.deathCamera)app.self.root.position.copy(c.pos);
+  if(alive)app.self.root.rotation.y = yawToRotation(c.yaw);
+  updateContactShadow(app.self, app.world, app.self.root.visible);
+  updateSpawnShield(app.self, alive && (app.shieldUntil || 0) > performance.now());
+  if(!alive){
+    const pos=app.self.root.position;
+    app.self.setDeathGround(app.world.floorAt(pos.x,pos.z,pos.y)-pos.y);
+    app.self.update(dt,{speed:0});
+    return;
+  }
+  // First person already solves a separate pair of arms. Do not animate a
+  // second, invisible full-body rig every frame as well.
+  if (!app.self.root.visible) return;
   // Upper-body layer state. The server only tells us about reloads; firing and
   // the throw are local, so they are timed off the wall clock here. Each pose is
   // held for a short window after the input ends so the clip can finish rather
@@ -2482,10 +2759,11 @@ function syncSelfAvatar(dt, alive) {
   const tnow = performance.now();
   app.self.update(dt, {
     speed: c.moveSpeed,
-    sprint: false,
+    sprint: c.sprinting,
     crouch: c.crouch,
     pitch: c.pitch,
     reloading: !!(me && me.reloading),
+    reloadProgress: app.vm.reloadT>=0?app.vm.reloadT/app.vm.reloadMs:1,
     firing: alive && tnow - app.fireAt < 150,
     ability: alive && (!!app.charge || tnow - app.throwAt < 700),
   });
@@ -2494,23 +2772,31 @@ function syncSelfAvatar(dt, alive) {
 // ------------------------------------------------------ first-person arms
 //
 // The first-person arms are the player's own character model. A second instance
-// of the same rig is parked under the camera with its eye at the lens, facing
+// of the same rig is mounted under the camera with calibrated shoulders, facing
 // the same way, and both arms are solved onto the viewmodel's hand anchors every
-// frame. The head, chest and legs end up behind the lens or inside the near
-// plane, so only the arms reach into frame — the weapon stays the viewmodel's,
+// frame. Skin-weight-filtered geometry removes the head, torso and legs;
+// the weapon stays the viewmodel's,
 // which is why ADS, recoil, reload and bob keep working untouched.
-const FP_EYE = 1.58;    // model eye height, matches combat.standEyeHeight
-const FP_NEAR = 0.20;   // clips the body the borrowed arms are mounted on
+const FP_EYE = 1.58;    // reference standing eye height, not a per-rig shoulder measurement
+const FP_NEAR = 0.06;   // keep nearby wrists/sleeves intact; the torso is removed
+const fpArmPresentation = new ArmPresentation();
 
 const _fpHand = new THREE.Vector3();
 const _fpFore = new THREE.Vector3();
+const _fpGunRotation = new THREE.Quaternion();
 
 function syncFpArms() {
-  if (!app.playing) return;
+  const alive = app.playing && !!app.net.lastMe?.alive;
+  if (!alive || thirdPersonView() || document.body.classList.contains('scope-active')) {
+    if (app.fpArms) app.fpArms.holder.visible = false;
+    if (app.vm?.armMeshes) app.vm.armMeshes.visible = false;
+    if (!alive) fpArmPresentation.reset();
+    return;
+  }
 
   const cls = app.data.classById[app.loadout.cls];
   const skinId = app.loadout.skin || DEFAULT_CLASS_SKIN[cls.id] || '';
-  const useExt = !!skinId && app.charTemplates.has(skinId);
+  const useExt = !!skinId && app.charMeta.has(skinId) && app.charTemplates.has(skinId);
   const key = useExt ? `${cls.id}|${skinId}` : '';
 
   if (app.fpArms && app.fpArms.key !== key) {
@@ -2519,6 +2805,7 @@ function syncFpArms() {
     app.fpArms = null;
   }
   if (!useExt) {
+    fpArmPresentation.reset();
     if (app.vm.armMeshes) app.vm.armMeshes.visible = true;
     return;
   }
@@ -2528,38 +2815,33 @@ function syncFpArms() {
     girl.marker.visible = false;
     girl.shadow.visible = false;
     const holder = new THREE.Group();
-    // The body is buried behind the near plane with only the arms reaching into
-    // view, so its exact spot is free: nudged forward and toward the gun side it
-    // puts the shoulders within the borrowed (short) arms' reach of the grip,
-    // which the hip-fire gun — held a forearm's length out — otherwise exceeds.
-    holder.position.set(0.03, -FP_EYE, -0.18);
+    // Keep the calibrated shoulders near the grips without moving the gun or
+    // sight anchors. The dedicated geometry mask removes the rest of the body.
+    holder.position.set(0.03, -FP_EYE + .14, -0.32);
     holder.rotation.y = Math.PI;        // the model faces +Z, the lens faces -Z
     holder.add(girl.root);
     app.vm.root.add(holder);
-    // The rig sits with its head at the lens; collapsing the head subtree is what
-    // keeps hair and — on a hat-wearing rig like the support class's — the whole
-    // brim from hanging across the sight line just past the near plane.
+    // Also collapse the head/secondary armatures defensively. The skin-weight
+    // geometry mask, not near-plane clipping, removes the body and accessories.
     if (girl.setHeadHidden) girl.setHeadHidden(true);
+    girl.setArmsOnly(true);
     girl.key = key;
     girl.holder = holder;
     app.fpArms = girl;
-  }
-
-  // the gear is drawn by the viewmodel; only hide the placeholder pair here
-  if (app.cameraMode !== 'fp') {
-    if (app.vm.armMeshes) app.vm.armMeshes.visible = true;
-    return;
   }
 
   // camera first: the viewmodel hangs off it, so its world matrices must be
   // current before the two anchors can be read out
   app.camera.updateMatrixWorld(true);
   let ok = false;
-  if (app.vm.gripWorld(_fpHand, _fpFore)) {
-    ok = app.fpArms.poseArms(_fpHand, _fpFore);
+  if (app.vm.gripWorld(_fpHand, _fpFore, _fpGunRotation)) {
+    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation,app.vm.weapon?.shape,true);
   }
-  // a rig with no mapped arms cannot be posed — keep the placeholder pair
-  if (app.vm.armMeshes) app.vm.armMeshes.visible = !ok;
+  // Never alternate models as animated grips cross the reach threshold. If an
+  // equipped weapon needs the fallback once, retain it for that equip cycle.
+  const imported = fpArmPresentation.update(`${key}|${app.vm.gunMeshes.uuid}`, ok && app.fpArms.hasArmGeometry ? app.fpArms.armReachError : Infinity);
+  app.fpArms.holder.visible = imported;
+  if (app.vm.armMeshes) app.vm.armMeshes.visible = !imported;
 }
 
 const _shotFrom = new THREE.Vector3();
@@ -2573,7 +2855,11 @@ function aimFromAngles(out, yawDeg, pitchDeg) {
   return out.set(Math.cos(y) * cp, Math.sin(p), Math.sin(y) * cp).normalize();
 }
 
+const remoteFrustum = new THREE.Frustum(), remoteView = new THREE.Matrix4();
+const remoteSphere = new THREE.Sphere(new THREE.Vector3(),2);
 function updateRemotePlayers(dt, me) {
+  app.camera.updateMatrixWorld(true);
+  remoteFrustum.setFromProjectionMatrix(remoteView.multiplyMatrices(app.camera.projectionMatrix, app.camera.matrixWorldInverse));
   const poses = app.net.sample();
   const seen = new Set();
   // Distant gunfire is capped per frame: twelve bots firing together must not
@@ -2604,29 +2890,11 @@ function updateRemotePlayers(dt, me) {
       app.remotes.set(id, girl);
     }
     const rw = app.data.weaponById[p.weapon] || app.data.weaponsByClass[cls.id][0];
-    girl.setWeapon(rw);
-    girl.setAlive(!!p.alive);
-    // Bit 3 of the state's flag byte is set while this player's trigger is down
-    // (see game.py). It stays set between shots, so the rhythm here is the
-    // weapon's own rate of fire -- a Lewis chatters, a Springfield does not.
-    if (p.alive && (p.flags & 8)) {
-      const now = performance.now();
-      // muzzleWorld exists on both characters (built-in and imported rig); the
-      // guard keeps a future rig without one from spamming the console.
-      if (now >= (girl.nextShot || 0) && girl.muzzleWorld && girl.muzzleWorld(_shotFrom)) {
-        aimFromAngles(_shotDir, p.yaw, p.pitch);
-        app.gunfx?.remote(rw, _shotFrom, _shotDir);
-        const dist = _shotFrom.distanceTo(app.camera.position);
-        if (dist < 90 && app.remoteShots > 0) {
-          app.remoteShots--;
-          app.sfx.shotFar(rw, gunStyle(rw), dist);
-        }
-        girl.nextShot = now + (60000 / (rw?.rpm || 500)) * 0.94;
-      }
-    } else {
-      girl.nextShot = 0;
-    }
-    girl.marker.visible = true;
+    if(p.alive||!girl.seenAlive)girl.setWeapon(rw);
+    if(p.alive)girl.seenAlive=true;
+    girl.setAlive(!!p.alive,deathImpacts.get(id));
+    updateSpawnShield(girl, !!p.alive && p.shieldMs > 0);
+    girl.marker.visible = !!p.alive;
     girl.marker.material.color.set(p.team === app.myTeam ? 0x3ddc6a : 0xff3b30);
 
     // A flare marks enemies for the whole enemy team: the marker blinks and
@@ -2646,14 +2914,51 @@ function updateRemotePlayers(dt, me) {
 
     if (p.alive) {
       girl.root.position.set(p.x, p.y, p.z);
-      girl.root.rotation.y = yawToRotation(p.yaw);
-      girl.update(dt, {
-        speed: p.speed,
-        sprint: (p.flags & 2) !== 0,
-        crouch: (p.flags & 1) !== 0,
-        pitch: p.pitch,
-      });
+      const desiredYaw = yawToRotation(p.yaw);
+      const turn = Math.atan2(Math.sin(desiredYaw-girl.root.rotation.y),Math.cos(desiredYaw-girl.root.rotation.y));
+      girl.root.rotation.y += turn*(1-Math.exp(-20*dt));
+      remoteSphere.center.set(p.x,p.y+.9,p.z);
+      const visible = remoteFrustum.intersectsSphere(remoteSphere);
+      const becameVisible = visible && !girl.root.visible;
+      girl.root.visible = visible;
+      girl.poseElapsed = Math.min(.2,(girl.poseElapsed||0)+dt);
+      const distance = girl.root.position.distanceTo(app.camera.position);
+      if (visible && (becameVisible || girl.poseElapsed+1e-6 >= poseInterval(distance))) {
+        girl.update(girl.poseElapsed, {
+          speed: p.speed, sprint: (p.flags & 2) !== 0,
+          crouch: (p.flags & 1) !== 0, pitch: p.pitch,
+          reloading:p.reloading,reloadProgress:p.reloadProgress,
+        });
+        girl.poseElapsed=0;app.performance.stats.poseUpdates++;
+      } else app.performance.stats.poseSkips++;
+    } else if(girl.seenAlive){
+      const pos=girl.root.position;
+      girl.setDeathGround(app.world.floorAt(pos.x,pos.z,pos.y)-pos.y);
+      girl.update(dt,{speed:0});
+      remoteSphere.center.copy(pos);remoteSphere.center.y+=.5;
+      girl.root.visible=girl.deathState.visible&&remoteFrustum.intersectsSphere(remoteSphere);
+    } else girl.root.visible=false;
+    updateContactShadow(girl, app.world, girl.root.visible);
+    // Read sockets AFTER the live avatar pose. Accepted-shot sequences avoid
+    // missing bolt shots between snapshots or repeating one shot's flag pulse.
+    if (remoteShotDue(girl, p, rw, performance.now()) && girl.muzzleWorld?.(_shotFrom)) {
+      let attachment = girl.root.getObjectByName('weapon-muzzle');
+      const eye = new THREE.Vector3(p.x, p.y + ((p.flags & 1) ? app.data.combat.crouchEyeHeight : app.data.combat.standEyeHeight), p.z);
+      if (!safeMuzzle(app.world, eye, _shotFrom)) attachment = null;
+      if (attachment) attachment.getWorldDirection(_shotDir);
+      else aimFromAngles(_shotDir, p.yaw, p.pitch);
+      const eject = new THREE.Vector3();
+      if (!girl.ejectWorld?.(eject)) eject.copy(_shotFrom);
+      app.gunfx?.remote(rw, _shotFrom, _shotDir, { eject, attachment });
+      const style = gunStyle(rw);
+      if (tracerRound(style, p.shotSeq ?? Math.round(performance.now() / (60000 / rw.rpm)))) {
+        const direction = aimFromAngles(new THREE.Vector3(), p.yaw, p.pitch);
+        spawnTracer(_shotFrom, rayEnd(eye, direction), style);
+      }
+      const dist = _shotFrom.distanceTo(app.camera.position);
+      if (dist < 90 && app.remoteShots > 0) { app.remoteShots--; app.sfx.shotFar(rw, style, dist); }
     }
+
   }
 
   for (const [id, girl] of app.remotes) {

@@ -4,13 +4,13 @@
 // public/models/guns/ and drops a correctly oriented, length-matched clone into
 // the group the procedural builder handed back. The procedural gun stays in
 // place until the download finishes, so a weapon is never missing, and every
-// clone shares the prototype's geometry, so twelve guns cost one parse each.
+// clone shares the prototype's geometry, so each model is parsed only once.
 //
-// The transforms below were solved offline: for each file the longest axis was
-// carried onto +Z, the muzzle end picked as the thinner of the two, and the
+// The transforms below are individually audited against assembled model
+// silhouettes (stock, trigger, magazine, muzzle), not just the longest axis. The
 // result scaled so the overall length matches the procedural gun's envelope
-// (smg 0.92 m, rifle 1.12 m, lmg 1.22 m, bolt 1.28 m). Keeping that envelope is
-// what lets the rig's grip points and the first-person hands land unchanged.
+// (smg 0.92 m, rifle 1.12 m, lmg 1.22 m, bolt 1.28 m). Hand contacts are
+// measured on these normalized meshes in weaponpose.js, not on the placeholder.
 
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
@@ -31,21 +31,57 @@ const D2R = Math.PI / 180;
  * be, so it finally ships as a model instead of the procedural placeholder.
  */
 const MODELS = {
+  ar15: {"file": "ar15_rifle.glb", "rot": [0, 90, 0], "off": [0.0173978, -0.3113935, -0.1840807], "scale": 0.818283217, "keepNodes": [17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 148, 133, 136, 139, 142, 151, 154, 157, 160, 163, 166, 169, 172, 175, 178, 181, 184, 187, 190, 193, 196, 199, 202]},
+  apx: {"file": "beretta_apx_a1_carry_nero.glb", "rot": [0, 0, 0], "off": [0.0001898, -0.0227166, -0.0068269], "scale": 0.012128862},
+  pmx: {"file": "beretta_pmx_pmxs_sportiva_nero.glb", "rot": [0, 0, 0], "off": [-0.0073748, -0.0182347, 0.0556089], "scale": 0.010283047},
+  deagle: {"file": "desert_eagle_gun.glb", "rot": [0, 0, 0], "off": [-1e-07, -0.056493, -0.0001478], "scale": 0.000741634},
+  flarepistol: {"file": "flare_gun.glb", "rot": [-27.4355, 0, 0], "off": [-3.1819213975229836e-08, -0.14842577487297914, -0.0812544057471825], "scale": 0.008760415602008277, "keepNodes": [8, 10, 12, 14]},
+  g17: {"file": "g17_gen_5_handgun__olight_-_nsw_police_force.glb", "rot": [0, 0, 0], "off": [0.0, -0.122649, -0.0011884], "scale": 0.115163414, "keepNodes": [6, 10, 11, 13, 14], "muzzle": [0, 0, 0.101931]},
+  gm6: {"file": "gm6_lynx.glb", "rot": [0, 90, 0], "off": [-0.0021992, -0.230899, -0.0939866], "scale": 0.223353962},
+  lr300: {"file": "lr-300_ml-a_assault_rifle.glb", "rot": [0, 180, 0], "off": [-0.0020702, -0.0166523, -0.0], "scale": 0.902499967},
+  m170: {"file": "m170_sniper_rifle.glb", "rot": [0, 0, 0], "off": [0.0, -0.1754795, -0.0918632], "scale": 0.672082424},
+  m249: {"file": "m249_machine_gun.glb", "rot": [0, 0, 0], "off": [0.0009524, -0.0265045, 0.0087307], "scale": 0.992120244},
+  m4a1: {"file": "m4a1_rifle.glb", "rot": [0, 0, 0], "off": [-1.7e-06, -0.0460204, 0.0372036], "scale": 0.04572036},
+  m60light: {"file": "m60_light_machine_gun.glb", "rot": [0, 90, 0], "off": [-0.0021635, -0.1978272, 0.1449278], "scale": 0.007963461},
+  m60: {"file": "m60_machine_gun_-_vietnam_war.glb", "rot": [0, -90, 0], "off": [0.0200621, 0.078356, 0.0136031], "scale": 0.026448459, "keepNodes": [26, 28, 30, 32, 33, 35, 36, 37]},
+  mp5: {"file": "mp5_submachine_gun.glb", "rot": [0, 0, 0], "off": [-0.0, -0.0493994, -0.0], "scale": 1.043698452},
+  pgm: {"file": "pgm_ultima_ratio__game-ready_sniper_rifle.glb", "rot": [0, 90, 0], "off": [0.0270692, -0.0637567, 0.0044638], "scale": 0.236903079},
+  // Uploaded scoped rifles, normalized to the same 1.28 m carry envelope.
+  sentinel: { file: 'sniper.glb', rot: [0, 0, 0], off: [0, -.06, -.331187], scale: 0.007624 },
+  awp: { file: 'sniper_rifle_-_awp.glb', rot: [0, 180, 0], off: [-.0141, .03, -.30324], scale: 0.00561385 },
+  longbow: { file: 'titanfall_2_weapon_longbow-dmr_sniper.glb', rot: [90, 0, 0], off: [0, -.14, -.054665], scale: 0.028769 },
   mp18:        { rot: [0, 90, 0],     off: [-0.099, -0.003, 0],        scale: 0.011274 },
-  hellriegel:  { rot: [97.216, 77.144, -84.05], off: [-0.0097, -0.0335, 0.0906], scale: 0.001328326 },
+  hellriegel:  { levelPitch: -10.5, rot: [97.216, 77.144, -84.05], off: [-0.0097, -0.0335, 0.0906], scale: 0.001328326 },
   auto1918:    { rot: [180, 0, 180],  off: [0.006, -0.033, -0.169],    scale: 0.795572 },
   cei:         { rot: [180, 0, 180],  off: [-0.021, -0.002, 0.09],     scale: 0.093122, flip: true },
   rsc1917:     { rot: [0, -90, 0],    off: [0.008, 0.014, 0.013],      scale: 0.339654 },
   federov:     { rot: [90, 0, 0],     off: [-0.016, -0.01, -0.014],    scale: 0.000902, flip: true },
   lewis:       { rot: [180, 0, 180],  off: [0.006, -0.078, 0.094],     scale: 0.009372, flip: true },
   bar:         { rot: [0, 0, 0],      off: [-0.009, -0.519, -0.004],   scale: 0.451322, flip: true },
-  chauchat:    { rot: [0, 90, 0],     off: [0, -0.189, 0],             scale: 0.015319, flip: true },
+  chauchat:    { levelPitch: 9.5, rot: [0, 90, 0],     off: [0, -0.189, 0],             scale: 0.015319, flip: true },
   smle:        { rot: [90, 0, 0],     off: [-0.007, -0.046, -0.007],   scale: 0.000362, flip: true },
   m95:         { rot: [0, -90, 0],    off: [0, 0, 0],                  scale: 0.64, flip: true },
   springfield: { rot: [180, 0, 180],  off: [0.04, 0.021, -0.331],      scale: 1.159914 },
 };
 
 const loader = new GLTFLoader();
+// The uploaded Longbow uses the retired specular/glossiness extension. Restore
+// its embedded albedo through the current loader rather than drawing it white.
+loader.register((parser) => ({
+  name: 'KHR_materials_pbrSpecularGlossiness',
+  extendMaterialParams(index, params) {
+    const legacy = parser.json.materials[index].extensions?.KHR_materials_pbrSpecularGlossiness;
+    if (!legacy) return Promise.resolve();
+    const color = legacy.diffuseFactor || [1, 1, 1, 1];
+    params.color = new THREE.Color().fromArray(color);
+    params.opacity = color[3];
+    params.metalness = .15;
+    params.roughness = Math.max(.35, 1 - (legacy.glossinessFactor ?? .5));
+    return legacy.diffuseTexture
+      ? parser.assignTexture(params, 'map', legacy.diffuseTexture, THREE.SRGBColorSpace)
+      : Promise.resolve();
+  },
+}));
 const cache = new Map();   // id -> Promise<THREE.Object3D>
 
 /**
@@ -74,7 +110,12 @@ function deSkin(root) {
 function load(id) {
   let p = cache.get(id);
   if (!p) {
-    p = loader.loadAsync(BASE + id + '.glb').then((g) => {
+    p = loader.loadAsync(BASE + (MODELS[id].file || id + '.glb')).then((g) => {
+      if (MODELS[id].keepNodes) {
+        const keep = new Set(MODELS[id].keepNodes), remove = [];
+        g.scene.traverse(o => { if(o.isMesh && !keep.has(g.parser.associations.get(o)?.nodes))remove.push(o); });
+        for(const o of remove)o.removeFromParent();
+      }
       deSkin(g.scene);
       // These files are PBR with a metallicRoughness map: without an
       // environment they render black, so the scene's baked environment and a
@@ -102,9 +143,53 @@ function place(scene, cfg) {
   // x/z here keeps the mesh centred on the same mount point
   holder.position.set(cfg.flip ? -o[0] : o[0], o[1], cfg.flip ? -o[2] : o[2]);
   if (cfg.flip) outer.rotation.y = Math.PI;
+  // Barrel-level correction is applied in normalized gun space, not in the
+  // source asset's arbitrary Euler frame. Contacts use this same correction.
+  if(cfg.levelPitch)outer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),cfg.levelPitch*D2R));
 
   outer.traverse((obj) => { obj.frustumCulled = false; });
   return outer;
+}
+
+
+/** Find the front barrel opening after the imported model's normalization.
+ * A placeholder length is not a muzzle socket: it was floating ahead of some
+ * guns and buried inside others. Sample the foremost 2% in gun-local space.
+ */
+export function calibrateMuzzle(holder, muzzle, sight) {
+  holder.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(holder, true);
+  if (bounds.isEmpty()) return;
+  const front = bounds.max.z - Math.max(0.008, (bounds.max.z - bounds.min.z) * 0.02);
+  const cap = new THREE.Box3();
+  const point = new THREE.Vector3();
+  holder.traverse((mesh) => {
+    const positions = mesh.isMesh && mesh.geometry?.attributes.position;
+    if (!positions) return;
+    for (let i = 0; i < positions.count; i++) {
+      point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+      if (point.z >= front) cap.expandByPoint(point);
+    }
+  });
+  if (!cap.isEmpty()) {
+    cap.getCenter(muzzle.position);
+    muzzle.position.z = bounds.max.z + 0.005;
+  }
+  if (sight) {
+    // Use only the bore's lane, not an offset magazine/bipod. Keep the reticle
+    // just above the tallest obstruction in that lane (including pan-fed guns
+    // and short pistols whose rear frame is most of the model length).
+    let top = -Infinity;
+    holder.traverse((mesh) => {
+      const positions = mesh.isMesh && mesh.geometry?.attributes.position;
+      if (!positions) return;
+      for (let i = 0; i < positions.count; i++) {
+        point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+        if (Math.abs(point.x - muzzle.position.x) < .035) top = Math.max(top, point.y);
+      }
+    });
+    if (Number.isFinite(top)) sight.position.set(muzzle.position.x, top + .006, .2);
+  }
 }
 
 /**
@@ -112,16 +197,22 @@ function place(scene, cfg) {
  *
  * @param {object} weapon  entry from weapons.json (needs `model`)
  * @param {THREE.Group} group  the gun group buildWeapon returned
- * @param {THREE.Object3D} muzzle  kept as-is; only the meshes are swapped
+ * @param {THREE.Object3D} muzzle  calibrated to the imported barrel opening
  */
 export function attachGunModel(weapon, group, muzzle) {
   const id = weapon && weapon.model;
   const cfg = id ? MODELS[id] : null;
   if (!cfg) return;
 
-  const procedural = group.children.filter((c) => c !== muzzle);
-  load(id).then((scene) => {
+  const procedural = group.children.filter((c) => c.isMesh);
+  group.userData.modelReady = load(id).then((scene) => {
     const holder = place(scene.clone(true), cfg);
+    holder.name = `gun-model-${id}`;
+    calibrateMuzzle(holder, muzzle, group.userData.anchors?.sight);
+    if(cfg.muzzle){
+      muzzle.position.fromArray(cfg.muzzle);
+      if(group.userData.anchors?.sight)group.userData.anchors.sight.position.x=muzzle.position.x;
+    }
     for (const c of procedural) group.remove(c);
     group.add(holder);
   }).catch((err) => {

@@ -124,7 +124,7 @@ export function applyEnvironment(renderer, scene, style) {
   scene.environment = entry.target.texture;
   // Mirror-like metal would be wrong for 1916 equipment; a mild reflection is
   // what makes the blued steel read as metal instead of as a black hole.
-  scene.environmentIntensity = 0.9;
+  scene.environmentIntensity = 0.75;
   return entry.target.texture;
 }
 
@@ -142,12 +142,32 @@ export function disposeEnvironments() {
  * and no metallicRoughness texture is either a mistake in the asset or a metal
  * with nothing to reflect, and both end up as a black blob on screen.
  */
+const LIT_MATERIALS = new WeakMap();
+
 export function fixImportedMaterials(root, opts = {}) {
   const metalCap = opts.metalCap ?? 0.6;
   const envIntensity = opts.envMapIntensity ?? 1.0;
   let fixed = 0;
   root.traverse?.((o) => {
     if (!o.isMesh && !o.isSkinnedMesh) return;
+    if (opts.lightUnlit && o.geometry && !o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+    if (opts.lightUnlit) {
+      const light = (source) => {
+        if (!source?.isMeshBasicMaterial || source.userData?.keepUnlit) return source;
+        if (LIT_MATERIALS.has(source)) return LIT_MATERIALS.get(source);
+        // Keep the original map, tint and alpha rules. A little emissive albedo
+        // preserves painted/anime detail in shade, while direct light gives
+        // faces/clothes shape instead of baking a flat billboard onto the rig.
+        const m = new THREE.MeshStandardMaterial({ map:source.map, color:source.color,
+          emissive:source.color, emissiveMap:source.map, emissiveIntensity:.32,
+          roughness:.92, metalness:0, side:source.side, transparent:source.transparent,
+          opacity:source.opacity, alphaTest:source.alphaTest, depthWrite:source.depthWrite,
+          depthTest:source.depthTest, vertexColors:source.vertexColors });
+        m.name=source.name;m.userData={...source.userData,softCharacterLighting:true};
+        LIT_MATERIALS.set(source,m);return m;
+      };
+      o.material=Array.isArray(o.material)?o.material.map(light):light(o.material);
+    }
     const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
     for (const m of mats) {
       if (m.isMeshStandardMaterial) {
@@ -166,4 +186,51 @@ export function fixImportedMaterials(root, opts = {}) {
     }
   });
   return fixed;
+}
+
+// Cheap soft ground contact for both lit rigs and Italy's baked/unlit streets.
+// No additional full-scene shadow render or per-avatar lights on integrated GPUs.
+let contactTexture;
+function shadowTexture() {
+  if(contactTexture)return contactTexture;
+  const cv=document.createElement('canvas');cv.width=cv.height=64;
+  const c=cv.getContext('2d'),gradient=c.createRadialGradient(32,32,2,32,32,30);
+  gradient.addColorStop(0,'rgba(0,0,0,.85)');gradient.addColorStop(.45,'rgba(0,0,0,.4)');gradient.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=gradient;c.fillRect(0,0,64,64);contactTexture=new THREE.CanvasTexture(cv);return contactTexture;
+}
+export function createContactShadow(radius=.6) {
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(radius*2,radius*2),new THREE.MeshBasicMaterial({map:shadowTexture(),transparent:true,opacity:.36,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}));
+  mesh.rotation.x=-Math.PI/2;mesh.renderOrder=1;return mesh;
+}
+export function updateContactShadow(girl,world,alive) {
+  if(!girl||!world)return;
+  if(!girl.contactShadow) {
+    const mesh=girl.shadow||createContactShadow();
+    if(!mesh.parent)girl.root.add(mesh);
+    girl.contactShadow=mesh;
+    if(!girl.shadow) {
+      const original=girl.destroy.bind(girl);
+      girl.destroy=()=>{mesh.removeFromParent();mesh.geometry.dispose();mesh.material.dispose();original();};
+    }
+  }
+  const pos=girl.root.position,floor=world.floorAt(pos.x,pos.z,pos.y),height=Math.max(0,pos.y-floor);
+  const mesh=girl.contactShadow;
+  mesh.visible=!!alive&&height<4;
+  mesh.position.set(0,floor-pos.y+.018,0);
+  mesh.material.opacity=.36*Math.exp(-height*1.1);
+  mesh.scale.setScalar(1+Math.min(1,height*.25));
+}
+
+/** Uploaded 2:1 panorama; owns its PMREM, so map swaps release both textures. */
+export async function loadSkyboxEnvironment(renderer,scene,url) {
+  const texture=await new THREE.TextureLoader().loadAsync(url);
+  texture.colorSpace=THREE.SRGBColorSpace;texture.mapping=THREE.EquirectangularReflectionMapping;
+  let target=null;
+  if(renderer){const pmrem=new THREE.PMREMGenerator(renderer);try{target=pmrem.fromEquirectangular(texture);}finally{pmrem.dispose();}}
+  scene.background=texture;scene.environment=target?.texture||texture;scene.environmentIntensity=.65;
+  return {texture,target,dispose(){
+    if(scene.background===texture)scene.background=null;
+    if(scene.environment===texture||scene.environment===target?.texture)scene.environment=null;
+    texture.dispose();target?.dispose();
+  }};
 }

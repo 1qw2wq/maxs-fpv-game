@@ -11,11 +11,18 @@
 //   * a light "highlight band" arcing across the hair (the single strongest cue)
 //   * four unmistakable silhouettes: short bob / long curls / high ponytail / long straight
 //
-// Engineering note: the hit capsule on the server is 1.70 m and never includes
-// hair, so hair volumes are kept thin and a crouch only lowers the body a
-// little — the visible head has to stay where the server says it is.
+// Engineering note: the standing hit capsule is 1.70 m and never includes
+// hair, so hair volumes are kept thin. Crouch animation follows the shorter
+// capsule and eye height shared with the authoritative engine.
 
 import * as THREE from 'three';
+import {crouchBlend,crouchPose} from './stance.js';
+import { DeathAnimation } from './death-animation.js';
+import { placement } from './third-person-placement.js';
+import { mountedGrips } from './weaponpose.js';
+import {weaponReloadPose} from './reload-motion.js';
+import {weaponSockets} from './weaponpose.js';
+import { buildGripGlove, gripRotation, gloveWrist, GLOVE_WRIST, setWorldRotation } from './handpose.js';
 import { part, joint, toonMat, flatMat, shift } from './toon.js';
 import { makeFaceTexture } from './face.js';
 import { buildWeapon, soldierArms } from './viewmodel.js';
@@ -310,8 +317,10 @@ function addArms(parent, cls, team) {
     fore.position.y = -0.125;
 
     const hand = joint(el, 0, -0.25, 0);
-    const h = part(hand, new THREE.BoxGeometry(a.hand[0], a.hand[1], a.hand[2]), { material: glove, outline: true, outlineScale: 1.06 });
-    h.position.y = -a.handDrop;
+    hand.name = `wrist-${side}`;
+    const h = buildGripGlove(glove, side);
+    h.position.copy(GLOVE_WRIST).negate();
+    hand.add(h);
 
     arms[side] = { sh, el, hand };
   }
@@ -402,21 +411,67 @@ export function createGirl(cls, team, data) {
   const arms = addArms(torsoG, cls, team);
 
   // hands hold the rifle at chest height
-  const hands = joint(torsoG, 0, 0.135, 0.115);
+  const hands = joint(torsoG, -0.10, 0.135, 0.115);
   const weaponMount = new THREE.Group();
   weaponMount.rotation.x = -0.08;
   hands.add(weaponMount);
+  let weaponPlacement=placement();
+  const placementRotation=new THREE.Quaternion(),placementEuler=new THREE.Euler();
+  const placementGrip=new THREE.Vector3(),placementPivot=new THREE.Vector3(),placementOffset=new THREE.Vector3();
+  function applyWeaponPlacement(){
+    if(!st.weapon)return;
+    // Compose after the current reload/hold pose, preserving its trigger pivot.
+    placementGrip.fromArray(mountedGrips(st.weapon).hand);
+    placementPivot.copy(placementGrip).applyQuaternion(weaponMount.quaternion);
+    weaponMount.quaternion.multiply(placementRotation);
+    weaponMount.position.add(placementPivot).sub(placementGrip.applyQuaternion(weaponMount.quaternion));
+    weaponMount.position.add(placementOffset.fromArray(weaponPlacement.position));
+  }
 
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+
+  const stanceFoot=new THREE.Vector3();
+  const down = new THREE.Vector3(0, -1, 0);
+  const target = new THREE.Vector3(), direction = new THREE.Vector3(), pole = new THREE.Vector3(), elbow = new THREE.Vector3();
+  function fitHand(arm, anchor, side) {
+    anchor.getWorldPosition(target);
+    const rotation = gripRotation(anchor.getWorldQuaternion(new THREE.Quaternion()), side === -1 ? 'R' : 'L',new THREE.Quaternion(),st.weapon?.shape);
+    gloveWrist(target, rotation, target);
+    torsoG.worldToLocal(target);
+    direction.copy(target).sub(arm.sh.position);
+    const distance = Math.max(0.025, Math.min(0.519, direction.length()));
+    direction.normalize();
+    const along = (0.27 ** 2 + distance ** 2 - 0.25 ** 2) / (2 * distance);
+    const height = Math.sqrt(Math.max(0, 0.27 ** 2 - along ** 2));
+    pole.set(side * 0.7, -0.6, -0.2).addScaledVector(direction, -pole.dot(direction)).normalize();
+    elbow.copy(direction).multiplyScalar(along).addScaledVector(pole, height);
+    arm.sh.quaternion.setFromUnitVectors(down, elbow.clone().normalize());
+    direction.copy(target).sub(arm.sh.position).sub(elbow).applyQuaternion(arm.sh.quaternion.clone().invert()).normalize();
+    arm.el.quaternion.setFromUnitVectors(down, direction);
+    arm.hand.updateWorldMatrix(true, false);
+    setWorldRotation(arm.hand, rotation);
+  }
 
   const st = {
     phase: Math.random() * 6.28,
     t: Math.random() * 10,
-    crouch: 0,
+    crouch: 0, gait: 0,
     weapon: null,
     dead: false,
   };
 
+  const death=new DeathAnimation(root,[bob],{
+    joints:[headG,torsoG,...Object.values(legs).flatMap(l=>[l.hip,l.knee]),arms.L.sh,arms.L.el],
+    pose(p){
+      headG.rotation.x+=-p.impact*.8+p.limp*.08;
+      torsoG.rotation.x+=p.buckle*.06;
+      for(const [side,leg] of Object.entries(legs)){
+        leg.hip.rotation.x-=p.limp*(side==='L'?.20:.12);
+        leg.knee.rotation.x+=p.limp*(side==='L'?.38:.24);
+      }
+      arms.L.el.rotation.x+=p.limp*.24;
+    },
+  });
   const girl = {
     root, marker, headG, shadow,
     height: 1.70,
@@ -424,6 +479,8 @@ export function createGirl(cls, team, data) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      weaponPlacement=placement();placementRotation.identity();
+      hands.position.z=weapon.shape==='pistol'?.315:.115;
       weaponMount.clear();
       const built = buildWeapon(weapon);
       // buildWeapon already points the muzzle down local +Z, which is also the
@@ -434,7 +491,18 @@ export function createGirl(cls, team, data) {
       // Kept so this girl's own muzzle flash leaves the right barrel: main.js
       // asks for the world point when her trigger pulls (see gunfx.js).
       st.muzzle = built.muzzle;
+      st.eject = built.anchors.eject;
+      st.anchors = built.anchors;
     },
+
+    setWeaponPlacement(value) {
+      weaponPlacement=placement(value);
+      placementEuler.set(weaponPlacement.rotation[0]*Math.PI/180,weaponPlacement.rotation[1]*Math.PI/180,weaponPlacement.rotation[2]*Math.PI/180);
+      placementRotation.setFromEuler(placementEuler);
+      girl.update(0,st.lastPlacementPose||{speed:0,pitch:0});
+    },
+    getWeaponPlacement() { return placement(weaponPlacement); },
+    get crouchAmount(){return crouchPose(st.crouch).amount;},
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {
@@ -443,12 +511,23 @@ export function createGirl(cls, team, data) {
       return true;
     },
 
-    setAlive(alive) {
-      st.dead = !alive;
-      root.visible = alive;
+    ejectWorld(out) {
+      if (!st.eject) return false;
+      st.eject.getWorldPosition(out);
+      return true;
     },
 
+    setAlive(alive,impact) {
+      st.dead=!alive;death.setAlive(alive,impact);
+      root.visible=alive||death.visible;
+      if(!alive)marker.visible=false;
+    },
+    setDeathGround(offset){death.setGround(offset);},
+    get deathState(){return {visible:death.visible,elapsed:death.elapsed};},
+
     destroy() {
+      shadow.geometry.dispose();shadow.material.dispose();
+      marker.geometry.dispose();marker.material.dispose();
       root.removeFromParent();
     },
 
@@ -457,6 +536,8 @@ export function createGirl(cls, team, data) {
      * @param {{speed:number, sprint:boolean, crouch:boolean, pitch:number, yaw:number}} s
      */
     update(dt, s) {
+      if(st.dead){death.update(dt);root.visible=death.visible;marker.visible=false;return;}
+      st.lastPlacementPose=s;
       st.t += dt;
       const speed = s.speed || 0;
       const run = speed > 0.6;
@@ -464,48 +545,63 @@ export function createGirl(cls, team, data) {
       if (run) st.phase += dt * rate * Math.min(1.25, speed / 5.0 + 0.35);
       else st.phase += dt * 1.15;
 
-      // crouch is a partial crouch only: the server capsule never shrinks, so a
-      // big visual drop would put the rendered head inside the torso hitbox.
-      st.crouch += ((s.crouch ? 1 : 0) - st.crouch) * Math.min(1, dt * 12);
+      // Match the real crouched capsule; flex hips forward and keep soles planted.
+      st.crouch=crouchBlend(st.crouch,s.crouch,dt);
+      const crouch=crouchPose(st.crouch);
 
-      const swing = run ? (s.sprint ? 0.78 : 0.5) : 0.06;
+      st.gait += ((run ? 1 : 0)-st.gait)*(1-Math.exp(-12*dt));
+      const swing = (.06 + ((s.sprint ? .78 : .5)-.06)*st.gait)*crouch.gait;
       const ph = st.phase;
       const breathe = Math.sin(st.t * 1.9) * 0.012;
 
-      legs.L.hip.rotation.x = Math.sin(ph) * swing;
-      legs.R.hip.rotation.x = -Math.sin(ph) * swing;
-      legs.L.knee.rotation.x = Math.max(0, -Math.sin(ph - 0.6)) * swing * 1.9 + st.crouch * 0.7;
-      legs.R.knee.rotation.x = Math.max(0, Math.sin(ph - 0.6)) * swing * 1.9 + st.crouch * 0.7;
+      legs.L.hip.rotation.x = Math.sin(ph) * swing+crouch.hip;
+      legs.R.hip.rotation.x = -Math.sin(ph) * swing+crouch.hip;
+      legs.L.knee.rotation.x = Math.max(0, -Math.sin(ph - 0.6)) * swing * 1.9 + crouch.knee;
+      legs.R.knee.rotation.x = Math.max(0, Math.sin(ph - 0.6)) * swing * 1.9 + crouch.knee;
       legs.L.hip.rotation.z = 0.045;
       legs.R.hip.rotation.z = -0.045;
       // ankle roll: heel-first as the leg swings forward, toe-off as it trails
-      legs.L.foot.rotation.x = Math.sin(ph) * swing * 0.55;
-      legs.R.foot.rotation.x = -Math.sin(ph) * swing * 0.55;
+      legs.L.foot.rotation.x = Math.sin(ph) * swing * 0.55+crouch.ankle;
+      legs.R.foot.rotation.x = -Math.sin(ph) * swing * 0.55+crouch.ankle;
 
-      bob.position.y = -st.crouch * 0.20
-        + Math.abs(Math.sin(ph)) * (run ? (s.sprint ? 0.045 : 0.028) : 0)
-        + breathe * 0.25;
+      bob.position.y = (Math.abs(Math.sin(ph)) * st.gait * (s.sprint ? 0.045 : 0.028)
+        + breathe * 0.25)*crouch.bob;
+      if(st.crouch>.001){
+        root.updateMatrixWorld(true);
+        const footY=Math.min(root.worldToLocal(legs.L.foot.getWorldPosition(stanceFoot)).y,
+          root.worldToLocal(legs.R.foot.getWorldPosition(stanceFoot)).y);
+        bob.position.y+=THREE.MathUtils.clamp(.015-footY,-.90,.15)*crouch.amount;
+      }
       bob.rotation.z = Math.sin(ph) * swing * 0.035;
       bob.rotation.y = -Math.sin(ph) * swing * 0.10;
 
-      torsoG.rotation.x = st.crouch * 0.28 + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008;
+      torsoG.rotation.x = crouch.spine + (.02 + st.gait*.08) + Math.sin(st.t * 1.9) * 0.008;
       torsoG.rotation.z = Math.sin(ph) * swing * 0.05;
 
-      // weapon-ready arms: right hand on the grip, left under the handguard
-      const sway = Math.sin(ph) * swing * 0.12;
-      arms.R.sh.rotation.set(-1.02 + sway * 0.5, 0.34, -0.30 - st.crouch * 0.08);
-      arms.R.el.rotation.set(-1.30 - sway * 0.6, 0, 0.18);
-      arms.L.sh.rotation.set(-1.16 - sway * 0.5, -0.46, 0.42 + st.crouch * 0.10);
-      arms.L.el.rotation.set(-1.20 + sway * 0.6, 0, -0.26);
+      // Read the same gun-local sockets as first person instead of a fixed
+      // elbow pose that only happened to fit one rifle.
+      if(st.anchors){
+        const reload=weaponReloadPose(st.weapon,s.reloading?s.reloadProgress||0:0);
+        st.anchors.fore.position.fromArray(reload.fore);
+        st.anchors.hand.position.fromArray(weaponSockets(st.weapon).hand);
+        weaponMount.rotation.set(-.08-crouch.spine+reload.rotation[0],reload.rotation[1],reload.rotation[2]);
+        weaponMount.position.fromArray(reload.position);
+        applyWeaponPlacement();
+      }
+      root.updateMatrixWorld(true);
+      if (st.anchors) {
+        fitHand(arms.R, st.anchors.hand, -1);
+        fitHand(arms.L, st.anchors.fore, 1);
+      }
 
       const pitch = Math.max(-70, Math.min(70, s.pitch || 0));
-      headG.rotation.x = -(pitch * Math.PI) / 180 * 0.55;
+      headG.rotation.x = -crouch.amount*.28-(pitch * Math.PI) / 180 * 0.55;
       headG.rotation.y = Math.sin(st.t * 0.6) * 0.05;
 
       const capeG = torsoG.userData.cape;
       if (capeG) capeG.rotation.x = -0.05 - Math.min(0.55, speed * 0.055) + Math.sin(st.t * 2.6) * 0.04;
 
-      marker.position.y = HEAD_Y + 0.40;
+      marker.position.y = HEAD_Y-.85*st.crouch + 0.40;
     },
   };
 

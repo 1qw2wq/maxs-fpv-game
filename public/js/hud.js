@@ -34,11 +34,13 @@ export class Hud {
       tbTimer: $('tb-timer'), tbLimit: $('tb-limit'),
       crosshair: $('crosshair'), hitmarker: $('hitmarker'), dmgPops: $('dmg-pops'),
       vignette: $('damage-vignette'), suppress: $('suppress-blur'), hitDir: $('hit-dir'),
+      killConfirm: $('kill-confirm'), killLabel: $('kill-label'), killVictim: $('kill-victim'), killStreak: $('kill-streak'),
       killfeed: $('killfeed'), chatLog: $('chat-log'),
       hpFill: $('hp-fill'), hpNum: $('hp-num'), hpCls: $('hp-cls'), hpBar: document.querySelector('.hp-bar'),
       ammoMag: $('ammo-mag'), ammoMax: $('ammo-max'), ammoReserve: $('ammo-reserve'),
       ammoWrap: document.querySelector('.ammo-wrap'),
       reloadFill: $('reload-fill'), reloadText: $('reload-text'),
+      grenade: $('grenade-chip'), grenadeName: $('grenade-name'), grenadeInfo: $('grenade-info'), grenadeFill: $('grenade-fill'),
       ability: $('ability-chip'), abName: $('ab-name'), abFill: $('ab-fill'),
       eventToast: $('event-toast'),
       death: $('death-panel'), deathBy: $('death-by'), deathCount: $('death-count'),
@@ -99,6 +101,7 @@ export class Hud {
     if (this.selected) {
       this.selectClass(this.selected.cls, 0);
       this.pickWeapon(this.selected.cls, this.selected.weapon);
+      this.renderSecondaries();
     }
     // the class and ability names in the bottom-left corner are written by
     // setLoadout, which normally only runs when the loadout changes
@@ -110,7 +113,8 @@ export class Hud {
       this.result(...this._lastResult);
     }
     if (this._deathInfo && !this.el.death.classList.contains('hidden')) {
-      this.showDeath(...this._deathInfo);
+      const choice = this.deathSelection;
+      this.showDeath(this._deathInfo[0], this._deathInfo[1], choice.cls, choice.weapon, choice.secondary);
     }
     if (this._lockSoft || this._cache.lock) this.setLockHint(this._cache.lock, this._lockNote, this._lockTitle || '');
   }
@@ -209,11 +213,11 @@ export class Hud {
     if (join) this.el.roomInput.value = formatRoomCode(code);
     if (join) {
       this.el.roomNote.textContent = this._webHosted
-        ? t('输入房主给你的 8 位房号即可加入（网页版：对局在房主的浏览器里运行；点邀请链接也能自动填好房号）')
+        ? t('房号用于同浏览器标签页；其他设备先交换邀请码和回答码，再等待房主接受申请。')
         : t('输入房主给你的 8 位房号即可加入同一局；房号错一位都会进不去');
     } else {
       this.el.roomNote.textContent = this._webHosted
-        ? t('网页版联机：点「创建房间」你就是房主，这一局在你的浏览器里运行；部署后点右上角房号可复制邀请链接发给朋友（完全不需要服务器）')
+        ? t('创建后留在主页面接受申请、选择地图，再选择角色并开始；其他设备仍需邀请码配对。')
         : t('创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）');
     }
   }
@@ -326,7 +330,7 @@ export class Hud {
     if (!btn) return;
     btn.classList.add('suggested');
     const span = btn.querySelector('span');
-    if (span) span.textContent = t('第一次玩？从这里开始 · 60 秒学会操作与联机房号');
+    if (span) span.textContent = t('第一次玩？从这里开始 · 学会手榴弹与据点控制');
   }
 
   // ------------------------------------------------------------ map picker
@@ -406,6 +410,7 @@ export class Hud {
       this.classCards[cls.id] = { card, canvas: cv };
     }
 
+    this.renderSecondaries();
     this.el.deploy.addEventListener('click', onDeploy);
     this.el.back.addEventListener('click', onBack);
   }
@@ -455,6 +460,23 @@ export class Hud {
     }
   }
 
+  renderSecondaries() {
+    const row=document.getElementById('secondary-row');
+    row.innerHTML='';
+    this.secondaryCards={};
+    for(const w of this.data.secondaries){
+      const card=document.createElement('button');card.type='button';card.className='weapon-card';
+      this._fillWeaponCard(card,w);card.onclick=()=>this.pickSecondary(w.id);
+      row.appendChild(card);this.secondaryCards[w.id]=card;
+    }
+    this.pickSecondary(this.secondary||this.data.secondaries[0].id);
+  }
+  pickSecondary(id) {
+    this.secondary=this.data.secondaries.some(w=>w.id===id)?id:this.data.secondaries[0].id;
+    if(this.selected)this.selected.secondary=this.secondary;
+    for(const [key,card]of Object.entries(this.secondaryCards||{}))card.classList.toggle('on',key===this.secondary);
+  }
+
   /** One weapon card, in the current language (see _fillClassCard). */
   _fillWeaponCard(card, w) {
     const bars = [
@@ -474,12 +496,13 @@ export class Hud {
         ${w.lethalBody ? `<span class="wc-tag">${t('{a}-{b}m 躯干致命', {
           a: Math.round(w.lethalMinM || 0), b: Math.round(w.lethalMaxM || 0),
         })}</span>` : ''}
+        ${w.scope ? `<span class="wc-tag">${t('瞄准镜')}</span>` : ''}
         ${w.auto ? `<span class="wc-tag">${t('全自动')}</span>` : `<span class="wc-tag">${t('半自动/栓动')}</span>`}
       `;
   }
 
   pickWeapon(clsId, weaponId) {
-    this.selected = { cls: clsId, weapon: weaponId };
+    this.selected = { cls: clsId, weapon: weaponId, secondary:this.secondary||this.data.secondaries[0].id };
     for (const [id, c] of Object.entries(this.weaponCards)) c.classList.toggle('on', id === weaponId);
   }
 
@@ -489,7 +512,7 @@ export class Hud {
     // remembered so a language change can redraw the class and ability names
     this._loadout = [clsId, weaponId];
     const cls = this.data.classById[clsId];
-    const w = this.data.weaponById[weaponId];
+    const w = this.data.weaponById[weaponId] || this.data.grenadeById?.[weaponId];
     this.el.hpCls.textContent = nameOf(cls);
     this.el.abName.textContent = descOf(cls, 'abilityName');
     this.el.ammoMax.textContent = `/${w.mag}`;
@@ -513,7 +536,9 @@ export class Hud {
     const c = this._cache;
     if (c.s0 !== state.s[0]) { this.el.tbScore0.textContent = state.s[0]; c.s0 = state.s[0]; }
     if (c.s1 !== state.s[1]) { this.el.tbScore1.textContent = state.s[1]; c.s1 = state.s[1]; }
-    if (c.limit !== state.limit) { this.el.tbLimit.textContent = state.limit; c.limit = state.limit; }
+    const rule = state.gameMode === 'control' ? t('据点控制') : t('团队死斗');
+    const limitText = `${state.limit} · ${rule}`;
+    if (c.limitText !== limitText) { this.el.tbLimit.textContent = limitText; c.limitText = limitText; }
     const remain = Math.max(0, Math.ceil(state.endsIn / 1000));
     if (c.remain !== remain) {
       c.remain = remain;
@@ -588,7 +613,39 @@ export class Hud {
     h.classList.add('show');
   }
 
+  confirmKill(victim,headshot=false) {
+    const now=performance.now();
+    this._killChain=now-(this._lastKillAt??-Infinity)<3000?(this._killChain||0)+1:1;
+    this._lastKillAt=now;
+    this.hitmarker(true);
+    const el=this.el.killConfirm;if(!el)return;
+    this.el.killLabel.textContent=headshot?t('爆头击杀！'):t('击杀确认');
+    this.el.killVictim.textContent=String(victim||'').slice(0,64);
+    this.el.killStreak.textContent=this._killChain>1?`${this._killChain} × ${t('连续击杀')}`:'';
+    el.classList.remove('show');el.classList.toggle('headshot',headshot);
+    void el.offsetWidth;el.classList.add('show');
+  }
+
+  resetCombatFeedback(){
+    this._killChain=0;this._lastKillAt=-Infinity;
+    this.el.killConfirm?.classList.remove('show','headshot');
+    this.el.hitmarker?.classList.remove('show','kill');
+  }
+
   /** Floating damage number shown to the shooter on every confirmed hit. */
+  updateGrenade(kind, me, power = null, mobile = false) {
+    const spec = this.data.grenadeById[kind];
+    if (!spec || !this.el.grenade) return;
+    const count = me?.grenades ?? 2, cooldown = Math.ceil((me?.grenadeIn || 0) / 1000);
+    const name = `${nameOf(spec)} ×${count}`;
+    const info = power !== null ? t('投掷力度 {n}%', { n: Math.round(power*100) }) : cooldown > 0 ? t('补充倒计时 {n}秒', { n: cooldown }) : t(mobile ? '按住手榴弹投掷 · 点击切换' : '按住 G 投掷 · B 切换');
+    if (this.el.grenadeName.textContent !== name) this.el.grenadeName.textContent = name;
+    if (this.el.grenadeInfo.textContent !== info) this.el.grenadeInfo.textContent = info;
+    this.el.grenade.classList.toggle('charging', power !== null);
+    const fill = power !== null ? power : cooldown ? 1-(me.grenadeIn / this.data.combat.throw.grenadeCdMs) : 1;
+    this.el.grenadeFill.style.width = `${Math.max(0, Math.min(1, fill))*100}%`;
+  }
+
   damagePopup(amount, zone, killed) {
     const pop = document.createElement('div');
     pop.className = `dmg-pop${zone === 'head' ? ' head' : ''}${killed ? ' kill' : ''}`;
@@ -644,11 +701,8 @@ export class Hud {
   }
 
   /**
-   * The "click the screen to take the mouse" prompt. With `note` it turns into
-   * the small top-of-screen hint used instead when pointer lock is refused and
-   * the controls are steering the view from the cursor (see controls.js), or
-   * when the player pressed Esc and the mouse is free with no look mode on.
-   * `heading` overrides the headline for that third state.
+   * The native-pointer-lock prompt. A denied request keeps the mouse free and
+   * shows a retry/open-in-new-tab explanation; no alternative steering mode.
    */
   setLockHint(show, note = '', heading = '', action = false) {
     const soft = !!note;
@@ -664,7 +718,7 @@ export class Hud {
     const sub = this.el.lock.querySelector('.lock-sub');
     this._lockSoft = soft;
     this._lockNote = note;
-    if (title) title.textContent = heading || (soft ? t('光标转向模式') : t('点击画面继续战斗'));
+    if (title) title.textContent = heading || (soft ? t('光标已释放') : t('点击画面继续战斗'));
     if (sub) sub.textContent = soft ? note : t('鼠标将被锁定 · 按 Esc 释放');
     this.el.lockAction?.classList.toggle('hidden', !action);
   }
@@ -757,7 +811,7 @@ export class Hud {
   // -------------------------------------------------------------- kill feed
 
   addKill(k, v, weaponId, headshot, myId) {
-    const w = this.data.weaponById[weaponId];
+    const w = this.data.weaponById[weaponId] || this.data.grenadeById?.[weaponId];
     const killerMe = k.id === myId;
     const victimMe = v.id === myId;
     const div = document.createElement('div');
@@ -822,8 +876,8 @@ export class Hud {
 
   // ------------------------------------------------------------ death panel
 
-  showDeath(killerName, weaponName, curCls, curWeapon) {
-    this._deathInfo = [killerName, weaponName, curCls, curWeapon];
+  showDeath(killerName, weaponName, curCls, curWeapon, secondary) {
+    this._deathInfo = [killerName, weaponName, curCls, curWeapon, secondary];
     this.el.deathBy.innerHTML = killerName
       ? t('被 <b>{killer}</b> 用 {weapon} 击倒', { killer: esc(killerName), weapon: esc(weaponName || '') })
       : t('被击倒');
@@ -832,6 +886,7 @@ export class Hud {
     // is what made the gun on screen stop matching the HUD.
     if (curCls) this._deathSel.cls = curCls;
     this._deathSel.weapon = curWeapon || null;
+    this._deathSel.secondary = secondary || this.secondary || this.data.secondaries[0].id;
     this.el.death.classList.remove('hidden');
     this.el.deathLoadout.innerHTML = '';
     const info = document.createElement('div');
@@ -839,6 +894,14 @@ export class Hud {
     info.textContent = t('阵亡期间可更换兵种与武器');
     this.el.deathLoadout.appendChild(info);
 
+    const classes = document.createElement('div');
+    classes.className = 'dl-classes';
+    classes.setAttribute('role', 'group');
+    classes.setAttribute('aria-label', t('兵种'));
+    this.el.deathLoadout.appendChild(classes);
+    const weapons = document.createElement('div');
+    weapons.className = 'dl-weapons';
+    this.el.deathLoadout.appendChild(weapons);
     for (const cls of this.data.classes) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -851,48 +914,67 @@ export class Hud {
         this._renderDeathWeapons();
         this._markDeath();
       };
-      this.el.deathLoadout.appendChild(b);
+      classes.appendChild(b);
     }
     this._renderDeathWeapons();
     this._markDeath();
   }
 
   _renderDeathWeapons() {
-    for (const old of this.el.deathLoadout.querySelectorAll('.dl-weapon')) old.remove();
-    const row = document.createElement('div');
-    row.className = 'dl-weapon dl-sub';
-    row.style.display = 'flex';
-    row.style.gap = '6px';
-    row.style.marginTop = '6px';
-    row.style.flexDirection = 'column';
-    for (const w of this.data.weaponsByClass[this._deathSel.cls]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'dl-btn';
-      b.style.width = '100%';
-      b.textContent = nameOf(w);
-      b.dataset.weapon = w.id;
-      b.onclick = () => { this._deathSel.weapon = w.id; this._markDeath(); };
-      row.appendChild(b);
-    }
-    this.el.deathLoadout.appendChild(row);
+    const cls = this._deathSel.cls;
+    const weapons = this.data.weaponsByClass[cls];
+    if (!weapons.some(w => w.id === this._deathSel.weapon)) this._deathSel.weapon = weapons[0].id;
+    const pistols = this.data.secondaries;
+    if (!pistols.some(w => w.id === this._deathSel.secondary)) this._deathSel.secondary = pistols[0]?.id || 'apx';
+    const box = this.el.deathLoadout.querySelector('.dl-weapons');
+    box.replaceChildren();
+    const section = (slot, label, choices, field) => {
+      const group = document.createElement('section');
+      group.className = `dl-section dl-${field}`;
+      group.setAttribute('aria-label', label);
+      const title = document.createElement('h3');
+      title.textContent = `${slot} · ${label}`;
+      group.appendChild(title);
+      const grid = document.createElement('div');
+      grid.className = 'dl-options';
+      group.appendChild(grid);
+      for (const w of choices) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dl-btn dl-card';
+        btn.dataset[field] = w.id;
+        const name = document.createElement('span');
+        name.className = 'dl-card-name';
+        name.textContent = nameOf(w);
+        const sub = document.createElement('span');
+        sub.className = 'dl-card-sub';
+        const alternate = otherName(w);
+        sub.textContent = alternate && alternate !== name.textContent ? alternate : t('弹匣 {n} 发', { n:w.mag });
+        btn.append(name, sub);
+        btn.onclick = () => { this._deathSel[field] = w.id; this._markDeath(); };
+        grid.appendChild(btn);
+      }
+      box.appendChild(group);
+    };
+    section(1, t('主武器'), weapons, 'weapon');
+    section(2, t('副武器 · 选择一把手枪'), pistols, 'secondary');
+    this._markDeath();
   }
 
   _markDeath() {
-    for (const b of this.el.deathLoadout.querySelectorAll('.dl-btn')) {
-      if (b.dataset.cls) b.classList.toggle('on', b.dataset.cls === this._deathSel.cls);
-      if (b.dataset.weapon) {
-        const isDefault = this._deathSel.weapon === null
-          && b.dataset.weapon === this.data.weaponsByClass[this._deathSel.cls][0].id;
-        b.classList.toggle('on', b.dataset.weapon === this._deathSel.weapon || isDefault);
-      }
+    for (const btn of this.el.deathLoadout.querySelectorAll('.dl-btn')) {
+      const selected = btn.dataset.cls ? btn.dataset.cls === this._deathSel.cls
+        : btn.dataset.secondary ? btn.dataset.secondary === this._deathSel.secondary
+        : btn.dataset.weapon === this._deathSel.weapon;
+      btn.classList.toggle('on', selected);
+      btn.setAttribute('aria-pressed', String(selected));
     }
   }
 
   get deathSelection() {
     const cls = this._deathSel.cls;
     const weapon = this._deathSel.weapon || this.data.weaponsByClass[cls][0].id;
-    return { cls, weapon };
+    return { cls, weapon, secondary:this._deathSel.secondary||this.secondary||this.data.secondaries[0].id };
   }
 
   setRespawnReady(seconds, onRespawn) {
@@ -927,20 +1009,20 @@ export class Hud {
 
   _renderScoreboard(players, state, myId) {
     this._lastScoreboard = [players, state, myId];
-    for (let t = 0; t < 2; t++) {
-      const team = this.data.teamById[t];
-      const head = t === 0 ? this.el.sbHead0 : this.el.sbHead1;
-      const body = t === 0 ? this.el.sbBody0 : this.el.sbBody1;
-      head.textContent = `${nameOf(team)}  ${state.s[t]}`;
+    for (let teamId = 0; teamId < 2; teamId++) {
+      const team = this.data.teamById[teamId];
+      const head = teamId === 0 ? this.el.sbHead0 : this.el.sbHead1;
+      const body = teamId === 0 ? this.el.sbBody0 : this.el.sbBody1;
+      head.textContent = `${nameOf(team)}  ${state.s[teamId]}`;
       head.style.background = `linear-gradient(90deg, ${team.color}55, transparent)`;
       head.style.color = team.color;
 
       const rows = players
-        .filter((p) => p.tm === t)
+        .filter((p) => p.tm === teamId)
         .sort((a, b) => b.k - a.k || a.d - b.d);
       body.innerHTML = rows.map((p) => `
         <tr class="${p.i === myId ? 'me' : ''}${p.al ? '' : ' dead'}">
-          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}</div></td>
+          <td>${esc(p.n)}<div class="sb-cls">${esc(nameOf(this.data.classById[p.c]))}${p.ai ? ` · ${esc(t({recruit:'AI 新兵',regular:'AI 普通',veteran:'AI 老兵'}[p.ai] || 'AI'))}` : ''}</div></td>
           <td class="k">${p.k}</td>
           <td class="d">${p.d}</td>
         </tr>

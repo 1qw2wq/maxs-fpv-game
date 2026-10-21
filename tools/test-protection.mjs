@@ -1,0 +1,88 @@
+import assert from 'node:assert/strict';
+import { ProtectionClock } from '../public/js/protection-clock.js';
+import { Net } from '../public/js/net.js';
+
+const clock = new ProtectionClock();
+clock.accept(1,5000,true,1000);
+for (let at=1100;at<20000;at+=100) clock.accept(1,5000,true,at);
+assert.equal(clock.until,6000,'Repeated snapshots cannot keep extending one life');
+assert.equal(clock.remaining(20000),0);
+clock.accept(2,5000,true,20000);
+assert.equal(clock.remaining(20000),5000,'A real respawn grants a fresh window');
+clock.accept(1,0,false,20001);
+assert.equal(clock.remaining(20001),4999,'An older life cannot alter the new shield');
+clock.accept(2,0,false,20002);
+clock.accept(2,5000,true,20003);
+assert.equal(clock.remaining(20003),0,'Death/expiry is terminal within this life');
+clock.accept(3,Infinity,true,30000);
+assert.equal(clock.remaining(30000),0);
+clock.accept(4,999999,true,40000);
+assert.equal(clock.remaining(40000),5000,'Malformed durations are capped');
+
+clock.accept(5,5000,true,50000);
+clock.accept(5,0,true,50100);
+clock.accept(5,5000,true,50200);
+assert.equal(clock.remaining(50200),0,'Movement/fire cancellation stays terminal while alive');
+
+let now=1000;
+const performanceDescriptor = Object.getOwnPropertyDescriptor(globalThis,'performance');
+Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>now}});
+try {
+  const net = new Net();
+  net.id=1;
+  net._dispatch({t:'me',tick:10,life:1,alive:1,shieldMs:5000,id:1});
+  const deadline=net.protection.until;
+  now+=3000;
+  net._dispatch({t:'me',tick:9,life:1,alive:1,shieldMs:5000,id:1});
+  assert.equal(net.lastMe.tick,10,'Private packet ordering regressed');
+  net._dispatch({...net.lastMe});
+  assert.equal(net.protection.until,deadline,'Reapplying lastMe restarted shield');
+  now+=3000;
+  assert.equal(net.protection.remaining(now),0,'Shield stuck after an async load');
+  net._dispatch({t:'me',tick:12,life:2,alive:1,shieldMs:5000,id:1});
+  assert.equal(net.protection.remaining(now),5000);
+  const row=(life,sh,p=[0,0,0])=>({i:2,life,sh,al:1,p,y:0,pi:0,f:0});
+  net._dispatch({t:'state',tick:10,ps:[row(1,5000)]});
+  now+=2000;
+  net._dispatch({t:'state',tick:9,ps:[row(1,5000)]});
+  net._dispatch({t:'state',tick:10,ps:[row(1,5000)]});
+  assert.equal(net.snaps.length,1,'Duplicate/older state was replayed');
+  net._dispatch({t:'state',tick:11,ps:[row(1,5000)]});
+  assert.equal(net.remoteProtection.get(2).until,12000,'Remote shield extended');
+  now+=4000;
+  assert.equal(net.sample().get(2).shieldMs,0,'Remote immunity appears stuck');
+  net._dispatch({t:'state',tick:12,ps:[row(2,5000,[90,0,90])]});
+  now+=30;
+  const pose=net.sample().get(2);
+  assert.equal(pose.x,90,'Respawn body interpolated through the map');
+  assert.equal(pose.speed,0,'Respawn teleport became a running animation');
+  assert.ok(pose.shieldMs<=5000 && pose.shieldMs>4900);
+  net._dispatch({t:'state',tick:13,ps:[row(2,0,[90,0,90])]});
+  assert.equal(net.sample().get(2).shieldMs,0,'Moving/shooting remote loses its bubble');
+  net._dispatch({t:'state',tick:14,ps:[row(2,5000,[90,0,90])]});
+  assert.equal(net.sample().get(2).shieldMs,0,'A stale positive value cannot revive an active remote life');
+  net._dispatch({t:'me',tick:13,life:2,alive:1,shieldMs:0,id:1});
+  net._dispatch({t:'me',tick:14,life:2,alive:1,shieldMs:5000,id:1});
+  assert.equal(net.protection.remaining(now),0,'A stale private value cannot revive protection after action');
+  net._dispatch({t:'state',tick:15,ps:[]});
+  assert.equal(net.remoteProtection.size,0,'Departed players leak shield clocks');
+  const commands=[];net.send=m=>commands.push(m);
+  const v={x:0,y:0,z:0};
+  net.input(v,0,0,{});net.fire(v,{x:0,y:1,z:0});net.switchWeapon();net.reload();
+  net.ability(v);net.grenade(v,'frag');net.respawn('assault','mp18');
+  assert(commands.every(m=>m.life===2),'Commands must capture the sending life');
+  net._dispatch({t:'me',id:1,tick:15,life:3,alive:1,shieldMs:5000});
+  assert(commands.every(m=>m.life===2),'Queued old commands must not be retagged as the fresh life');
+  net.input(v,0,0,{});assert.equal(commands.at(-1).life,3);
+  net._startPing=()=>{};
+  net._dispatch({t:'welcome',id:3,team:0});
+  net._dispatch({t:'me',id:1,tick:99999,life:99,alive:1,shieldMs:5000});
+  assert.equal(net.lastMe,null,'A delayed old-seat packet poisoned the rejoined player');
+  net._dispatch({t:'me',id:3,tick:1,life:1,alive:1,shieldMs:5000});
+  assert.equal(net.lastMe.id,3);
+  assert.equal(net.protection.remaining(now),5000);
+
+} finally {
+  Object.defineProperty(globalThis,'performance',performanceDescriptor);
+}
+console.log('PASS: bounded per-life shields; duplicates/old packets; delayed/reapplied snapshots; fresh respawns; remote expiry/teleport/disposal');

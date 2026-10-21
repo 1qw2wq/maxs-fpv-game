@@ -51,11 +51,9 @@ const BROKER_TIMEOUT_MS = 4000;
 // coming back is normal, not a disconnect -- and the seat is worth keeping,
 // because the room then has the player's name, class and score when they return.
 const GUEST_TIMEOUT_MS = 30000;
-const HEARTBEAT_MS = 12000;     // no word from a peer for this long -> gone
-// A browser stops animating a background tab, and the host's whole match --
-// its 30 Hz loop included -- rides on requestAnimationFrame. So silence from
-// the host usually means "the host switched tabs", not "the host left": wait a
-// good while before believing the latter.
+// The authority uses a timer plus incoming network activity, not rendering.
+// Browsers/operating systems can still suspend a background page completely;
+// do not interpret an ordinary throttle or sleep as an immediate departure.
 const PAUSE_MS = 8000;
 const HOST_GONE_MS = 45000;     // quiet this long: the world is frozen, say so
 const HOST_LOST_MS = 120000;    // quiet this long: the host is not coming back
@@ -100,6 +98,9 @@ class RelayChannel {
     this._pending = new Map();   // invite id -> the peer waiting for its answer
     this._topics = new Set();
     this._closed = false;
+    this._wireId = randomId('wire');
+    this._wireSeq = 0;
+    this._received = new Set();
   }
 
   /**
@@ -144,7 +145,7 @@ class RelayChannel {
       this._bc = new BroadcastChannel('trench-front');
       this._bc.onmessage = (ev) => {
         const m = ev.data;
-        if (m && typeof m.topic === 'string') this._deliver(m.topic, m.text);
+        this._receive(m);
       };
     } catch {
       this._bc = null;               // old browser: peers only
@@ -166,12 +167,19 @@ class RelayChannel {
   async createInvite(room) {
     const peer = new Peer({
       onMessage: (text) => this._deliverPeer(text),
+      onOpen: () => this._announcePeers(),
       onClose: () => this._dropPeer(peer),
     });
     this._pending.set(peer.id, peer);
-    const code = await peer.createOffer(room || this.room || '');
-    this._announcePeers();
-    return code;
+    try {
+      const code = await peer.createOffer(room || this.room || '');
+      this._announcePeers();
+      return code;
+    } catch (err) {
+      this._pending.delete(peer.id);
+      peer.close();
+      throw err;
+    }
   }
 
   /** The friend's answer to one of our invites. */
@@ -196,24 +204,34 @@ class RelayChannel {
     if (!invite || invite.kind !== 'invite') throw new Error(t('这不是一个邀请码（邀请码以 TFi1 开头）'));
     const peer = new Peer({
       onMessage: (text) => this._deliverPeer(text),
+      onOpen: () => this._announcePeers(),
       onClose: () => this._dropPeer(peer),
     });
-    const answer = await peer.acceptOffer(invite);
-    this._peers.add(peer);
-    this._announcePeers();
-    return { room: String(invite.room || ''), answer };
+    if (String(invite.room) !== this.room) { peer.close(); throw new Error('Invite belongs to a different room'); }
+    try {
+      const answer = await peer.acceptOffer(invite);
+      this._peers.add(peer);
+      this._announcePeers();
+      return { room: String(invite.room), answer };
+    } catch (err) {
+      peer.close();
+      throw err;
+    }
   }
 
   _deliverPeer(text) {
     try {
       const m = JSON.parse(text);
-      if (m && typeof m.topic === 'string') this._deliver(m.topic, m.text);
+      this._receive(m);
     } catch { /* not ours */ }
   }
 
   _dropPeer(peer) {
     this._pending.delete(peer.id);
-    if (this._peers.delete(peer)) this._announcePeers();
+    const wasActive = this._peers.delete(peer);
+    peer.close();
+    this._announcePeers();
+    if (wasActive) this.h.onPeerClose?.();
   }
 
   /** Tell the net above that the set of live links changed. */
@@ -222,7 +240,7 @@ class RelayChannel {
   }
 
   /** How many other computers are connected directly right now. */
-  get peerCount() { return this._peers.size; }
+  get peerCount() { return [...this._peers].filter((peer) => peer.open && !peer.closed).length; }
 
   /** How many invites are waiting for an answer. */
   get pendingCount() { return this._pending.size; }
@@ -235,21 +253,44 @@ class RelayChannel {
   send(topic, text) {
     if (this._closed) return false;
     let sent = false;
-    if (this._client) { this._client.publish(topic, text); sent = true; }
-    if (this._bc) { this._bc.postMessage({ topic, text }); sent = true; }
-    const wire = JSON.stringify({ topic, text });
+    if (this._client) {
+      let payload=text;try{payload=JSON.stringify({...JSON.parse(text),wire:this._wireId});}catch{}
+      this._client.publish(topic, payload);sent=true;
+    }
+    const packet = { topic, text, from: this._wireId, n: ++this._wireSeq };
+    if (this._bc) { this._bc.postMessage(packet); sent = true; }
+    const wire = JSON.stringify(packet);
     for (const peer of this._peers) if (peer.send(wire)) sent = true;
-    for (const peer of this._pending.values()) peer.send(wire);
+    // Unanswered invites must not accumulate minutes of obsolete snapshots.
+    for (const peer of this._pending.values()) if (peer.open) peer.send(wire);
     return sent;
   }
 
-  _deliver(topic, text) {
-    if (this._closed) return;
-    this.h.onMessage?.(topic, text);
+  _receive(packet) {
+    if (!packet || !this._topics.has(packet.topic)) return;
+    // A pair of tabs can have BOTH a BroadcastChannel and a WebRTC link.
+    // Deliver each packet once, or one trigger pull becomes two shots.
+    if (typeof packet.from === 'string' && Number.isSafeInteger(packet.n)) {
+      const key = `${packet.from}:${packet.n}`;
+      if (this._received.has(key)) return;
+      this._received.add(key);
+      if (this._received.size > 2048) this._received.delete(this._received.values().next().value);
+    }
+    this._deliver(packet.topic, packet.text, packet.from);
+  }
+
+  _deliver(topic, text, sender) {
+    if (this._closed || !this._topics.has(topic) || typeof text !== 'string') return;
+    if(!sender){try{sender=JSON.parse(text).wire;}catch{}}
+    this.lobby?.receive(text,sender);
+    if(this.lobby?.role==='guest'&&sender!==this.lobby.owner)return;
+    this.h.onMessage?.(topic, text, sender);
   }
 
   close() {
+    if(this._closed)return;
     this._closed = true;
+    this.lobby?.end('closed');
     this.connected = false;
     this._client?.close();
     this._client = null;
@@ -258,6 +299,8 @@ class RelayChannel {
     for (const peer of [...this._peers, ...this._pending.values()]) peer.close();
     this._peers.clear();
     this._pending.clear();
+    this._received.clear();
+    this._topics.clear();
   }
 }
 
@@ -303,6 +346,7 @@ export class RelayNet extends Net {
     this._lastHostAt = 0;
     this._watch = null;
     this._welcomeTimer = null;
+    this._joinRetry = null;
     this._paused = false;
     // The join arguments, kept so the guest can ask to be let back in after
     // the host has given up on it (see the 'lost' answer below).
@@ -344,8 +388,16 @@ export class RelayNet extends Net {
    */
   async _openChannel() {
     return openChannel(this.code, {
-      onMessage: (_topic, text) => this._onRelay(text),
+      onMessage: (_topic, text, sender) => this._onRelay(text,sender),
       onClose: () => this._onChannelClose(),
+      onPeerClose: () => {
+        if (this._closed || !this.connected || this.relayKind !== 'p2p') return;
+        // A manual WebRTC link cannot be recreated by reopening a tab channel.
+        // Tell the player to pair again, rather than claiming a fake reconnect.
+        this.connected = false;
+        this.h.onError?.(t('直连已断开：请让房主生成新的邀请码并重新配对'));
+        this.h.onClose?.();
+      },
     });
   }
 
@@ -452,9 +504,23 @@ export class RelayNet extends Net {
   _onRelay(text) {
     let msg;
     try { msg = JSON.parse(text); } catch { return; }
-    if (!msg || msg.v !== PROTO || msg.k !== 'b') return;
+    if (!msg || msg.v !== PROTO) return;
+    if (msg.k === 'end') {
+      if (!this.connected) return;
+      this.connected = false;
+      clearTimeout(this._welcomeTimer);
+      clearInterval(this._joinRetry);
+      clearInterval(this._watch);
+      this.h.onError?.(t('与房主失去联系（房主关掉了页面？）'));
+      this.h.onClose?.();
+      return;
+    }
+    if (msg.k !== 'b') return;
     this._lastHostAt = performance.now();
-    if (this._paused || this._away) {
+    if (msg.paused === true) {
+      if(!this._paused)this.h.onNote?.(t('房主那边暂停了（可能切走了标签页）…恢复后会自动继续'));
+      this._paused=true;
+    } else if (this._paused || this._away) {
       this._paused = false;
       this._away = false;
       this.h.onNote?.(t('房主回来了，继续战斗'));
@@ -477,13 +543,15 @@ export class RelayNet extends Net {
    * and only after a good while treat it as gone.
    */
   _checkHost() {
-    if (this._closed || !this.connected) return;
+    if (this._closed || !this.connected || (this.id === null && !this._joinArgs)) return;
+    // Rendering stops in a guest's pause menu; its transport must stay alive.
+    this.channel?.send(roomTopic(this.code),JSON.stringify({v:PROTO,k:'hi',sid:this.sid}));
     const quiet = performance.now() - this._lastHostAt;
     if (quiet >= HOST_LOST_MS) {
       // Two possibilities: the host really is gone (tab closed), or this side
       // lost the wire and has not noticed. Ask for a fresh connection first --
       // a rebuilt one that still hears nothing is the end of the match.
-      if (!this._probedQuiet) {
+      if (!this._probedQuiet && this.relayKind !== 'p2p') {
         this._probedQuiet = true;
         this.h.onNote?.(t('很久没有房主的消息了，正在重新连接确认…'));
         this._onChannelClose();
@@ -512,30 +580,45 @@ export class RelayNet extends Net {
     }
   }
 
+  get hostPaused(){return this._paused;}
+
   /** The join is an ordinary message; the welcome comes back from the host. */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
-    this._joinArgs = [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room];
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
+    this._joinArgs = [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode, secondary];
     this._sendJoin();
   }
 
   _sendJoin() {
-    const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room] = this._joinArgs || [];
+    this._lastHostAt = performance.now();
+    const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode, secondary] = this._joinArgs || [];
     this.send({
-      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
-      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+      solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     });
+    // A guest may deploy while the host is still downloading its engine.
+    // Retry the join, not game actions, until the host is ready or time runs out.
+    clearInterval(this._joinRetry);
+    this._joinRetry = setInterval(() => {
+      if (this.id === null && !this._closed && this.connected) {
+        const [name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode, secondary] = this._joinArgs;
+        this._publish({ t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+          solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '' });
+      }
+    }, 1000);
     // A code nobody is hosting must not look like a silent hang.
     clearTimeout(this._welcomeTimer);
     this._welcomeTimer = setTimeout(() => {
+      clearInterval(this._joinRetry);
       if (this.id !== null || this._closed) return;
       this.h.onError?.(t('房号 {code} 没有人在主持（或房主刚离开）', { code: this.code }));
       this.h.onClose?.();
-    }, 7000);
+    }, 30000);
   }
 
   _dispatch(m, at) {
     if (m.t === 'welcome') {
       clearTimeout(this._welcomeTimer);
+      clearInterval(this._joinRetry);
       this.connected = true;         // frames are arriving: the relay is up
       this._rebuildTries = 0;
       // Seated again: the count of asks is a runaway-ask guard (eight join
@@ -550,7 +633,9 @@ export class RelayNet extends Net {
       return;
     }
     if (m.t === 'joinError') {
+      if (m.why === 'closed' && this.id === null && this._joinArgs) return;
       clearTimeout(this._welcomeTimer);
+      clearInterval(this._joinRetry);
       // "lost" means the room had dropped this seat (a background tab stops
       // sending while the browser throttles it, for instance). Ask once to be
       // let back in rather than dumping the player out of the match.
@@ -559,10 +644,6 @@ export class RelayNet extends Net {
         this.id = null;
         this.h.onNote?.(t('与房主中断了一下，正在自动重新加入…'));
         this._sendJoin();
-        this._welcomeTimer = setTimeout(() => {
-          if (this.id !== null || this._closed) return;
-          this.h.onClose?.();
-        }, HEARTBEAT_MS);
         return;
       }
     }
@@ -576,6 +657,7 @@ export class RelayNet extends Net {
     }
     clearTimeout(this._welcomeTimer);
     clearInterval(this._watch);
+    clearInterval(this._joinRetry);
     this._watch = null;
     this.channel?.close();
     this.channel = null;
@@ -617,12 +699,27 @@ export class RelayHostNet extends LocalNet {
     // stay the same one the player already sent to their friends.
     const ready = opts.channel && String(opts.channel.room || '') === this.code ? opts.channel : null;
     this.channel = ready || await this._openChannel();
+    if (ready) {
+      // The menu-created channel now belongs to this host, not a stale menu
+      // callback. Preserve invite status listeners while replacing dispatch.
+      ready.h = { ...ready.h,
+        onMessage: (_topic, text, sender) => this._onRelay(text,sender),
+        onClose: () => this._onChannelClose(),
+      };
+    }
     this.relayKind = this.channel.kind;
     this.relayLabel = this.channel.label;
     await super.connect('');
     // LocalNet.connect() labels itself 'local'; this one is a relay room.
     this.mode = 'relay';
     return this.channel.kind;
+  }
+
+  get peers(){return this.channel?.peerCount||0;}
+  get paused(){return !!this._hostPaused;}
+  set paused(value){
+    this._hostPaused=!!value;
+    if(this._joined)this.channel?.send(roomTopic(this.code),JSON.stringify({v:PROTO,k:'b',b:[],p:{},paused:this._hostPaused}));
   }
 
   /** An invite for one friend on another computer (their answer completes it). */
@@ -642,7 +739,7 @@ export class RelayHostNet extends LocalNet {
   /** The channel, plus the way back from a broker that drops this tab. */
   async _openChannel() {
     return openChannel(this.code, {
-      onMessage: (_topic, text) => this._onRelay(text),
+      onMessage: (_topic, text, sender) => this._onRelay(text,sender),
       onClose: () => this._onChannelClose(),
     });
   }
@@ -718,7 +815,7 @@ export class RelayHostNet extends LocalNet {
     try { rows = JSON.parse(text); } catch { return; }
     if (!Array.isArray(rows) || !rows.length || !this.channel) return;
     const b = [];
-    const p = {};
+    const p = Object.create(null);
     for (const row of rows) {
       if (!Array.isArray(row) || row.length < 2) continue;
       const [sid, frame] = row;
@@ -726,24 +823,32 @@ export class RelayHostNet extends LocalNet {
       else if (sid !== HOST_SEAT) (p[sid] = p[sid] || []).push(frame);
     }
     if (!b.length && !Object.keys(p).length) return;
-    this.channel.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b, p }));
+    this.channel.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b, p, paused:this.paused }));
   }
 
   /** One guest message: a join, a game message, a goodbye or a hello. */
-  _onRelay(text) {
+  _onRelay(text, sender) {
     let msg;
     try { msg = JSON.parse(text); } catch { return; }
     if (!msg || msg.v !== PROTO || !msg.sid) return;
     const sid = String(msg.sid);
+    const admission=this.channel?.lobby;
+    if(admission?.role==='host'&&!admission.allows(sid,sender)){
+      if(msg.k==='m'&&msg.m?.t==='join')this._reply(sid,{t:'joinError',why:'approval'});
+      return;
+    }
     this._seen.set(sid, performance.now());
+    if(this._engine&&this._joined)this._advance();
     if (msg.k === 'bye') { this._dropGuest(sid); return; }
     // A hello is answered at once: the guest then knows the host is alive
     // before the room has even finished welcoming it.
     if (msg.k === 'hi') {
-      this.channel?.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b: [], p: {} }));
+      this.channel?.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'b', b: [], p: {}, paused: this.paused }));
       return;
     }
-    if (msg.k !== 'm') return;
+    if (msg.k !== 'm' || !this._engine || !this._joined) return;
+    // A paused authority must not process shots or movement between ticks.
+    if(this.paused&&!['join','chat','ping'].includes(msg.m?.t))return;
     try {
       if (this._guestSids.has(sid)) {
         this._eat(this._engine.relayCmd(sid, JSON.stringify(msg.m)));
@@ -769,7 +874,7 @@ export class RelayHostNet extends LocalNet {
   /** One frame to one guest, without running the room. */
   _reply(sid, frame) {
     this.channel?.send(roomTopic(this.code), JSON.stringify({
-      v: PROTO, k: 'b', b: [], p: { [sid]: [JSON.stringify(frame)] },
+      v: PROTO, k: 'b', b: [], p: { [sid]: [JSON.stringify(frame)] }, paused:this.paused,
     }));
   }
 
@@ -778,7 +883,7 @@ export class RelayHostNet extends LocalNet {
     try {
       const rows = JSON.parse(taggedText);
       return rows.some((row) => Array.isArray(row) && row[0] === sid
-        && String(row[1]).includes('"t":"welcome"'));
+        && (()=>{try{return JSON.parse(row[1]).t==='welcome';}catch{return false;}})());
     } catch { return false; }
   }
 
@@ -835,6 +940,9 @@ export class RelayHostNet extends LocalNet {
   }
 
   close() {
+    if (!this._closed) {
+      this.channel?.send(roomTopic(this.code), JSON.stringify({ v: PROTO, k: 'end' }));
+    }
     this.channel?.close();
     this.channel = null;
     super.close();

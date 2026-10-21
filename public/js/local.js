@@ -28,7 +28,7 @@ const ENGINE_DIR = new URL('../engine/', import.meta.url);
 const SHARED_DIR = new URL('../shared/', import.meta.url);
 
 // Everything combat.py / bots.py / game.py / room.py import, plus the driver.
-const ENGINE_FILES = ['combat.py', 'bots.py', 'game.py', 'room.py', 'host.py'];
+const ENGINE_FILES = ['combat.py', 'objectives.py', 'throwing.py', 'bots.py', 'game.py', 'room.py', 'host.py'];
 const SHARED_FILES = ['weapons.json', 'maps.json', 'map.json'];
 
 /** Battlefield JSON/JS in the engine's own layout. A 404 names the file. */
@@ -200,7 +200,7 @@ export class LocalNet extends Net {
     this._stepMs = 1000 / 30;
     this._acc = 0;
     this._last = 0;
-    this._raf = null;
+    this._timer = null;
     this._joined = false;
   }
 
@@ -245,10 +245,10 @@ export class LocalNet extends Net {
    * The first join creates the room (host.start); anything later -- a rejoin
    * after a reload, an address change -- is an ordinary message to it.
    */
-  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room) {
+  join(name, cls, weapon, bots, botCount, skin, solo, mapId, sid, room, gameMode = 'tdm', secondary = 'apx') {
     const msg = {
-      t: 'join', name, cls, weapon, bots, botCount, skin: skin || '',
-      solo: !!solo, map: mapId, sid: sid || '', room: room || '',
+      t: 'join', name, cls, weapon, secondary, bots, botCount, skin: skin || '',
+      solo: !!solo, gameMode, map: mapId, sid: sid || '', room: room || '',
     };
     if (this._joined) { this.send(msg); return; }
     this._joined = true;
@@ -303,21 +303,22 @@ export class LocalNet extends Net {
 
   _frame() {
     if (this._closed || !this.connected) return;
-    if (this.paused) {
-      // Esc's pause menu: the room this tab is running stops advancing (which is
-      // what a pause means for a hosted match), and the clock is reset so the
-      // first frame after resuming does not try to catch up on lost time.
-      this._last = performance.now();
-      requestAnimationFrame(() => this._frame());
-      return;
-    }
+    this._advance();
+    if(!this._closed&&this.connected)this._timer=setTimeout(()=>this._frame(),this._stepMs);
+  }
+
+  // Authority must not depend on WebGL rendering or requestAnimationFrame.
+  // Relay traffic can pump this too when a background tab's timers throttle.
+  _advance() {
+    if(this._closed||!this.connected)return;
+    if(this.paused){this._last=performance.now();return;}
     const now = performance.now();
     // A backgrounded tab stops being drawn, so its clock can jump by seconds;
     // the match must not fast-forward through them (the loop below caps this
     // anyway, but the accumulator is what would otherwise grow without bound).
     let dt = Math.min(now - this._last, 250);
     this._last = now;
-    this._acc += dt;
+    this._acc = Math.min(this._acc+dt,this._stepMs*6);
 
     let ticks = 0;
     while (this._acc >= this._stepMs && ticks < 6) {
@@ -330,8 +331,6 @@ export class LocalNet extends Net {
     // A click between two ticks should not wait for the next frame, so pending
     // input goes out even on a frame that ran no tick.
     if (!ticks) this._flush();
-
-    this._raf = requestAnimationFrame(() => this._frame());
   }
 
   /** Hand queued messages to the room, in order, and dispatch its answers. */
@@ -354,8 +353,8 @@ export class LocalNet extends Net {
   }
 
   close() {
-    if (this._raf) cancelAnimationFrame(this._raf);
-    this._raf = null;
+    if (this._timer) clearTimeout(this._timer);
+    this._timer = null;
     // The interpreter is shared and expensive; only this match goes away. The
     // room object itself is rebuilt by the next connect (local_reset).
     this._queue.length = 0;

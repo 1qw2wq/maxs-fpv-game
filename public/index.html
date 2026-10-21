@@ -2,9 +2,12 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>堑壕前线 Trench Front</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/landing.css">
 <script type="importmap">
 {
   "imports": {
@@ -20,27 +23,31 @@
 <!-- ================================ 主菜单 ================================ -->
 <section id="screen-menu" class="screen">
   <div class="menu-bg"></div>
-  <button id="lang-toggle" class="lang-chip" type="button" title="界面语言 / Interface language">EN</button>
-  <div class="menu-inner">
-    <h1 class="logo">
-      <span class="logo-cn">堑壕前线</span>
-      <span class="logo-en">TRENCH&nbsp;FRONT</span>
-    </h1>
-    <p class="logo-sub">1916 · 索姆河无人区 · 团队死斗</p>
+  <div class="menu-inner landing-shell">
+    <header class="landing-topbar">
+      <a class="landing-brand" href="./" aria-label="Trench Front"><span class="brand-mark" aria-hidden="true">TF<span>✦</span></span><span>TRENCH FRONT<small>FIELD OPERATIONS / 1916</small></span></a>
+      <div class="landing-topbar-right"><span class="landing-platform">浏览器内开战 · 无需安装</span><button id="lang-toggle" class="lang-chip" type="button" title="界面语言 / Interface language">EN</button></div>
+    </header>
 
-    <div class="panel menu-panel">
-      <label class="field">
+    <section class="landing-hero" aria-labelledby="landing-title">
+      <div class="hero-copy">
+        <p class="hero-eyebrow"><span></span>西部战线 · 1916</p>
+        <h1 class="logo" id="landing-title"><span class="logo-cn">堑壕前线</span><span class="logo-en">TRENCH FRONT</span></h1>
+        <p class="logo-sub">召集小队，守住前线。</p>
+        <div class="hero-tags"><span>4 个兵种</span><i></i><span>3 张战场</span><i></i><span>30 种武器</span></div>
+      </div>
+      <div class="hero-sector" aria-hidden="true"><span>01 / SOMME</span><b>THE WESTERN FRONT</b><small>50° N — FIELD OPERATIONS</small></div>
+    </section>
+
+    <div class="panel menu-panel landing-console">
+      <div class="landing-setup">
+        <section class="landing-card squad-card" aria-labelledby="squad-title">
+          <header class="landing-section-head"><span class="section-index">01</span><div><p>小队集结</p><h2 id="squad-title">你的下一场战斗</h2></div><span class="section-symbol" aria-hidden="true">⌁</span></header>
+          <label class="field">
         <span>代号</span>
         <input id="input-name" type="text" maxlength="16" placeholder="输入你的名字" autocomplete="off">
       </label>
-
-      <label class="field">
-        <span>服务器地址</span>
-        <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
-      </label>
-      <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p>
-
-      <div class="room-field">
+          <div class="room-field">
         <span class="room-label">联机房间</span>
         <div class="room-row">
           <button id="btn-room-create" class="room-btn on" type="button">创建房间</button>
@@ -54,46 +61,79 @@
       <p id="room-note" class="hint dim">创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）</p>
       <p id="room-list-note" class="hint dim"></p>
 
-      <div class="bot-row hidden" id="bot-row">
+      <section id="lobby-main" class="room-lobby hidden" aria-label="房间大厅">
+        <header><h3>房间大厅</h3><b id="lobby-code"></b></header>
+        <p id="lobby-status" role="status" aria-live="polite"></p>
+        <div class="lobby-actions">
+          <button id="btn-lobby-invite" class="ghost-btn small" type="button">邀请朋友</button>
+          <button id="btn-lobby-copy" class="ghost-btn small" type="button">复制邀请链接</button>
+          <button id="btn-lobby-choose" class="big-btn small" type="button">选择角色</button>
+          <button id="btn-lobby-leave" class="ghost-btn small" type="button">离开房间</button>
+        </div>
+        <h4 id="lobby-requests-heading">加入申请</h4>
+        <ul id="lobby-requests" class="lobby-list"></ul>
+        <h4>房间成员</h4><ul id="lobby-members" class="lobby-list"></ul>
+      </section>
+        </section>
+        <section class="landing-card operation-card" aria-labelledby="operation-title">
+          <header class="landing-section-head"><span class="section-index">02</span><div><p>战场配置</p><h2 id="operation-title">选择你的战场</h2></div><span class="section-symbol" aria-hidden="true">⌖</span></header>
+          <label class="field rules-field"><span>游戏规则</span>
+        <select id="game-mode"><option value="tdm">团队死斗</option><option value="control">据点控制</option></select>
+        <small>据点控制：占领全部 A / B / C，并连续守住 15 秒获胜；双方同时在圈内会阻止占领。加入房间时遵循房主规则。</small>
+      </label>
+      <div class="map-field">
+        <span class="map-label">选择地图</span>
+        <div class="map-row" id="map-row"></div>
+        <p id="map-note" class="hint dim"></p>
+      </div>
+          <div class="bot-row hidden" id="bot-row">
         <span>AI 数量</span>
         <div class="seg" id="bot-count">
           <button type="button" data-n="4">4</button>
           <button type="button" data-n="6" class="on">6</button>
           <button type="button" data-n="8">8</button>
           <button type="button" data-n="12">12</button>
+          <button type="button" data-n="15">15</button>
         </div>
       </div>
       <p id="bots-lock-hint" class="hint dim hidden">单人模式固定开启 AI 机器人；多人模式仅限真人玩家</p>
-
-      <div class="map-field">
-        <span class="map-label">选择地图</span>
-        <div class="map-row" id="map-row"></div>
-        <p id="map-note" class="hint dim"></p>
+        </section>
       </div>
 
-      <div class="mode-row">
-        <button id="btn-mode-multi" class="mode-btn" type="button">
-          <b>多人模式</b><span>联机团队死斗 · 与真人同场竞技</span>
-        </button>
-        <button id="btn-mode-solo" class="mode-btn" type="button">
+      <section class="landing-launch" aria-labelledby="launch-title">
+        <div class="launch-heading"><h2 id="launch-title">准备好出发了吗？</h2><p>与朋友并肩作战，或先与 AI 练习。</p></div>
+        <div class="mode-row launch-actions"><button id="btn-mode-multi" class="mode-btn" type="button">
+          <b>多人模式</b><span>联机对战 · 与真人同场竞技</span>
+        </button><button id="btn-mode-solo" class="mode-btn" type="button">
           <b>单人模式</b><span>与 AI 队友并肩，对抗 AI 敌军</span>
-        </button>
-        <button id="btn-mode-settings" class="mode-btn" type="button">
+        </button></div>
+      </section>
+      <p id="menu-error" class="error" role="status" aria-live="polite"></p>
+
+      <section class="landing-bottom" aria-label="更多选项">
+        <div class="landing-utilities">
+          <div class="utility-heading"><span class="section-index">03</span><h2>整装待发</h2></div>
+          <div class="utility-actions"><button id="btn-mode-tutorial" class="mode-btn" type="button">
+          <b>新手指引</b><span>学习移动 / 手榴弹 / 据点控制 / 联机</span>
+        </button><button id="btn-mode-settings" class="mode-btn" type="button">
           <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
-        </button>
-        <button id="btn-mode-tutorial" class="mode-btn" type="button">
-          <b>新手指引</b><span>60 秒学会移动 / 射击 / 联机房号</span>
-        </button>
-      </div>
-
-      <p id="skin-note" class="hint dim"></p>
-
-      <p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p>
-      <p class="hint dim">操作：WASD 移动 · Shift 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p>
-      <p class="hint dim"><a class="debug-link" href="debug.html">API 调试页</a>：看这一页到底在用哪个引擎、哪些接口答得上、联机走到哪一步</p>
+        </button></div>
+          <p id="skin-note" class="hint dim"></p>
+        </div>
+        <div class="landing-preferences"><h2>操作偏好</h2><div class="preferences-grid"><label class="field rules-field"><span>操作模式</span>
+        <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
+      </label>
+      <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
+      </label></div></div>
+      </section>
+      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人模式仅限真人玩家，不含 AI 机器人 · 同一台机器多开两个标签页也能对战</p></div><div><label class="field">
+        <span>服务器地址</span>
+        <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
+      </label>
+      <p class="hint dim">局域网联机：房主运行服务端，把终端打印的 http://&lt;局域网IP&gt;:端口 发给同学，用浏览器打开即可加入；连不上时可在这里手动填写地址</p></div></div></details>
     </div>
-    <p id="menu-error" class="error"></p>
-    <p class="hint dim">角色出现白块 / 黑块（头发、衣服、鞋子变色）？<a href="/colorfixer.html">打开颜色修复者 ColorFixer</a></p>
+    <footer class="landing-footer"><span class="footer-wordmark">TF <i>/</i> <span>为下一次冲锋做好准备。</span></span><nav aria-label="开发工具"><a href="debug.html">联机诊断</a><a href="gun-lab.html">持枪调校</a><a href="/colorfixer.html">角色颜色修复</a></nav><small>1916 · TRENCH FRONT</small></footer>
   </div>
 </section>
 
@@ -115,11 +155,18 @@
       <button id="btn-select-copy" class="ghost-btn small" type="button">复制邀请链接</button>
     </div>
 
+    <section id="lobby-selection" class="room-lobby hidden" aria-label="房间状态">
+      <p id="lobby-selection-status" role="status" aria-live="polite"></p>
+      <ul id="lobby-selection-members" class="lobby-list"></ul>
+    </section>
     <div class="class-row" id="class-row"></div>
 
     <div class="weapon-block">
       <h3 id="weapon-title">主武器</h3>
       <div class="weapon-row" id="weapon-row"></div>
+      <h3>副武器 · 选择一把手枪</h3>
+      <div class="weapon-row secondary-row" id="secondary-row"></div>
+      <p class="slot-help">1 主武器 · 2 手枪 · X 切换武器</p>
     </div>
 
     <footer class="select-foot">
@@ -214,25 +261,45 @@
 <!-- ================================== HUD ================================== -->
 <section id="screen-hud" class="hidden">
 
-  <div id="topbar">
-    <div class="tb-score tb-left">
-      <span class="tb-name" id="tb-name-0">协约国</span>
-      <span class="tb-num" id="tb-score-0">0</span>
+  <div class="hud-header">
+    <div id="topbar">
+      <div class="tb-score tb-left">
+        <span class="tb-name" id="tb-name-0">协约国</span>
+        <span class="tb-num" id="tb-score-0">0</span>
+      </div>
+      <div class="tb-center">
+        <span id="tb-timer">8:00</span>
+        <span class="tb-limit">/ <b id="tb-limit">75</b></span>
+        <span id="tb-map" class="tb-map"></span>
+      </div>
+      <div class="tb-score tb-right">
+        <span class="tb-num" id="tb-score-1">0</span>
+        <span class="tb-name" id="tb-name-1">同盟国</span>
+      </div>
     </div>
-    <div class="tb-center">
-      <span id="tb-timer">8:00</span>
-      <span class="tb-limit">/ <b id="tb-limit">75</b></span>
-      <span id="tb-map" class="tb-map"></span>
-    </div>
-    <div class="tb-score tb-right">
-      <span class="tb-num" id="tb-score-1">0</span>
-      <span class="tb-name" id="tb-name-1">同盟国</span>
-    </div>
-  </div>
 
-  <div id="room-chip" class="hidden" title="点击复制房号">
-    <span class="rc-label">房号</span><b id="room-code">--------</b>
-    <span id="room-copy" class="rc-copy">复制</span>
+    <div class="match-info">
+      <button id="room-chip" class="hidden" type="button" title="点击复制房号">
+        <span class="rc-label">房号</span><b id="room-code">--------</b>
+        <span id="room-copy" class="rc-copy">复制</span>
+      </button>
+      <div id="objective-hud" class="hidden"><b id="objective-mode">据点控制</b><div id="objective-cards"></div><p id="objective-status"></p></div>
+    </div>
+
+    <div class="loadout-info">
+      <div id="ability-chip">
+        <div class="ab-key">Q</div>
+        <div class="ab-body">
+          <b id="ab-name">炸药包</b>
+          <div class="ab-cd"><i id="ab-fill"></i></div>
+        </div>
+      </div>
+      <div id="grenade-chip" aria-live="polite">
+        <span class="ab-key">G</span>
+        <div class="ab-body"><b id="grenade-name">破片手榴弹</b><small id="grenade-info"></small><div class="ab-cd"><i id="grenade-fill"></i></div></div>
+        <span class="grenade-cycle">B ↻</span>
+      </div>
+    </div>
   </div>
 
   <div id="crosshair">
@@ -242,6 +309,11 @@
     <div id="dmg-pops"></div>
   </div>
 
+  <div id="kill-confirm" role="status" aria-live="polite" aria-atomic="true">
+    <span class="kill-emblem" aria-hidden="true">×</span>
+    <div><span id="kill-label"></span><b id="kill-victim"></b><small id="kill-streak"></small></div>
+  </div>
+  <div id="death-veil" aria-hidden="true"></div>
   <div id="damage-vignette"></div>
   <div id="hit-dir"></div>
   <div id="suppress-blur"></div>
@@ -263,21 +335,15 @@
     <div class="hp-wrap">
       <div class="hp-bar"><i id="hp-fill"></i></div>
       <div class="hp-text"><b id="hp-num">100</b><span id="hp-cls">突击兵</span></div>
+      <span id="spawn-shield-status" class="hidden" role="status"></span>
     </div>
-    <div class="ammo-wrap">
+    <div class="ammo-wrap"><small id="weapon-slot" aria-live="polite"></small>
       <b id="ammo-mag">32</b><span id="ammo-max">/32</span><span id="ammo-reserve">150</span>
       <div class="reload-bar"><i id="reload-fill"></i></div>
       <span id="reload-text" class="hidden">换弹中</span>
     </div>
   </div>
 
-  <div id="ability-chip">
-    <div class="ab-key">Q</div>
-    <div class="ab-body">
-      <b id="ab-name">炸药包</b>
-      <div class="ab-cd"><i id="ab-fill"></i></div>
-    </div>
-  </div>
 
   <div id="event-toast" class="hidden"></div>
 
@@ -286,7 +352,7 @@
     <div class="panel death-panel">
       <p class="death-title">你阵亡了</p>
       <p class="death-by" id="death-by"></p>
-      <p class="death-count"><b id="death-count">3</b> 秒后可重新部署</p>
+      <p class="death-count" id="death-count"><b>3</b> 秒后可重新部署</p>
       <div class="death-loadout" id="death-loadout"></div>
       <button id="btn-respawn" class="big-btn small" type="button" disabled>重新部署</button>
     </div>
@@ -318,6 +384,9 @@
 
 </section>
 
+  <div id="flash-veil" aria-hidden="true"></div>
+  <div id="scope-overlay" class="hidden" aria-hidden="true"><div class="scope-lens"><svg viewBox="0 0 100 100"><path d="M0 50H46 M54 50H100 M50 0V46 M50 54V100 M30 48V52 M40 48V52 M60 48V52 M70 48V52 M48 30H52 M48 40H52 M48 60H52 M48 70H52"/><circle cx="50" cy="50" r=".45"/></svg></div></div>
+
   <!-- Pause menu and invite panel. They used to sit inside the HUD screen,
        which meant "join with an invite code" on the menu opened a panel inside
        a hidden box -- invisible and unclickable. They belong to the page itself. -->
@@ -326,8 +395,16 @@
     <div class="pause-panel">
       <h2 class="pause-title">已暂停</h2>
       <p class="pause-note" id="pause-note"></p>
+      <label class="field rules-field"><span>操作模式</span>
+        <select class="control-mode" aria-label="操作模式"><option value="auto">自动检测</option><option value="desktop">电脑 · 鼠标键盘</option><option value="mobile">手机 · 触屏摇杆</option></select>
+      </label>
+      <label class="field sensitivity-field"><span>视角灵敏度 <output>100%</output></span>
+        <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
+      </label>
       <div class="pause-actions">
         <button id="btn-pause-resume" class="big-btn small" type="button">继续战斗</button>
+        <button id="btn-touch-layout" class="ghost-btn mobile-option" type="button">自定义触屏布局</button>
+        <button id="btn-mobile-fullscreen" class="ghost-btn mobile-option" type="button">全屏</button>
         <button id="btn-pause-settings" class="ghost-btn" type="button">设置</button>
         <button id="btn-pause-invite" class="ghost-btn" type="button">邀请朋友</button>
         <button id="btn-pause-leave" class="ghost-btn" type="button">离开对局</button>

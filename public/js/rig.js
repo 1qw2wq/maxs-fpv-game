@@ -7,6 +7,12 @@
 // unknown bone axes. So every driven rotation is applied as a delta on top of
 // the captured rest quaternion, which is the only thing that works across rigs.
 
+import {crouchBlend,crouchPose} from './stance.js';
+import { DeathAnimation } from './death-animation.js';
+import { placement } from './third-person-placement.js';
+import { weaponReloadPose } from './reload-motion.js';
+import { mountedGrips } from './weaponpose.js';
+import { prepareHandGrip } from './handpose.js';
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { buildFactionOverlay } from './character.js';
@@ -41,7 +47,6 @@ export const JOINT_LABEL = Object.fromEntries(JOINTS.map((j) => [j.key, j.label]
 export const TARGET_HEIGHT = 1.70;
 
 const _down = new THREE.Vector3(0, -1, 0);
-const _up = new THREE.Vector3(0, 1, 0);
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
 
@@ -84,64 +89,11 @@ function bump(p, mu, sigma) {
   return Math.exp(-(d * d) / (2 * sigma * sigma));
 }
 
-/**
- * Where each hand must sit on a weapon, in the weapon mount's local frame.
- * The built gun is offset by (0.04, -0.03, 0.06) inside that frame and the
- * offset is already folded in here. `hand` is the trigger grip, `fore` the
- * support hand out on the handguard.
- */
-const GRIPS = {
-  smg: { hand: [0.04, -0.14, 0.08], fore: [0.04, -0.055, 0.26] },
-  rifle: { hand: [0.04, -0.13, 0.00], fore: [0.04, -0.105, 0.30] },
-  lmg: { hand: [0.04, -0.16, 0.08], fore: [0.04, -0.08, 0.38] },
-  bolt: { hand: [0.04, -0.125, 0.02], fore: [0.04, -0.085, 0.34] },
-};
-
-/**
- * How far the weapon mount sits to the character's right, along the rig's local
- * -X. Every rig here faces +Z, so a humanoid's right is -X (the project-wide
- * convention; verified in game).
- *
- * Do NOT read the sign off the bone names alone — measure it. The probe confirms
- * these rips face +Z, so a humanoid's right is -X, and the rips name their bones
- * correctly: "Left_*" sits at +X (character's left), "Right_*" at -X (character's
- * right). A negative GUN_SIDE therefore tucks the mount under the RIGHT armpit.
- * Reading it the other way round hung the gun in open air on the character's
- * left, which is exactly the bug the user reported.
- *
- * The value is deliberately small: the receiver has to fall in the gap between
- * the ribs and the hanging upper arm, i.e. tucked under the armpit, so the arm
- * reads as clamping the gun against the flank. Larger values push it out into
- * open air beside the body; zero drives it through the chest.
- */
-const GUN_SIDE = -0.13;
-
-/** Armpit height as an offset down from the chest centre (shoulder line). */
-const GUN_DROP = 0.15;
-
-/**
- * Fine-tune nudge applied to every weapon, in the character's own frame:
- * +Z forward, -Y down (the same frame placeWeapon already uses for its "slightly
- * forward" term). The clip-driven hold seats the gun off the wrists, which leaves
- * the buttstock riding high on top of the shoulder — carried rather than
- * shouldered. Sliding the whole gun down and forward drops the stock onto the
- * shoulder so it presses there instead. Small on purpose: a nudge, not a re-park.
- */
-const GUN_NUDGE = new THREE.Vector3(0, -0.05, 0.15);
-
-/**
- * A whisper of cant on every weapon, applied in the mount's own frame. The
- * muzzle swings slightly to the character's right and the stock comes left, the
- * way a shouldered rifle sits canted rather than dead straight. Post-multiplied
- * (local) about +Y, and folded in after the grip is seated, so the gun pivots
- * around the trigger hand and the right hand stays on the grip.
- *
- * Negative because local +X is the character's LEFT: the rips face +Z and a
- * humanoid's right is -X, so a rotation about +Y that sends local +Z (the barrel)
- * to -X is the negative one.
- */
-const GUN_CANT = new THREE.Quaternion()
-  .setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.20);
+// Right-palm contact in the calibrated chest frame (metres at scale 1).
+// Pitch rotates about this contact, never about the avatar/weapon origin.
+const CARRY_HAND = new THREE.Vector3(-0.035, -0.06, 0.025);
+const MAX_SUPPORT_SPAN = 0.28;
+const SUPPORT_REACH_FRACTION = 0.7; // keep elbow bend even when aiming vertically
 
 // ------------------------------------------------------------------ loading
 
@@ -262,6 +214,7 @@ function detachCapeFromArms(scene) {
 
 /** Everything createExternalGirl needs, derived once per uploaded model. */
 export function prepareTemplate(scene) {
+  fixImportedMaterials(scene, {lightUnlit:true});
   detachCapeFromArms(scene);
   const fit = fitToHeight(scene);
   return { scene, normScale: fit.scale, baseOffsetY: fit.baseOffsetY };
@@ -348,13 +301,55 @@ function cloneSkinned(source) {
 const _euler = new THREE.Euler();
 const _delta = new THREE.Quaternion();
 
+// Derivatives share immutable vertex attributes with the template, but own their
+// cropped index buffers and material groups. Reuse them across respawns; never
+// edit the original geometry also used by third-person/network avatars.
+const firstPersonGeometry = new WeakMap();
+function armsGeometry(mesh, armBones) {
+  const source = mesh.geometry;
+  const joints = mesh.skeleton.bones.map(b => armBones.has(b));
+  const signature = joints.map((arm, i) => arm ? i : '').join(',');
+  let variants = firstPersonGeometry.get(source);
+  if (!variants) firstPersonGeometry.set(source, variants = new Map());
+  if (variants.has(signature)) return variants.get(signature);
+  const out = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(source.attributes)) out.setAttribute(name, attr);
+  out.morphAttributes = source.morphAttributes;
+  out.morphTargetsRelative = source.morphTargetsRelative;
+  const skin = source.getAttribute('skinIndex'), weights = source.getAttribute('skinWeight');
+  const count = source.index ? source.index.count : source.getAttribute('position').count;
+  const belongs = new Uint8Array(source.getAttribute('position').count);
+  if (skin && weights) {
+    for (let v = 0; v < belongs.length; v++) {
+      let armWeight = 0;
+      for (let j = 0; j < skin.itemSize; j++) if (joints[skin.getComponent(v, j)]) armWeight += weights.getComponent(v, j);
+      belongs[v] = armWeight >= 0.35;
+    }
+  }
+  const indices = [];
+  for (const group of source.groups.length ? source.groups : [{ start:0, count, materialIndex:0 }]) {
+    const start = indices.length, end = Math.min(count, group.start + group.count);
+    for (let i = group.start; i + 2 < end; i += 3) {
+      const a = source.index ? source.index.getX(i) : i;
+      const b = source.index ? source.index.getX(i+1) : i+1;
+      const c = source.index ? source.index.getX(i+2) : i+2;
+      if (belongs[a] && belongs[b] && belongs[c]) indices.push(a,b,c);
+    }
+    if (indices.length > start) out.addGroup(start, indices.length-start, group.materialIndex);
+  }
+  out.setIndex(indices);
+  out.userData.armsOnly = true;
+  variants.set(signature, out);
+  return out;
+}
+
 /**
  * An imported character, exposed with exactly the same surface as createGirl:
  * { root, marker, shadow, height, setWeapon, setAlive, destroy, update }.
  *
- * Legs/spine/head are driven procedurally. Shoulders/elbows/hands are left at
- * their rest pose plus whatever offsets the user dialled in — bone axes differ
- * too much between rigs for anything automatic to look right.
+ * Retargeted clips drive the body, with a procedural fallback. The weapon is
+ * attached to the calibrated animated torso; two-bone IK and anatomical hand
+ * frames fit the arms/fingers independently of the uploaded bone axes.
  *
  * @param {{scene:THREE.Object3D, normScale:number, baseOffsetY:number}} template
  * @param {object} meta uploaded metadata: { bones, offsets, scale, rotY }
@@ -397,16 +392,39 @@ export function createExternalGirl({ template, meta, data, team }) {
     };
   }
 
+  // Capture fingers before any animation mixer or procedural arm pose runs.
+  const handGrips = {
+    R: prepareHandGrip(driven.handR?.bone, 'R'),
+    L: prepareHandGrip(driven.handL?.bone, 'L'),
+  };
+  const gripGunRotation = new THREE.Quaternion();
+  function solveGrip(side, contact, pole, gunRotation, shape=st.weapon?.shape) {
+    if (!driven['hand' + side]) return Infinity;
+    const grip = handGrips[side];
+    const target = grip && gunRotation ? grip.targetFor(contact, gunRotation, shape) : contact;
+    solveArm(side, target, pole);
+    if (grip && gunRotation) grip.apply();
+    return driven['hand' + side].bone.getWorldPosition(new THREE.Vector3()).distanceTo(target);
+  }
+
+  let lastArmReachError = Infinity;
+  let fpMountOrigin = null;
+  const fpMountDelta = new THREE.Vector3();
+  let armsOnly = false;
+  let hasArmGeometry = false;
+  const fullBodyMeshes = new Map();
+
   const { marker, shadow } = buildFactionOverlay(root, team, data, root, TARGET_HEIGHT * k + 0.40);
   // The gun hangs off the body root, never a hand bone: bone scale and unknown
   // local axes would stretch and twist it. update() parks it on the chest and
   // then solves both arms onto its two grips.
   const weaponMount = new THREE.Group();
+  weaponMount.name = 'third-person-weapon-mount';
   root.add(weaponMount);
 
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
 
-  const st = { phase: Math.random() * 6.28, t: Math.random() * 10, crouch: 0, gait: 0, weapon: null, dead: false };
+  const st = { phase: Math.random() * 6.28, t: Math.random() * 10, crouch: 0, gait: 0, weapon: null, dead: false, lastWeaponPose: {} };
 
   // ---- retargeted run + upper-body clips -----------------------------------
   // The lower body runs off a baked Mixamo cycle once it is ready; the arms are
@@ -602,20 +620,15 @@ export function createExternalGirl({ template, meta, data, team }) {
   const _right = new THREE.Vector3();
   const _poleR = new THREE.Vector3();
   const _poleL = new THREE.Vector3();
-  const _fallback = new THREE.Vector3();
   const _axisSide = new THREE.Vector3();
-  const _barrel = new THREE.Vector3();
-  const _bx = new THREE.Vector3();
-  const _by = new THREE.Vector3();
-  const _basis = new THREE.Matrix4();
 
   /** World-space rotate: new world = dq * old world, written back as a local quat. */
   function applyWorldDelta(bone, dq) {
     const parent = bone.parent;
-    if (!parent) { bone.quaternion.premultiply(dq); return; }
-    parent.getWorldQuaternion(_pQ);
+    if (!parent) { bone.quaternion.premultiply(dq).normalize(); return; }
+    parent.getWorldQuaternion(_pQ).normalize();
     _invQ.copy(_pQ).invert();
-    bone.quaternion.premultiply(_pQ).premultiply(dq).premultiply(_invQ);
+    bone.quaternion.premultiply(_pQ).premultiply(dq).premultiply(_invQ).normalize();
   }
 
   /**
@@ -730,73 +743,67 @@ export function createExternalGirl({ template, meta, data, team }) {
     return sp ? sp.bone.getWorldPosition(out) : null;
   }
 
-  /** Park the gun on the chest; the mount transform is all the gun needs. */
+  // Attach to the lowest COMMON TORSO ancestor, not an arm/wrist and not the
+  // unanimated avatar root. Retargeted clips rotate/lean this chest independently
+  // of root yaw. Capture its bind frame before any mixer/IK writes it. Keeping
+  // the mount under root avoids inheriting the GLB bone's arbitrary scale/axes.
+  const armL = upperArm('L'), armR = upperArm('R');
+  const rightAncestors = new Set();
+  for (let b = armR; b; b = b.parent) rightAncestors.add(b);
+  let weaponChest = armL?.parent;
+  while (weaponChest && !rightAncestors.has(weaponChest)) weaponChest = weaponChest.parent;
+  weaponChest = weaponChest?.isBone ? weaponChest : driven.spine?.bone || null;
+  root.updateMatrixWorld(true);
+  const chestBindInverse = weaponChest ? weaponChest.getWorldQuaternion(new THREE.Quaternion()).invert() : new THREE.Quaternion();
+  const chestBindPoint = chestCenter(new THREE.Vector3()) || new THREE.Vector3(0,TARGET_HEIGHT*k*.78,0);
+  if (weaponChest) weaponChest.worldToLocal(chestBindPoint);
+  const carryRotation = new THREE.Quaternion(), rootRotation = new THREE.Quaternion();
+  const holdRotation = new THREE.Quaternion(), carryContact = new THREE.Vector3();
+  let weaponPlacement=placement();
+  const placementRotation=new THREE.Quaternion();
+  const placementReach={right:0,left:0};
+  // A short character must grip nearer the receiver rather than stretch the
+  // support arm off the gun. This selects another point along the fore-stock;
+  // it does not shrink the weapon to fit or change FP sockets/ballistics.
+  const supportSpan = armL && driven.elbowL && driven.handL
+    ? Math.min(MAX_SUPPORT_SPAN, SUPPORT_REACH_FRACTION*(armL.getWorldPosition(new THREE.Vector3()).distanceTo(driven.elbowL.bone.getWorldPosition(new THREE.Vector3()))
+      + driven.elbowL.bone.getWorldPosition(new THREE.Vector3()).distanceTo(driven.handL.bone.getWorldPosition(new THREE.Vector3())))/k) : MAX_SUPPORT_SPAN;
+
+  /** Seat the rifle on its trigger contact in the animated chest's frame. */
   function placeWeapon(s) {
-    const pitchRad = THREE.MathUtils.degToRad(s.pitch || 0);
-    // a whisper of sway so the clamped gun is not welded rigidly to the body
-    const sway = Math.sin(st.phase) * st.gait;
-    weaponMount.rotation.set(-0.08 - pitchRad + sway * 0.03, sway * 0.05, -0.10);
-    weaponMount.quaternion.multiply(GUN_CANT);
-
-    const chest = chestCenter(_chest);
-    const local = chest ? root.worldToLocal(chest.clone())
-      : _fallback.set(0, TARGET_HEIGHT * k * 0.78, 0.10);
-    // tucked into the right armpit: in against the ribs (small -X), dropped to
-    // armpit height and slightly forward so the muzzle clears the body
-    weaponMount.position.set(
-      local.x + GUN_SIDE + sway * 0.01 + GUN_NUDGE.x,
-      local.y - GUN_DROP + GUN_NUDGE.y,
-      local.z + 0.06 + GUN_NUDGE.z,
-    );
-    root.updateMatrixWorld(true);
-  }
-
-  /**
-   * Clip mode. The arms are driven by the baked Mixamo hold here, so the gun has
-   * to follow the hands rather than the hands follow the gun. The receiver is
-   * dropped onto the two wrist bones — the trigger grip lands on the right wrist
-   * and the barrel swings onto the line between the wrists — which seats the
-   * weapon exactly where the clip shoulders it (at the right shoulder, hands
-   * closed on it) instead of a fixed armpit park that left the gun hanging below
-   * the hands, disconnected from them.
-   */
-  function placeWeaponOnHands(s) {
-    // The hands are read from their world matrices, and this runs right after the
-    // upper mixer has written this frame's arm pose, so refresh them here rather
-    // than trusting whatever updateMatrixWorld the caller happened to do earlier.
-    root.updateMatrixWorld(true);
-    const hL = driven.handL && driven.handL.bone.getWorldPosition(_sA).clone();
-    const hR = driven.handR && driven.handR.bone.getWorldPosition(_sB).clone();
-    if (!hL || !hR) { placeWeapon(s); return; }
-    const lL = root.worldToLocal(hL);
-    const lR = root.worldToLocal(hR);
-    _barrel.copy(lL).sub(lR);
-    if (_barrel.lengthSq() < 1e-8) { placeWeapon(s); return; }
-    _barrel.normalize();
-    // mount frame straight off the wrist line: +Z down the barrel, +Y up
-    _bx.crossVectors(_up, _barrel);
-    if (_bx.lengthSq() < 1e-8) _bx.set(1, 0, 0);
-    _bx.normalize();
-    _by.crossVectors(_barrel, _bx).normalize();
-    _basis.makeBasis(_bx, _by, _barrel);
-    weaponMount.quaternion.setFromRotationMatrix(_basis);
-    weaponMount.quaternion.multiply(GUN_CANT);
-    // seat the trigger grip on the right wrist (the cant is already baked into
-    // the mount rotation, so the gun pivots around the grip and the hand stays
-    // on it), then nudge the whole gun down and forward so its stock lands on
-    // the shoulder instead of above it
-    const g = GRIPS[st.weapon && st.weapon.shape] || GRIPS.rifle;
-    _grip.set(g.hand[0], g.hand[1], g.hand[2]).applyQuaternion(weaponMount.quaternion);
-    weaponMount.position.copy(lR).sub(_grip).add(GUN_NUDGE);
+    root.getWorldQuaternion(rootRotation);
+    if (weaponChest) {
+      weaponChest.getWorldQuaternion(carryRotation).multiply(chestBindInverse);
+      carryRotation.premultiply(rootRotation.invert()).normalize();
+      weaponChest.localToWorld(_chest.copy(chestBindPoint));
+      root.worldToLocal(_chest);
+    } else {
+      carryRotation.identity();
+      _chest.copy(chestBindPoint);
+    }
+    // No accumulated Euler increments or procedural circular side/forward sway.
+    const reload=st.reloadPose;
+    holdRotation.setFromEuler(_euler.set(-.08-crouchPose(st.crouch).spine-THREE.MathUtils.degToRad(s.pitch || 0)+(reload?.rotation[0]||0),reload?.rotation[1]||0,-.03+(reload?.rotation[2]||0)));
+    holdRotation.multiply(placementRotation);
+    weaponMount.quaternion.copy(carryRotation).multiply(holdRotation);
+    weaponMount.scale.setScalar(k);
+    carryContact.copy(CARRY_HAND);
+    if(st.weapon?.shape==='pistol'){carryContact.y-=.025;carryContact.z+=.20;}
+    if(reload){carryContact.x+=reload.position[0];carryContact.y+=reload.present*.045;}
+    carryContact.add(_grip.fromArray(weaponPlacement.position));
+    carryContact.multiplyScalar(k).applyQuaternion(carryRotation).add(_chest);
+    _grip.fromArray(st.grips.hand).multiplyScalar(k).applyQuaternion(weaponMount.quaternion);
+    weaponMount.position.copy(carryContact).sub(_grip);
     root.updateMatrixWorld(true);
   }
 
   /** Solve both arms onto the gun's two grips. */
-  function solveArms(s) {
-    const g = GRIPS[st.weapon && st.weapon.shape] || GRIPS.rifle;
+  function solveArms(support = true) {
+    const g = st.grips;
     _grip.set(g.hand[0], g.hand[1], g.hand[2]);
     weaponMount.localToWorld(_grip);
-    _fore.set(g.fore[0], g.fore[1], g.fore[2]);
+    if(st.reloadPose){const v=st.reloadPose.fore;_fore.set(v[0]+.04,v[1]-.03,v[2]+.06);}
+    else _fore.set(g.fore[0], g.fore[1], g.fore[2]);
     weaponMount.localToWorld(_fore);
 
     // elbows splay outwards and down; the left-to-right axis comes from the
@@ -808,28 +815,24 @@ export function createExternalGirl({ template, meta, data, team }) {
     _poleR.copy(_right).multiplyScalar(0.7).add(_down).normalize();
     _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
 
-    solveArm('R', _grip, _poleR);
-    solveArm('L', _fore, _poleL);
-  }
-
-  /** Park the gun on the chest, then solve both arms onto its two grips. */
-  function poseWeapon(s) {
-    placeWeapon(s);
-    solveArms(s);
+    weaponMount.getWorldQuaternion(gripGunRotation);
+    placementReach.right=solveGrip('R', _grip, _poleR, gripGunRotation);
+    placementReach.left=support?solveGrip('L', _fore, _poleL, gripGunRotation):null;
   }
 
   /** Put the gun where the current body/arm pose wants it. */
   function layWeapon(s, upperKey) {
     if (st.dead || !st.weapon) return;
-    // Standing idle keeps the procedural gun IK — it owns the aim there. Every
-    // clip pose (runHold/hold/fire/reload/toss) instead leaves the arms entirely
-    // to the clip, so the gun is dropped onto the clip's own hands and rides
-    // along with them. The arms must never be IK'd back onto a fixed mount while
-    // a clip plays: that is what turned the body into a puppet with the gun
-    // floating beside it, and it is the bug the user reported as "gun on the
-    // wrong side / hands not on the gun".
-    if (!upperKey) { poseWeapon(s); return; }
-    placeWeaponOnHands(s);
+    // Never derive the next mount from wrists that IK modified last frame:
+    // frozen/crossfaded clips do not rewrite every wrist, causing feedback and
+    // an orbiting rifle. Use the animated torso bind frame, including rotation,
+    // not just its position with the unanimated root's orientation.
+    st.reloadPose=s.reloading?weaponReloadPose(st.weapon,s.reloadProgress||0,st.foreBase):null;
+    if(st.foreAnchor)st.foreAnchor.position.fromArray(st.reloadPose?.fore||st.foreBase);
+    placeWeapon(s);
+    // The weapon hand NEVER follows the throw/reload clip away from its grip.
+    // Only the support hand may leave for the gesture.
+    solveArms(upperKey !== 'toss');
   }
 
   /**
@@ -931,7 +934,10 @@ export function createExternalGirl({ template, meta, data, team }) {
   function sectorOf(dx, dz) {
     root.getWorldQuaternion(_mQ);
     _mL.set(dx, 0, dz).applyQuaternion(_mQ.invert());
-    let idx = Math.round(Math.atan2(-_mL.x, _mL.z) / DEG / 45) % 8;
+    const angle=Math.atan2(-_mL.x,_mL.z)/DEG;
+    const current=RUN_SECTORS.indexOf(motion.id);
+    if(current>=0 && Math.abs(((angle-current*45+540)%360)-180)<30)return current;
+    let idx = Math.round(angle / 45) % 8;
     if (idx < 0) idx += 8;
     return idx;
   }
@@ -942,12 +948,14 @@ export function createExternalGirl({ template, meta, data, team }) {
     const clip = run[id] || run[RUN_SECTORS[0]];
     if (!clip) return;
     if (!motion.mixer) motion.mixer = new THREE.AnimationMixer(rig);
-    const rate = THREE.MathUtils.clamp(speed / 7, 0.85, 1.5);
+    const rate = THREE.MathUtils.clamp(speed / 4.8, 0.25, 1.5);
     const next = motion.mixer.clipAction(clip);
     if (motion.action === next) {
       next.setEffectiveTimeScale(rate);
     } else {
+      const phase=motion.action ? (motion.action.time/motion.action.getClip().duration)%1 : 0;
       next.reset();
+      next.time=phase*clip.duration;
       next.enabled = true;
       next.setEffectiveTimeScale(rate);
       next.setEffectiveWeight(1);
@@ -1058,9 +1066,25 @@ export function createExternalGirl({ template, meta, data, team }) {
       if (_ankleLocal.y < low) low = _ankleLocal.y;
     }
     if (low < Infinity) {
-      holder.position.y = baseY + THREE.MathUtils.clamp(groundAnkleY - low, -0.055, 0.030);
+      holder.position.y = baseY + THREE.MathUtils.clamp(groundAnkleY - low, -0.055-crouchPose(st.crouch).dropLimit*k, 0.030);
     }
   }
+
+  const death=new DeathAnimation(root,[holder,weaponMount],{
+    height:TARGET_HEIGHT*k,
+    joints:[...Object.values(driven).map(d=>d.bone),...Object.values(legs).flatMap(l=>[l.thigh,l.knee,l.ankle])],
+    pose(p){
+      // World-space axes also work for uploaded rigs with different bone rolls.
+      rotateSide(driven.head?.bone,-p.impact*.8+p.limp*.08);
+      rotateSide(driven.spine?.bone,p.buckle*.06);
+      for(const [side,leg] of Object.entries(legs)){
+        rotateSide(leg.thigh,-p.limp*(side==='L'?.20:.12));
+        rotateSide(leg.knee,p.limp*(side==='L'?.38:.24));
+      }
+      rotateSide(driven.elbowL?.bone,p.limp*.24);
+      mirrorSecondary();
+    },
+  });
 
   return {
     root, marker, shadow,
@@ -1070,14 +1094,40 @@ export function createExternalGirl({ template, meta, data, team }) {
     setWeapon(weapon) {
       if (st.weapon === weapon) return;
       st.weapon = weapon;
+      weaponPlacement=placement();placementRotation.identity();
       weaponMount.clear();
       const built = buildWeapon(weapon);
       built.group.position.set(0.04, -0.03, 0.06);
       weaponMount.add(built.group);
+      const grips = mountedGrips(weapon);
+      const hand = new THREE.Vector3().fromArray(grips.hand);
+      const span = new THREE.Vector3().fromArray(grips.fore).sub(hand);
+      if (span.length() > supportSpan) span.setLength(supportSpan);
+      st.grips = { hand: grips.hand, fore: hand.add(span).toArray() };
+      st.foreBase=st.grips.fore.map((v,i)=>v-[.04,-.03,.06][i]);
+      st.foreAnchor=built.anchors.fore;
+      built.anchors.fore.position.fromArray(st.foreBase);
       built.group.traverse((o) => { o.frustumCulled = false; });
       // Same contract as the built-in girl: this is where her shots flash from.
       st.muzzle = built.muzzle;
+      st.eject = built.anchors.eject;
+      // A newly spawned or LOD-throttled remote may not get update() this frame.
+      // Seat a replacement immediately instead of drawing it at the old origin.
+      const pose = st.lastWeaponPose;
+      layWeapon(pose, pose.ability ? 'toss' : pose.reloading ? 'reload' : null);
+      mirrorSecondary();
     },
+
+    // Developer preview only: no global overrides or first-person changes.
+    setWeaponPlacement(value) {
+      weaponPlacement=placement(value);
+      placementRotation.setFromEuler(_euler.set(weaponPlacement.rotation[0]*DEG,weaponPlacement.rotation[1]*DEG,weaponPlacement.rotation[2]*DEG));
+      const s=st.lastWeaponPose;
+      layWeapon(s,s.ability?'toss':s.reloading?'reload':null);
+    },
+    getWeaponPlacement() { return placement(weaponPlacement); },
+    get weaponPlacementReach() { return {...placementReach}; },
+    get crouchAmount(){return crouchPose(st.crouch).amount;},
 
     /** World position of this character's muzzle; false when she has no gun. */
     muzzleWorld(out) {
@@ -1086,10 +1136,53 @@ export function createExternalGirl({ template, meta, data, team }) {
       return true;
     },
 
-    setAlive(alive) {
-      st.dead = !alive;
-      root.visible = alive;
+    ejectWorld(out) {
+      if (!st.eject) return false;
+      st.eject.getWorldPosition(out);
+      return true;
     },
+
+    setAlive(alive,impact) {
+      st.dead=!alive;death.setAlive(alive,impact);
+      root.visible=alive||death.visible;
+      if(!alive)marker.visible=false;
+    },
+    setDeathGround(offset){death.setGround(offset);},
+    get deathState(){return {visible:death.visible,elapsed:death.elapsed};},
+
+    // Hide torso, legs, head, capes and static accessories by their actual skin
+    // influences, not by hoping they stay behind the camera's near plane.
+    setArmsOnly(enabled) {
+      if (armsOnly === enabled) return hasArmGeometry;
+      armsOnly = enabled;
+      hasArmGeometry = false;
+      if (enabled) {
+        const armBones = new Set();
+        for (const side of ['R', 'L']) {
+          const upper = driven['elbow' + side]?.bone.parent;
+          if (upper?.isBone) upper.traverse(b => { if (b.isBone) armBones.add(b); });
+        }
+        rig.traverse(mesh => {
+          if (!mesh.isMesh) return;
+          fullBodyMeshes.set(mesh, { geometry:mesh.geometry, visible:mesh.visible });
+          if (mesh.isSkinnedMesh) {
+            mesh.geometry = armsGeometry(mesh, armBones);
+            mesh.visible = mesh.visible && mesh.geometry.index.count > 0;
+            if (mesh.visible) hasArmGeometry = true;
+          } else mesh.visible = false;
+        });
+      } else {
+        if(fpMountOrigin){root.position.copy(fpMountOrigin);fpMountOrigin=null;}
+        for (const [mesh, original] of fullBodyMeshes) {
+          mesh.geometry = original.geometry;
+          mesh.visible = original.visible;
+        }
+        fullBodyMeshes.clear();
+      }
+      return hasArmGeometry;
+    },
+    get hasArmGeometry() { return hasArmGeometry; },
+    get armReachError() { return lastArmReachError; },
 
     /**
      * First-person arms only. The rig is mounted with its eye at the lens, so the
@@ -1122,27 +1215,62 @@ export function createExternalGirl({ template, meta, data, team }) {
      * First-person arms only. This instance carries no weapon of its own — the
      * first-person gun lives in the viewmodel — so instead of parking a gun on
      * the chest we solve both arms straight onto two world-space grip points the
-     * caller hands in. Returns false when the rig has no mapped arms, which lets
-     * the caller keep the placeholder pair instead.
+     * caller hands in, plus the live gun rotation for wrist/finger posing.
+     * Returns false for missing arms or unreachable contacts so the caller can
+     * keep the shaped glove pair instead of showing a disconnected hand.
      */
-    poseArms(handTarget, foreTarget) {
+    poseArms(handTarget, foreTarget, gunRotation, shape, fitMount = false) {
+      lastArmReachError = Infinity;
       if (!driven.elbowR || !driven.handR || !driven.elbowL || !driven.handL) return false;
+      if(!Number.isFinite(handTarget.x+handTarget.y+handTarget.z+foreTarget.x+foreTarget.y+foreTarget.z))return false;
+      // Only the dedicated camera rig may move its shoulder mount. A hat's
+      // height is not an eye/shoulder calibration; short arms otherwise fail
+      // reach and switch to unrelated gloves as soon as a gun bobs or reloads.
+      if(fitMount&&armsOnly){
+        fpMountOrigin ||= root.position.clone();
+        root.position.copy(fpMountOrigin);root.updateMatrixWorld(true);
+        const constraints=[];
+        for(const [side,contact] of [['R',handTarget],['L',foreTarget]]){
+          const up=upperArm(side),el=driven['elbow'+side].bone,hand=driven['hand'+side].bone;
+          if(!up)return false;
+          const shoulder=up.getWorldPosition(new THREE.Vector3()),elbow=el.getWorldPosition(new THREE.Vector3());
+          constraints.push({shoulder,contact,radius:(shoulder.distanceTo(elbow)+elbow.distanceTo(hand.getWorldPosition(new THREE.Vector3())))*.97});
+        }
+        fpMountDelta.set(0,0,0);
+        for(let pass=0;pass<8;pass++)for(const {shoulder,contact,radius} of constraints){
+          const to=contact.clone().sub(shoulder).sub(fpMountDelta),distance=to.length();
+          if(distance>radius)fpMountDelta.addScaledVector(to,(distance-radius)/distance);
+        }
+        // Presentation only: never stretch bones or move an authoritative body.
+        fpMountDelta.clampLength(0,.24);
+        const position=root.getWorldPosition(new THREE.Vector3()).add(fpMountDelta);
+        root.position.copy(root.parent?root.parent.worldToLocal(position):position);
+      }
       root.updateMatrixWorld(true);
       const eL = driven.elbowL.bone.getWorldPosition(_sA).clone();
       const eR = driven.elbowR.bone.getWorldPosition(_sB).clone();
       _right.copy(eR).sub(eL).normalize();
       _poleR.copy(_right).multiplyScalar(0.7).add(_down).normalize();
       _poleL.copy(_right).multiplyScalar(-0.55).add(_down).normalize();
-      solveArm('R', handTarget, _poleR);
-      solveArm('L', foreTarget, _poleL);
-      return true;
+      const rightError = solveGrip('R', handTarget, _poleR, gunRotation, shape);
+      const leftError = solveGrip('L', foreTarget, _poleL, gunRotation, shape);
+      lastArmReachError = Math.max(rightError, leftError);
+      return lastArmReachError < 0.07;
     },
 
     destroy() {
+      // Clones own their skeleton GPU textures, but share immutable art. Release
+      // only the former on skin changes/respawns instead of leaking every rig.
+      const skeletons=new Set();rig.traverse(o=>{if(o.isSkinnedMesh)skeletons.add(o.skeleton);});
+      for(const skeleton of skeletons)skeleton.dispose();
+      shadow.geometry.dispose();shadow.material.dispose();
+      marker.geometry.dispose();marker.material.dispose();
       root.removeFromParent();
     },
 
     update(dt, s) {
+      if(st.dead){death.update(dt);root.visible=death.visible;marker.visible=false;return;}
+      st.lastWeaponPose = s;
       st.t += dt;
       const speed = s.speed || 0;
 
@@ -1169,7 +1297,7 @@ export function createExternalGirl({ template, meta, data, team }) {
         : s.reloading ? 'reload'
           : s.ability ? 'toss'
             : s.firing ? 'fire'
-              : run ? 'runHold'
+              : run && !s.crouch && st.crouch<.01 ? 'runHold'
                 : motion.upper ? 'hold' : null;
 
       // Cadence rises with speed but is clamped to a human band. The game drives
@@ -1179,7 +1307,8 @@ export function createExternalGirl({ template, meta, data, team }) {
       const stepHz = THREE.MathUtils.clamp(0.85 + speed * 0.20, 0.85, 3.2);
       st.phase += dt * TAU * stepHz * 0.5 * (run ? (sprint ? 1.1 : 1) : 0.18);
 
-      st.crouch += ((s.crouch ? 1 : 0) - st.crouch) * Math.min(1, dt * 12);
+      st.crouch=crouchBlend(st.crouch,s.crouch,dt);
+      const crouch=crouchPose(st.crouch);
       st.gait += ((run ? 1 : 0) - st.gait) * Math.min(1, dt * 8);
 
       // ---- clip-driven run ---------------------------------------------------
@@ -1187,7 +1316,7 @@ export function createExternalGirl({ template, meta, data, team }) {
       // spine, head and legs come from the clip, so the procedural joint writes
       // below are skipped. The arms are handed to the upper layer when it is
       // active and to the gun IK otherwise.
-      if (motion.ready && run && !st.dead) {
+      if (motion.ready && run && st.crouch < .01 && !s.crouch && !st.dead) {
         const dx = root.position.x - motion.prev.x;
         const dz = root.position.z - motion.prev.z;
         const len = Math.hypot(dx, dz);
@@ -1204,16 +1333,6 @@ export function createExternalGirl({ template, meta, data, team }) {
         dampSway(dt);
 
         root.updateMatrixWorld(true);
-        if (st.crouch > 0.01) {
-          const c = st.crouch;
-          for (const sfx of ['L', 'R']) {
-            const ch = legs[sfx];
-            if (!ch) continue;
-            rotateSide(ch.thigh, c * 0.22);
-            rotateSide(ch.knee, c * 0.95);
-            rotateSide(ch.ankle, -c * 0.55);
-          }
-        }
         // Pull the step in. +Y turns a limb toward +X (the character's left), so
         // the right leg takes the positive angle and the left the negative one,
         // which tucks both feet toward the centre line instead of splaying out.
@@ -1222,7 +1341,7 @@ export function createExternalGirl({ template, meta, data, team }) {
           if (ch && ch.thigh) rotateUp(ch.thigh, (sfx === 'R' ? 1 : -1) * STEP_TOE_IN[sfx]);
         }
         groundFeet();
-        marker.position.y = TARGET_HEIGHT * k + 0.40;
+        marker.position.y = (TARGET_HEIGHT-.85*st.crouch) * k + 0.40;
         layWeapon(s, upperKey);
         mirrorSecondary();
         motion.active = true;
@@ -1253,7 +1372,7 @@ export function createExternalGirl({ template, meta, data, team }) {
       // walk -> run blend, plus the crouch offsets folded into the same joints
       const t = THREE.MathUtils.clamp((speed - 1.2) / 6, 0, 1);
       const amp = {
-        gait: st.gait,
+        gait: st.gait*crouch.gait,
         // Amplitudes are kept modest on purpose. The avatar always travels at
         // 9.5 m/s (13 m/s sprinting), so a full-length stride would swing the
         // legs so far that the grounded foot would drag the pelvis through a
@@ -1262,17 +1381,17 @@ export function createExternalGirl({ template, meta, data, team }) {
         knee: THREE.MathUtils.lerp(0.60, 0.90, t),
         push: THREE.MathUtils.lerp(12, 20, t) * DEG,
         toe: THREE.MathUtils.lerp(14, 22, t) * DEG,
-        cHip: st.crouch * 0.22,
-        cKnee: st.crouch * 0.95,
-        cAnkle: -st.crouch * 0.55,
+        cHip: crouch.hip,
+        cKnee: crouch.knee,
+        cAnkle: crouch.ankle,
       };
 
       const ph = st.phase;
       // pelvis and thorax twist in opposite directions; the head stays put
       const twist = Math.sin(ph) * 0.10 * st.gait;
-      apply('spine', st.crouch * 0.26 + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008,
+      apply('spine', crouch.spine + (run ? 0.10 : 0.02) + Math.sin(st.t * 1.9) * 0.008,
         -twist * 1.5, Math.sin(ph) * 0.035 * st.gait);
-      apply('head', -THREE.MathUtils.degToRad(Math.max(-70, Math.min(70, s.pitch || 0))) * 0.55,
+      apply('head', -crouch.amount*.28-THREE.MathUtils.degToRad(Math.max(-70, Math.min(70, s.pitch || 0))) * 0.55,
         twist * 0.6, 0);
       apply('hips', 0, twist, Math.sin(ph) * 0.03 * st.gait);
 
@@ -1281,7 +1400,7 @@ export function createExternalGirl({ template, meta, data, team }) {
 
       groundFeet();
 
-      marker.position.y = TARGET_HEIGHT * k + 0.40;
+      marker.position.y = (TARGET_HEIGHT-.85*st.crouch) * k + 0.40;
 
       updateUpper(upperKey, dt);
       layWeapon(s, upperKey);

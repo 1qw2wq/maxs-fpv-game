@@ -18,6 +18,8 @@ from combat import (
 )
 import combat
 import bots as bots_mod
+from objectives import ControlPoints
+from throwing import GRENADES, simulate as simulate_throw
 
 # One sampled position per tick, kept long enough to cover the deepest rewind.
 HIST_MAXLEN = int(COMBAT["tickRate"] * float(COMBAT.get("historyMs", 1000)) / 1000.0) + 2
@@ -32,6 +34,14 @@ MAX_ONE_WAY_MS = 120.0
 # to humans and bots alike. The medic zone stacks on top of this.
 REGEN_DELAY_MS = 8000.0
 REGEN_SECONDS = 8.0
+SPAWN_SHIELD_MS = float(COMBAT.get("spawnShieldMs", 5000))
+
+
+def shield_remaining(p, now):
+    # A corrupt/extended deadline must never grant more than one spawn window.
+    deadline = min(p.get("shield_until", 0.0), p.get("spawned_at", now - SPAWN_SHIELD_MS) + SPAWN_SHIELD_MS)
+    return max(0.0, deadline - now) if p["alive"] and not p.get("shield_cancelled", False) else 0.0
+
 
 # A bot firing through smoke at anything past this range only lands one shot in
 # ten: the cloud is thin enough to see through up close, but a bot has no way to
@@ -130,7 +140,7 @@ def heal_rate(match, p):
 def _f(v, default=0.0):
     try:
         return float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -142,6 +152,9 @@ class Match:
         # Effect ids are separate from player ids: a crate is taken back down by
         # id, and player ids get reused as people come and go.
         self.next_eid = 1
+        self.mode = "tdm"
+        self.control = None
+        self.end_reason = ""
         self.scores = [0, 0]
         self.start_ms = None
         self.phase = "waiting"
@@ -159,6 +172,12 @@ class Match:
         # Kept apart from self.rng so the miss coin-flip never shifts spawn luck.
         self.hit_rng = random.Random(90210)
 
+    def set_mode(self, mode, map_id=None):
+        self.mode = "control" if mode == "control" else "tdm"
+        self.control = ControlPoints(map_id or combat.CUR_MAP_ID) if self.mode == "control" else None
+        self.scores = [0, 0]
+        self.end_reason = ""
+
     # ------------------------------------------------------------------ roster
 
     def _pick_team(self):
@@ -170,33 +189,43 @@ class Match:
             return 1
         return self.next_id % 2
 
-    def add_player(self, name, ws, cls="assault", weapon=None, bot=False, skin=""):
+    def add_player(self, name, ws, cls="assault", weapon=None, bot=False, skin="", secondary=None):
         pid = self.next_id
         self.next_id += 1
         team = self._pick_team()
         cls = cls if cls in CLASSES else "assault"
         if weapon not in CLASS_WEAPONS.get(cls, []):
             weapon = CLASS_WEAPONS[cls][0]
+        secondary = secondary if isinstance(secondary, str) and secondary in combat.SECONDARIES else combat.SECONDARIES[0]
         spawn, spawn_yaw = random_spawn(team, self.rng)
+        skill = bots_mod.skill_for_slot(sum(1 for q in self.players.values() if q["bot"] and q["team"] == team)) if bot else ""
         hp = float(CLASSES[cls]["maxHp"])
+        spawned_at = now_ms()
         p = {
             "id": pid, "name": name, "team": team, "cls": cls, "weapon": weapon,
+            "primary": weapon, "secondary": secondary, "slot": "primary", "equip_until": 0.0,
+            "inventory": {secondary: {"mag": mag_size(secondary), "reserve": reserve_cap(secondary), "last_shot": 0.0}},
             "hp": hp, "alive": True,
-            "pos": list(spawn),
+            "pos": list(spawn), "safe_pos": list(spawn),
+            "recovery_seq": 0, "recovery_pos": None, "shield_until": spawned_at + SPAWN_SHIELD_MS,
+            "spawned_at": spawned_at, "life": 1, "shield_cancelled": False, "shield_motion": 0.0, "shield_anchor": None,
             # the spawn point carries the facing that looks across the map
             "yaw": spawn_yaw,
             "pitch": 0.0, "flags": {}, "mag": mag_size(weapon),
             "reserve": reserve_cap(weapon),
             "reload_end": 0.0, "reload_from": 0.0, "reload_total": 0.0,
-            "last_shot": 0.0, "ability_ready": 0.0,
+            "last_shot": 0.0, "shot_seq": 0, "ability_ready": 0.0,
             "ability_charges": int(CLASSES[cls].get("abilityCharges", 1)),
+            "grenades": int(combat.THROW["grenadeCharges"]), "grenade_ready": 0.0,
+            "velocity": [0.0, 0.0, 0.0], "flash_until": 0.0,
             "kills": 0, "deaths": 0, "respawn_at": 0.0, "reveal_until": 0.0,
             "last_input": now_ms(), "bot": bot, "ws": ws, "ping": 0,
             "suppress_until": 0.0, "healed_at": 0.0, "resupply_at": 0.0,
             # last bullet/blast that landed; drives out-of-combat regeneration
             "last_hit_ms": now_ms(),
             "hist": deque(maxlen=HIST_MAXLEN),
-            "bot_state": bots_mod.new_state(team) if bot else None,
+            "bot_skill": skill,
+            "bot_state": bots_mod.new_state(team, skill) if bot else None,
             # shared character id; bots always use the built-in girl
             "skin": "" if bot else skin,
         }
@@ -241,14 +270,22 @@ class Match:
         if p is None or p["bot"]:
             return []
         t = msg.get("t")
+        # An input/action queued before respawn belongs to the previous body.
+        # Missing serials remain compatible with older clients and direct AI calls.
+        if t != "chat" and "life" in msg and msg["life"] != p["life"]:
+            return []
         if t == "input":
             self._on_input(p, msg)
         elif t == "fire":
             return self._on_fire(p, msg)
+        elif t == "switch":
+            self._on_switch(p, msg)
         elif t == "reload":
             self._on_reload(p)
         elif t == "ability":
             return self._on_ability(p, msg)
+        elif t == "grenade":
+            return self._on_grenade(p, msg)
         elif t == "respawn":
             return self._on_respawn(p, msg)
         elif t == "chat":
@@ -256,6 +293,24 @@ class Match:
             if text:
                 return [{"to": None, "msg": {"t": "chat", "n": p["name"], "tm": p["team"], "m": text}}]
         return []
+
+    @staticmethod
+    def _cancel_spawn_shield(p):
+        # Terminal for this life; only _spawn may grant protection again.
+        p["shield_cancelled"] = True
+        p["shield_until"] = 0.0
+
+    def _movement_spawn_shield(self, p, previous, moving=False):
+        if p.get("shield_cancelled"):
+            return
+        # Ignore tiny packet quantisation/ground settling, but accumulate small
+        # accepted steps so crawling with a forged move=False cannot keep it.
+        if p.get("shield_anchor") is None:
+            p["shield_anchor"] = list(previous)
+        p["shield_motion"] = p.get("shield_motion", 0.0) + max(0.0, dist3(previous, p["pos"]) - .001)
+        # Also bound net drift: sub-millimetre packets must not evade the noise discount.
+        if moving or p["shield_motion"] > .025 or dist3(p["shield_anchor"], p["pos"]) > .025:
+            self._cancel_spawn_shield(p)
 
     def _on_input(self, p, msg):
         if not p["alive"]:
@@ -276,7 +331,8 @@ class Match:
         if isinstance(flags, dict):
             p["flags"] = {
                 "crouch": bool(flags.get("crouch")),
-                "sprint": bool(flags.get("sprint")),
+                "sprint": bool(flags.get("sprint")) and not bool(flags.get("ads")) and not bool(flags.get("crouch")),
+                "ads": bool(flags.get("ads")),
                 "move": bool(flags.get("move")),
                 "ground": bool(flags.get("ground", True)),
             }
@@ -286,12 +342,15 @@ class Match:
         p["last_input"] = now
 
         speed = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"]
-        if p["flags"].get("sprint"):
-            speed *= 1.35
+        if p["flags"].get("ads"):
+            speed *= COMBAT.get("adsMoveMult", 0.62)
+        elif p["flags"].get("sprint"):
+            speed *= COMBAT.get("sprintMult", 1.35)
         if p["flags"].get("crouch"):
             speed *= 0.55
         maxd = speed * dt * 1.8 + 0.3
 
+        self._ensure_safe_position(p)
         ox, oy, oz = p["pos"]
         dx, dz = target[0] - ox, target[2] - oz
         d = math.hypot(dx, dz)
@@ -302,17 +361,46 @@ class Match:
 
         target[0] = clamp(target[0], combat.BOUNDS["minX"] + 1.5, combat.BOUNDS["maxX"] - 1.5)
         target[2] = clamp(target[2], combat.BOUNDS["minZ"] + 1.5, combat.BOUNDS["maxZ"] - 1.5)
-        nx, nz = resolve_move(p["pos"], target, oy, body_height(p))
+        nx, nz, support_y = resolve_move(p["pos"], target, oy, body_height(p), return_height=True)
         # Anchor the vertical clamp to the surface under the new spot rather than
         # to a constant street height: a stair tread then carries the player up
         # (and a landing carries them down) instead of the body sinking through
-        # the geometry. oy caps how far one tick can climb, so walls still block.
-        floor = combat.floor_at(nx, nz, oy)
-        ny = clamp(target[1], floor - 0.05, floor + 1.6)
+        # geometry. Each swept sample caps the rise and verifies headroom; a
+        # delayed packet can traverse a slope without treating it as one tall step.
+        floor = combat.floor_at(nx, nz, support_y)
+        ny = clamp(target[1], floor, floor + 1.6)
+        ny = min(ny, combat.ceiling_at(nx, nz, support_y, body_height(p))-body_height(p)-.002)
+        cap = COMBAT["maxMoveSpeed"] * CLASSES[p["cls"]]["speedMult"] * COMBAT.get("sprintMult", 1.35)
+        p["velocity"] = [clamp((nx-ox)/dt, -cap, cap), clamp((ny-oy)/dt, -cap, cap), clamp((nz-oz)/dt, -cap, cap)]
         p["pos"] = [nx, ny, nz]
+        self._movement_spawn_shield(p, (ox, oy, oz), p["flags"].get("move", False))
+        self._ensure_safe_position(p)
+
+    def _on_switch(self, p, msg):
+        now = now_ms()
+        if not p["alive"] or self.phase != "live" or now < p.get("equip_until", 0):
+            return
+        slot = msg.get("slot")
+        if slot is None:
+            slot = "secondary" if p["slot"] == "primary" else "primary"
+        if slot not in ("primary", "secondary") or slot == p["slot"]:
+            return
+        # Clip-fed reloads can already have seated rounds: bill those exactly
+        # once on cancellation, rather than minting ammunition by switching.
+        if p["reload_end"] and reload_is_clip(p["weapon"]):
+            seated = int(p["mag"])
+            p["reserve"] = max(0, p["reserve"] - max(0, seated - int(p["reload_from"])))
+            p["mag"] = float(seated)
+        p["inventory"][p["weapon"]] = {k: p[k] for k in ("mag", "reserve", "last_shot")}
+        p["weapon"] = p[slot]
+        ammo = p["inventory"].get(p["weapon"], {"mag": mag_size(p["weapon"]), "reserve": reserve_cap(p["weapon"]), "last_shot": 0.0})
+        p.update(ammo)
+        p["slot"] = slot
+        p["reload_end"] = p["reload_total"] = p["reload_from"] = 0.0
+        p["equip_until"] = now + 350.0
 
     def _on_reload(self, p):
-        if not p["alive"]:
+        if not p["alive"] or now_ms() < p.get("equip_until", 0):
             return
         if p["mag"] >= mag_size(p["weapon"]):
             return
@@ -331,6 +419,8 @@ class Match:
             return []
         w = WEAPONS[p["weapon"]]
         now = now_ms()
+        if now < p.get("equip_until", 0):
+            return []
         if now < p["reload_end"]:
             # A clip-fed bolt-action can be cut short: any round already seated
             # stays in the magazine, so the player may fire mid-reload. Those
@@ -361,16 +451,39 @@ class Match:
                 o = eye
         else:
             o = eye
+        # Network/eye-smoothing tolerance must never put the origin through a
+        # thin wall. Sweep the entire offset, even when it is under 1.5 metres.
+        offset = dist3(eye, o)
+        if offset > 1e-6:
+            shift = normalize(tuple(o[i]-eye[i] for i in range(3)))
+            obstruction = ray_world(eye, shift, offset)
+            if obstruction is not None:
+                o = eye
         d = msg.get("d")
         if isinstance(d, (list, tuple)) and len(d) == 3:
             d = normalize((_f(d[0]), _f(d[1]), _f(d[2])))
         else:
             d = dir_from_angles(p["yaw"], p["pitch"])
-        if d == (0.0, 0.0, 0.0):
+        if d == (0.0, 0.0, 0.0) or not all(math.isfinite(v) for v in d):
             return []
 
+        self._cancel_spawn_shield(p)
         p["last_shot"] = now
+        p["shot_seq"] = p.get("shot_seq", 0) + 1
         p["mag"] -= 1
+
+        if w.get("utility") == "flare":
+            flight = self._throw_flight(p, {"d": list(d), "power": 1.0}, "flare")
+            if flight is None:
+                return []
+            spec = GRENADES.get("flare", {"radius": 30, "dur": 9000})
+            fx = {"k": "flare", "team": p["team"], "by": p["id"], "eid": self.next_eid,
+                  **flight, "from": list(eye), "r": spec["radius"], "dur": spec["dur"]}
+            self.next_eid += 1
+            fx["start"] = now + fx.get("delay", 0)
+            fx["until"] = fx["start"] + fx["dur"]
+            self.effects.append(fx)
+            return [{"to": None, "msg": {"t": "fx", "fx": {k: v for k, v in fx.items() if k not in ("start", "until")}}}]
 
         max_range = 220.0
         wall = ray_world(o, d, max_range)
@@ -402,6 +515,9 @@ class Match:
             return []
 
         t, vic, zone = best
+        # The shield still stops the bullet; never shoot through it at a body behind.
+        if shield_remaining(vic, now) > 0:
+            return []
 
         # Solo only: a bot's shots at the human are voided half the time, so the
         # lone player is not deleted by accurate fire. Bot-vs-bot and every human
@@ -438,7 +554,7 @@ class Match:
             out.extend(self._kill(p, vic, zone == "head"))
         return out
 
-    def _kill(self, killer, victim, headshot):
+    def _kill(self, killer, victim, headshot, weapon=None):
         now = now_ms()
         victim["hp"] = 0.0
         victim["alive"] = False
@@ -446,20 +562,24 @@ class Match:
         victim["respawn_at"] = now + float(COMBAT["respawnMs"])
         victim["flags"] = {}
         _seed_hist(victim, now)
-        killer["kills"] += 1
-        if killer["team"] != victim["team"]:
+        if killer["id"] == victim["id"]:
+            killer["kills"] = max(0, killer["kills"] - 1)
+        else:
+            killer["kills"] += 1
+        if killer["team"] != victim["team"] and self.mode == "tdm":
             self.scores[killer["team"]] += 1
             if self.scores[killer["team"]] >= int(COMBAT["scoreLimit"]):
-                self._end(killer["team"])
+                self._end(killer["team"], "kills")
         return [{"to": None, "msg": {
             "t": "kill",
             "k": {"id": killer["id"], "n": killer["name"], "c": killer["cls"], "tm": killer["team"]},
             "v": {"id": victim["id"], "n": victim["name"], "c": victim["cls"], "tm": victim["team"]},
-            "w": killer["weapon"], "head": headshot,
+            "w": weapon or killer["weapon"], "head": headshot,
             "score": list(self.scores),
         }}]
 
-    def _end(self, winner):
+    def _end(self, winner, reason="time"):
+        self.end_reason = reason
         self.phase = "ended"
         self.winner = winner
         self.ended_at = now_ms()
@@ -475,11 +595,22 @@ class Match:
             p["cls"] = cls
         if weapon in CLASS_WEAPONS.get(p["cls"], []):
             p["weapon"] = weapon
+        elif p.get("primary", p["weapon"]) in CLASS_WEAPONS.get(p["cls"], []):
+            p["weapon"] = p["primary"]
         elif p["weapon"] not in CLASS_WEAPONS.get(p["cls"], []):
             p["weapon"] = CLASS_WEAPONS[p["cls"]][0]
+        p["primary"] = p["weapon"]
+        secondary = msg.get("secondary")
+        if isinstance(secondary, str) and secondary in combat.SECONDARIES:
+            p["secondary"] = secondary
         return self._spawn(p)
 
     def _spawn(self, p):
+        p["weapon"] = p.get("primary", p["weapon"])
+        p["slot"] = "primary"
+        p["equip_until"] = 0.0
+        side = p["secondary"]
+        p["inventory"] = {side: {"mag": mag_size(side), "reserve": reserve_cap(side), "last_shot": 0.0}}
         p["hp"] = max_hp(self, p)
         p["alive"] = True
         p["mag"] = mag_size(p["weapon"])
@@ -488,6 +619,9 @@ class Match:
         p["reload_from"] = 0.0
         p["reload_total"] = 0.0
         p["last_shot"] = 0.0
+        p["grenades"] = int(combat.THROW["grenadeCharges"])
+        p["grenade_ready"] = p["flash_until"] = 0.0
+        p["velocity"] = [0.0, 0.0, 0.0]
         p["suppress_until"] = 0.0
         p["reveal_until"] = 0.0
         s, spawn_yaw = random_spawn(p["team"], self.rng)
@@ -497,11 +631,17 @@ class Match:
         p["last_input"] = now_ms()
         # a fresh body starts the out-of-combat timer over
         p["last_hit_ms"] = p["last_input"]
+        p["spawned_at"] = p["last_input"]
+        p["life"] = p.get("life", 0) + 1
+        p["shield_until"] = p["spawned_at"] + SPAWN_SHIELD_MS
+        p["shield_cancelled"], p["shield_motion"], p["shield_anchor"] = False, 0.0, None
+        p["safe_pos"] = list(s)
+        p["recovery_pos"] = None
         _seed_hist(p, p["last_input"])
         if p["bot"]:
-            p["bot_state"] = bots_mod.new_state(p["team"])
+            p["bot_state"] = bots_mod.new_state(p["team"], p["bot_skill"])
         return [{"to": p["id"], "msg": {"t": "spawn", "p": [round(v, 2) for v in p["pos"]],
-                                        "yaw": p["yaw"], "hp": p["hp"], "c": p["cls"], "w": p["weapon"]}}]
+                                        "yaw": p["yaw"], "hp": p["hp"], "shieldMs": int(SPAWN_SHIELD_MS), "c": p["cls"], "w": p["weapon"]}}]
 
     # ---------------------------------------------------------------- abilities
 
@@ -529,19 +669,12 @@ class Match:
         self.next_eid += 1
 
         if kind in ("smoke", "flare"):
-            # Thrown, not placed: the client's aim preview settles the landing
-            # spot and sends it, so the server only re-checks the range and snaps
-            # it to the real floor -- what the thrower saw marked is what everyone
-            # gets. ``delay`` is the flight time, during which the cloud is not
-            # live yet (see tick).
-            land, origin, delay = self._throw_landing(p, msg, eye, kind)
-            if kind == "smoke":
-                # A smoke screen does no damage: it only blinds, and it is what
-                # hides a player from a flare (see the flare branch in tick).
-                fx.update({"p": land, "r": 13.0, "dur": 14000})
-            else:
-                fx.update({"p": land, "r": 30.0, "dur": 9000})
-            fx.update({"from": origin, "delay": delay})
+            flight = self._throw_flight(p, msg, kind)
+            if flight is None:
+                return []
+            spec = GRENADES.get(kind, {"radius": 30, "dur": 9000})
+            fx.update(flight)
+            fx.update({"from": list(eye), "r": spec["radius"], "dur": spec["dur"]})
 
         elif kind in ("heal", "ammo"):
             # Placed at the caster's feet and left standing until they put the
@@ -552,6 +685,8 @@ class Match:
             fx.update({"p": [round(v, 2) for v in p["pos"]], "r": radius,
                        "dur": CRATE_LIFE_MS, "persist": True})
 
+        if kind == "flare":
+            self._cancel_spawn_shield(p)
         p["ability_charges"] -= 1
         if p["ability_charges"] <= 0:
             p["ability_ready"] = now + cd
@@ -563,48 +698,108 @@ class Match:
                                                           if k not in ("until", "start")}}})
         return out
 
-    def _throw_landing(self, p, msg, eye, kind):
-        """Where a smoke/flare thrown from ``eye`` comes down, plus its flight.
+    def _throw_flight(self, p, msg, kind):
+        direction = msg.get("d", dir_from_angles(p["yaw"], p["pitch"]))
+        if not isinstance(direction, (list, tuple)) or len(direction) != 3:
+            return None
+        direction = [_f(v) for v in direction]
+        power = _f(msg.get("power", 0.55))
+        if not all(math.isfinite(v) for v in direction) or not math.isfinite(power):
+            return None
+        if sum(v*v for v in direction) < 1e-8:
+            return None
+        # Neither msg.p (legacy landing) nor a client velocity is authoritative.
+        inherited = p.get("velocity", (0, 0, 0)) if p["bot"] or now_ms()-p["last_input"] < 200 else (0, 0, 0)
+        return simulate_throw(eye_pos(p), direction, clamp(power, 0, 1), kind, inherited)
 
-        The client's aim preview settles the landing spot and sends it; the
-        server trusts the *place* but not the *reach*: anything past this
-        ability's maximum is pulled back along the throw, and the height is
-        snapped to the real floor. Only the far end is clamped -- a short throw
-        into a wall must land against it, not be shoved through it. Bots skip the
-        preview and send the target's feet, which lands the same way. A flare is
-        lobbed much further than a smoke grenade, so the reach is per-kind.
-        """
-        th = combat.THROW
-        mn = float(th["minDist"])
-        mx = float(th["flareMaxDist"] if kind == "flare" else th["smokeMaxDist"])
-        base = p["pos"]
-        land = msg.get("p")
-        if isinstance(land, (list, tuple)) and len(land) == 3:
-            land = [_f(land[0]), _f(land[1]), _f(land[2])]
-        else:
-            # No preview (a bot): fall back to a mid-range throw along the aim.
-            d = msg.get("d")
-            if isinstance(d, (list, tuple)) and len(d) == 3:
-                d = (_f(d[0]), _f(d[1]), _f(d[2]))
+    def _on_grenade(self, p, msg):
+        if not p["alive"] or self.phase != "live":
+            return []
+        kind = msg.get("kind")
+        if not isinstance(kind, str) or kind not in GRENADES:
+            return []
+        now = now_ms()
+        if p["grenades"] <= 0 and now >= p["grenade_ready"]:
+            p["grenades"] = int(combat.THROW["grenadeCharges"])
+        if p["grenades"] <= 0:
+            return []
+        flight = self._throw_flight(p, msg, kind)
+        if flight is None:
+            return []
+        spec = GRENADES[kind]
+        fx = dict(k=kind, slot="grenade", team=p["team"], by=p["id"], eid=self.next_eid,
+                  r=spec["radius"], dur=spec["dur"], **flight)
+        if kind == "incendiary":
+            # The shell bursts at the path endpoint; its fuel spills onto the
+            # first floor BELOW that contact, never onto the roof above it.
+            x, y, z = flight["p"]
+            fx["p"] = [x, round(combat.floor_at(x, z, y-combat.STEP_UP_MAX)+combat.THROW["radius"], 4), z]
+        fx["from"] = list(eye_pos(p))
+        fx["start"] = now + flight["delay"]
+        fx["until"] = fx["start"] + fx["dur"]
+        fx["owner"] = {key: p[key] for key in ("id", "name", "team", "cls", "weapon", "kills")}
+        self.next_eid += 1
+        self.effects.append(fx)
+        self._cancel_spawn_shield(p)
+        p["grenades"] -= 1
+        if p["grenades"] <= 0:
+            p["grenade_ready"] = now + combat.THROW["grenadeCdMs"]
+        return [{"to": None, "msg": {"t": "fx", "fx": self._public_effect(fx)}}]
+
+    @staticmethod
+    def _public_effect(effect):
+        return {k: v for k, v in effect.items() if k not in ("until", "start", "owner", "triggered")}
+
+    def _grenade_damage(self, effect, victim, damage, zone):
+        if shield_remaining(victim, now_ms()) > 0:
+            return []
+        owner = self.players.get(effect["by"]) or effect["owner"]
+        victim["hp"] -= damage
+        victim["last_hit_ms"] = now_ms()
+        out = [{"to": victim["id"], "msg": {"t": "hit", "r": "take", "dmg": int(math.ceil(damage)), "zone": zone,
+                                            "from": owner["id"], "p": effect["p"]}}]
+        if victim["id"] != owner["id"]:
+            out.append({"to": owner["id"], "msg": {"t": "hit", "r": "deal", "dmg": int(math.ceil(damage)), "zone": zone,
+                                                  "lethal": victim["hp"] <= 0, "p": list(victim["pos"])}})
+        if victim["hp"] <= 0:
+            out.extend(self._kill(owner, victim, False, effect["k"]))
+        return out
+
+    def _tick_grenade(self, e, now, dt_ms):
+        if self.phase != "live":
+            return
+        kind = e["k"]
+        spec = GRENADES[kind]
+        if kind in ("frag", "flash"):
+            if e.get("triggered"):
+                return
+            e["triggered"] = True
+        for victim in self.players.values():
+            if not victim["alive"] or shield_remaining(victim, now) > 0:
+                continue
+            if kind != "flash" and victim["team"] == e["team"] and victim["id"] != e["by"]:
+                continue  # no friendly damage, but one's own grenade still hurts
+            point = [victim["pos"][0], victim["pos"][1] + body_height(victim)*0.55, victim["pos"][2]]
+            distance = dist3(point, e["p"])
+            source = [e["p"][0], e["p"][1]+0.12, e["p"][2]]
+            if distance >= e["r"] or not combat.has_line_of_sight(source, point):
+                continue
+            if kind == "flash":
+                facing = dir_from_angles(victim["yaw"], victim["pitch"])
+                toward = normalize(tuple(e["p"][i]-eye_pos(victim)[i] for i in range(3)))
+                dot = sum(facing[i]*toward[i] for i in range(3))
+                # Every exposed player in range gets a genuinely opaque flash.
+                # Distance/facing affect recovery time, not see-through white.
+                strength = 1.0
+                exposure = (0.35 + 0.65*(1-distance/e["r"])) * (1.0 if dot > 0.25 else 0.55)
+                duration = max(200, int(spec["flashMs"]*exposure))
+                victim["flash_until"] = max(victim["flash_until"], now+duration)
+                self.outbox.append({"to": victim["id"], "msg": {"t": "flash", "strength": strength, "ms": duration}})
             else:
-                d = dir_from_angles(p["yaw"], p["pitch"])
-            hl = math.hypot(d[0], d[2]) or 1.0
-            dist = (mn + mx) * 0.5
-            land = [eye[0] + d[0] / hl * dist, eye[1], eye[2] + d[2] / hl * dist]
-        dx = land[0] - base[0]
-        dz = land[2] - base[2]
-        hd = math.hypot(dx, dz)
-        if hd > mx:
-            k = mx / hd
-            land[0] = base[0] + dx * k
-            land[2] = base[2] + dz * k
-            hd = mx
-        land[0] = clamp(land[0], combat.BOUNDS["minX"] + 1, combat.BOUNDS["maxX"] - 1)
-        land[2] = clamp(land[2], combat.BOUNDS["minZ"] + 1, combat.BOUNDS["maxZ"] - 1)
-        floor = combat.floor_at(land[0], land[2], max(land[1], combat.GROUND_Y))
-        delay = float(th["flightBaseMs"]) + hd * float(th["flightPerMMs"])
-        point = [round(land[0], 2), round(floor + 0.15, 2), round(land[2], 2)]
-        return point, [round(v, 2) for v in eye], round(delay, 1)
+                active = max(0, min(now, e["until"])-max(now-dt_ms, e["start"])) / 1000
+                damage = spec["damage"]*max(0, 1-distance/e["r"]) if kind == "frag" else spec["damagePerSecond"]*active
+                if damage > 0:
+                    self.outbox.extend(self._grenade_damage(e, victim, damage, "blast" if kind == "frag" else "fire"))
 
     def _drop_crates(self, pid):
         """Take down a caster's standing heal/ammo crates.
@@ -663,14 +858,33 @@ class Match:
         return False
 
     def standing_crates(self):
-        """Persistent crates currently on the field, for the welcome payload.
+        """Public live payloads and pending flights, with receiver-relative age."""
+        now = now_ms()
+        return [dict(self._public_effect(e), age=max(0, now-e["start"]+e.get("delay", 0)))
+                for e in self.effects if e.get("persist") or e["until"] > now]
 
-        Only these: a late joiner needs the boxes that will still be there in a
-        minute, whereas a transient effect replayed from a part-used timer would
-        fade in again in the middle of its life.
-        """
-        return [{k: v for k, v in e.items() if k not in ("until", "start")}
-                for e in self.effects if e.get("persist")]
+    def _ensure_safe_position(self, p):
+        """Recover corrupt/out-of-map bodies without granting another spawn shield."""
+        pos, b = p["pos"], combat.BOUNDS
+        def inside(q):
+            return (q and len(q) == 3 and all(math.isfinite(v) for v in q)
+                    and b["minX"] + 1.5 <= q[0] <= b["maxX"] - 1.5
+                    and b["minZ"] + 1.5 <= q[2] <= b["maxZ"] - 1.5
+                    and q[1] >= combat.FLOOR_BASE - 0.05
+                    and not combat.is_void_floor(q[0], q[2], q[1]))
+        if not inside(pos):
+            safe = p.get("safe_pos")
+            if not inside(safe) or combat.blocked(safe[0], safe[2], safe[1], body_height(p)):
+                safe, _ = random_spawn(p["team"], self.rng)
+            p["pos"] = list(safe)
+            p["velocity"] = [0.0, 0.0, 0.0]
+            p["recovery_seq"] = p.get("recovery_seq", 0) + 1
+            p["recovery_pos"] = list(safe)
+            _seed_hist(p, now_ms())
+        else:
+            floor = combat.floor_at(pos[0], pos[2], pos[1])
+            if abs(pos[1] - floor) <= 0.05 and not combat.blocked(pos[0], pos[2], pos[1], body_height(p)):
+                p["safe_pos"] = list(pos)
 
     # -------------------------------------------------------------- simulation
 
@@ -683,23 +897,29 @@ class Match:
             if self.start_ms is None:
                 self.start_ms = now
             if now - self.start_ms >= float(COMBAT["matchMs"]):
-                self._end(0 if self.scores[0] >= self.scores[1] else 1)
+                winner = -1 if self.scores[0] == self.scores[1] else (0 if self.scores[0] > self.scores[1] else 1)
+                self._end(winner)
         elif self.phase == "ended" and now - self.ended_at > 10000.0:
+            self.set_mode(self.mode)
+            self.effects = []
             self.scores = [0, 0]
             self.start_ms = now
             self.phase = "live"
             self.winner = -1
+            # A new round resets every body immediately, including players
+            # who died near the last round's end (no extra respawn wait).
             for p in self.players.values():
-                if p["alive"]:
-                    self._spawn(p)
-                else:
-                    p["respawn_at"] = now
+                self.outbox.extend(self._spawn(p))
 
         for p in self.players.values():
-            if not p["alive"] and now >= p["respawn_at"] + 8000.0 and self.phase == "live":
-                self._spawn(p)
+            # Humans confirm their two-slot loadout with Redeploy. An automatic
+            # timeout used to close the picker mid-selection and discard it.
+            # Bots have no picker, so keep their existing automatic return.
+            if p["bot"] and not p["alive"] and now >= p["respawn_at"] + 8000.0 and self.phase == "live":
+                self.outbox.extend(self._spawn(p))
             if not p["alive"]:
                 continue
+            self._ensure_safe_position(p)
             if p["reload_end"] > 0:
                 # Rounds still to load are bounded by the spare ammo on hand.
                 need = min(mag_size(p["weapon"]) - int(p["reload_from"]), int(p["reserve"]))
@@ -723,12 +943,16 @@ class Match:
         # Crates have no expiry of their own (persist=True); anything else lives
         # out its duration. Publish the pruned list first so _in_smoke only ever
         # sees clouds that are actually still burning.
-        self.effects = [e for e in self.effects if e.get("persist") or e["until"] > now]
+        self.effects = [e for e in self.effects if e.get("persist") or e["until"] > now
+                        or e["k"] in ("frag", "flash") and not e.get("triggered")
+                        or e["k"] == "incendiary" and e["until"] > now-dt_ms]
         for e in self.effects:
             # A thrown cloud/flare is inert until it lands (start = impact time).
             if now < e.get("start", 0.0):
                 continue
-            if e["k"] == "heal":
+            if e["k"] in ("frag", "incendiary", "flash"):
+                self._tick_grenade(e, now, dt_ms)
+            elif e["k"] == "heal":
                 for p in self.players.values():
                     if p["alive"] and p["team"] == e["team"] and dist3(p["pos"], e["p"]) <= e["r"]:
                         cap = max_hp(self, p)
@@ -768,6 +992,11 @@ class Match:
             if p["bot"]:
                 self.outbox.extend(bots_mod.think(self, p, dt_ms))
 
+        if self.control is not None and self.phase == "live":
+            self.scores, winner = self.control.tick(self.players, dt_ms)
+            if winner >= 0:
+                self._end(winner, "all_points")
+
         # One position sample per player per tick, which is what _hist_pos
         # rewinds through when a shot arrives.
         for p in self.players.values():
@@ -786,7 +1015,8 @@ class Match:
             remaining = max(0.0, float(COMBAT["matchMs"]) - (now_ms() - self.start_ms))
         return {
             "t": "state", "tick": self.tick_count, "phase": self.phase,
-            "s": list(self.scores), "limit": int(COMBAT["scoreLimit"]),
+            "s": list(self.scores), "limit": len(self.control.points) if self.control else int(COMBAT["scoreLimit"]),
+            "gameMode": self.mode, "objectives": self.control.payload() if self.control else None, "reason": self.end_reason,
             "endsIn": int(remaining), "winner": self.winner,
         }
 
@@ -811,10 +1041,16 @@ class Match:
                 "i": p["id"], "n": p["name"], "tm": p["team"], "c": p["cls"], "w": p["weapon"],
                 "hp": int(max(0, p["hp"])), "al": 1 if p["alive"] else 0,
                 "p": [round(v, 2) for v in p["pos"]],
-                "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f,
+                # Monotonic accepted-shot sequence survives respawns. Unlike
+                # the short flag pulse, slow weapons cannot disappear between
+                # snapshots, and a repeated snapshot cannot replay a shot.
+                "y": round(p["yaw"], 1), "pi": round(p["pitch"], 1), "f": f, "sq": p.get("shot_seq", 0),
                 "rv": 1 if p["reveal_until"] > now else 0,
                 "sp": 1 if p["suppress_until"] > now else 0,
-                "sk": p["skin"],
+                "sh": int(math.ceil(shield_remaining(p, now))), "life": p["life"],
+                "rt": int(p["reload_total"]) if p["reload_end"] > now else 0,
+                "ri": int(max(0,p["reload_end"]-now)),
+                "sk": p["skin"], "ai": p["bot_skill"],
                 "k": p["kills"], "d": p["deaths"],
             })
         return out
@@ -822,7 +1058,7 @@ class Match:
     def me_payload(self, p):
         now = now_ms()
         return {
-            "t": "me", "id": p["id"], "hp": int(max(0, p["hp"])),
+            "t": "me", "tick": self.tick_count, "life": p["life"], "id": p["id"], "hp": int(max(0, p["hp"])),
             "hpMax": int(max_hp(self, p)),
             "mag": int(max(0, p["mag"])), "magMax": mag_size(p["weapon"]),
             "reserve": int(max(0, p["reserve"])),
@@ -830,8 +1066,14 @@ class Match:
             "reloadTotal": int(p["reload_total"]),
             "reloading": 1 if p["reload_end"] > now else 0,
             "alive": 1 if p["alive"] else 0,
+            "shieldMs": int(math.ceil(shield_remaining(p, now))),
+            "recovery": {"seq": p["recovery_seq"], "p": p["recovery_pos"]} if p.get("recovery_pos") else None,
             "respawnIn": int(max(0, p["respawn_at"] - now)) if not p["alive"] else 0,
             "abilityIn": int(max(0, p["ability_ready"] - now)),
+            "grenades": p["grenades"] if p["grenades"] > 0 or now < p["grenade_ready"] else int(combat.THROW["grenadeCharges"]),
+            "grenadeIn": int(max(0, p["grenade_ready"]-now)) if p["grenades"] <= 0 else 0,
             "c": p["cls"], "w": p["weapon"],
+            "primary": p["primary"], "secondary": p["secondary"], "slot": p["slot"],
+            "equipIn": int(max(0, p.get("equip_until", 0) - now)),
             "team": p["team"], "nm": p["name"],
         }
