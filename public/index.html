@@ -56,6 +56,20 @@
       <p id="room-note" class="hint dim">创建房间后会生成 8 位房号：发给朋友，朋友选「输入房号加入」就能进同一局（单人模式无需房号）</p>
       <p id="room-list-note" class="hint dim"></p>
 
+      <section id="lobby-main" class="room-lobby hidden" aria-label="房间大厅">
+        <header><h3>房间大厅</h3><b id="lobby-code"></b></header>
+        <p id="lobby-status" role="status" aria-live="polite"></p>
+        <div class="lobby-actions">
+          <button id="btn-lobby-invite" class="ghost-btn small" type="button">邀请朋友</button>
+          <button id="btn-lobby-copy" class="ghost-btn small" type="button">复制邀请链接</button>
+          <button id="btn-lobby-choose" class="big-btn small" type="button">选择角色</button>
+          <button id="btn-lobby-leave" class="ghost-btn small" type="button">离开房间</button>
+        </div>
+        <h4 id="lobby-requests-heading">加入申请</h4>
+        <ul id="lobby-requests" class="lobby-list"></ul>
+        <h4>房间成员</h4><ul id="lobby-members" class="lobby-list"></ul>
+      </section>
+
       <div class="bot-row hidden" id="bot-row">
         <span>AI 数量</span>
         <div class="seg" id="bot-count">
@@ -129,6 +143,10 @@
       <button id="btn-select-copy" class="ghost-btn small" type="button">复制邀请链接</button>
     </div>
 
+    <section id="lobby-selection" class="room-lobby hidden" aria-label="房间状态">
+      <p id="lobby-selection-status" role="status" aria-live="polite"></p>
+      <ul id="lobby-selection-members" class="lobby-list"></ul>
+    </section>
     <div class="class-row" id="class-row"></div>
 
     <div class="weapon-block">

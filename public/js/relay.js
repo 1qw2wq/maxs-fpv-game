@@ -253,7 +253,10 @@ class RelayChannel {
   send(topic, text) {
     if (this._closed) return false;
     let sent = false;
-    if (this._client) { this._client.publish(topic, text); sent = true; }
+    if (this._client) {
+      let payload=text;try{payload=JSON.stringify({...JSON.parse(text),wire:this._wireId});}catch{}
+      this._client.publish(topic, payload);sent=true;
+    }
     const packet = { topic, text, from: this._wireId, n: ++this._wireSeq };
     if (this._bc) { this._bc.postMessage(packet); sent = true; }
     const wire = JSON.stringify(packet);
@@ -273,16 +276,21 @@ class RelayChannel {
       this._received.add(key);
       if (this._received.size > 2048) this._received.delete(this._received.values().next().value);
     }
-    this._deliver(packet.topic, packet.text);
+    this._deliver(packet.topic, packet.text, packet.from);
   }
 
-  _deliver(topic, text) {
+  _deliver(topic, text, sender) {
     if (this._closed || !this._topics.has(topic) || typeof text !== 'string') return;
-    this.h.onMessage?.(topic, text);
+    if(!sender){try{sender=JSON.parse(text).wire;}catch{}}
+    this.lobby?.receive(text,sender);
+    if(this.lobby?.role==='guest'&&sender!==this.lobby.owner)return;
+    this.h.onMessage?.(topic, text, sender);
   }
 
   close() {
+    if(this._closed)return;
     this._closed = true;
+    this.lobby?.end('closed');
     this.connected = false;
     this._client?.close();
     this._client = null;
@@ -380,7 +388,7 @@ export class RelayNet extends Net {
    */
   async _openChannel() {
     return openChannel(this.code, {
-      onMessage: (_topic, text) => this._onRelay(text),
+      onMessage: (_topic, text, sender) => this._onRelay(text,sender),
       onClose: () => this._onChannelClose(),
       onPeerClose: () => {
         if (this._closed || !this.connected || this.relayKind !== 'p2p') return;
@@ -695,7 +703,7 @@ export class RelayHostNet extends LocalNet {
       // The menu-created channel now belongs to this host, not a stale menu
       // callback. Preserve invite status listeners while replacing dispatch.
       ready.h = { ...ready.h,
-        onMessage: (_topic, text) => this._onRelay(text),
+        onMessage: (_topic, text, sender) => this._onRelay(text,sender),
         onClose: () => this._onChannelClose(),
       };
     }
@@ -731,7 +739,7 @@ export class RelayHostNet extends LocalNet {
   /** The channel, plus the way back from a broker that drops this tab. */
   async _openChannel() {
     return openChannel(this.code, {
-      onMessage: (_topic, text) => this._onRelay(text),
+      onMessage: (_topic, text, sender) => this._onRelay(text,sender),
       onClose: () => this._onChannelClose(),
     });
   }
@@ -819,11 +827,16 @@ export class RelayHostNet extends LocalNet {
   }
 
   /** One guest message: a join, a game message, a goodbye or a hello. */
-  _onRelay(text) {
+  _onRelay(text, sender) {
     let msg;
     try { msg = JSON.parse(text); } catch { return; }
     if (!msg || msg.v !== PROTO || !msg.sid) return;
     const sid = String(msg.sid);
+    const admission=this.channel?.lobby;
+    if(admission?.role==='host'&&!admission.allows(sid,sender)){
+      if(msg.k==='m'&&msg.m?.t==='join')this._reply(sid,{t:'joinError',why:'approval'});
+      return;
+    }
     this._seen.set(sid, performance.now());
     if(this._engine&&this._joined)this._advance();
     if (msg.k === 'bye') { this._dropGuest(sid); return; }

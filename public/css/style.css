@@ -1315,3 +1315,14 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
   .death-sequence #death-panel .death-panel { opacity:1; pointer-events:auto; }
   @keyframes kill-confirm-reduced { 0%,80% {opacity:1;} 100% {opacity:0;} }
 }
+
+/* Pre-match host approval lobby; normal document flow on desktop and touch. */
+.room-lobby{margin:16px 0;padding:16px;border:1px solid #ffffff30;border-radius:14px;background:#101b27db;min-width:0}
+.room-lobby header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.room-lobby h3,.room-lobby h4{margin:6px 0 10px}.room-lobby p{line-height:1.5;color:#d6e3ef;overflow-wrap:anywhere}
+#lobby-code{font-variant-numeric:tabular-nums;letter-spacing:.12em;color:#ffd271}
+.lobby-actions{display:flex;flex-wrap:wrap;gap:8px}.room-lobby .lobby-actions button{white-space:normal;flex:1 1 44%;min-width:0;padding:10px 12px;font-size:12px;letter-spacing:.03em;min-height:44px}
+.lobby-list{list-style:none;padding:0;margin:8px 0;max-height:240px;overflow-y:auto}.lobby-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid #ffffff12}
+.lobby-list li span{overflow-wrap:anywhere;min-width:0}.lobby-list .lobby-row-actions{display:flex;gap:8px}
+#btn-deploy:disabled{opacity:.55;cursor:not-allowed}#lobby-selection{width:100%}
+@media(max-width:560px){.room-lobby{padding:12px}.lobby-actions button{flex:1 1 42%}.lobby-list li{align-items:flex-start}}

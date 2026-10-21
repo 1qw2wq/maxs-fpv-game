@@ -100,7 +100,8 @@ export async function testArsenal(context, origin) {
 }
 
 export async function testLiveArsenal(page) {
-  const weapons=await page.evaluate(()=>window.__trench.app.data.weapons.map(w=>({id:w.id,cls:w.class})));
+  // A pistol's catalog class is `secondary`, not a playable character class.
+  const weapons=await page.evaluate(()=>window.__trench.app.data.weapons.map(w=>({id:w.id,cls:w.slot==='secondary'?'assault':w.class})));
   for(const mode of ['fp','tp']) for(const w of weapons) {
     await page.evaluate(({w,mode})=>{
       const {app}=window.__trench;
@@ -124,5 +125,5 @@ export async function testLiveArsenal(page) {
       return true;
     },before);
   }
-  console.log('PASS: actual main.js fires every gun in both first- and third-person (30 weapon/mode cases)');
+  console.log(`PASS: actual main.js fires every gun in both first- and third-person (${weapons.length*2} weapon/mode cases)`);
 }

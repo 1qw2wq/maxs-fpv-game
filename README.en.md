@@ -87,7 +87,9 @@ port is busy (**the console prints the real port**). `Ctrl+C` stops it.
 The server listens on every interface, so any other device on the same network can simply open
 the printed `LAN` URL (`http://192.168.1.23:8080`) — nothing else to configure.
 
-In multiplayer, players are grouped by an **8-digit room code** and rooms never see each other:
+**The grouping, capacity and expiry rules below describe the optional Python server’s legacy protocol/API. The main-menu multiplayer controls now use the browser-hosted approval lobby in the next section; a saved server address does not take over that lobby. Different devices still require invite pairing.**
+
+The legacy server protocol groups players by an **8-digit room code** and rooms never see each other:
 
 - **Create a room**: the server hands out an 8-digit code, shown in the top-right corner for the
   whole match (`1958 0121` style, spaced so it can be read out loud). Send it to your friends.
@@ -129,21 +131,34 @@ the browser of **whoever created it** (the same in-page Pyodide engine solo uses
 connect straight to it. Nothing goes through a third-party service — no relay, no account, no key:
 
 - **Two tabs of one browser**: press *Create room*, then type the 8-digit code into another tab
-  (*Join with code*) and deploy. Both tabs must use the **same origin and browser storage partition**
+  (*Join with code*), press **Request to join**, and wait for the host to accept on the main page.
+  Both tabs must use the **same origin and browser storage partition**
   (not different Vercel deployment URLs or a normal/private window pair). They use `BroadcastChannel`.
 - **Two different computers**: use *Invite a friend*. The host presses *Create an invite code*
   (a long piece of text starting with `TFi1.`) and sends it over; the friend's page takes it with
   *Join with an invite code* and produces an answer code (`TFa1.`), which goes back to the host and
   is pasted into the same box (*Pair up*). That builds a **direct WebRTC data channel** between the
   two pages (`js/p2p.js`); the match traffic only ever travels over it. **Pair up reports success only
-  after the data channel is open.** Start the host's match, then deploy the guest; joins retry for up
-  to 30 seconds while the host's engine loads. Generate a separate invite for each friend.
+  after the data channel is open; pairing is not admission.** The host then accepts the request
+  on the main page. Guests no longer deploy individually. Generate a separate invite for each friend.
   Without external services, this requires a network that allows a direct connection (normally LAN
   or reachable public addresses). For different home networks, **both players** can enable
   *Different networks* **before generating their codes**, adding an optional external STUN service.
   STUN helps discover addresses; it does not relay gameplay or guarantee a connection. Symmetric NAT,
   blocked UDP or restrictive firewalls can still require **TURN**, which is **not provided by Vercel**.
   A Vercel-only deployment cannot guarantee multiplayer across those networks.
+- **Host approval and synchronized start**: creating a room **keeps the host on the main page**, with
+  named join requests, Accept/Reject actions, a roster, and host-only map/rules controls. Accepted
+  guests **automatically open character selection**, choose primary/secondary weapons, and press
+  **Ready**. The host uses **Choose character** to configure themselves. **Start game** is enabled
+  only when all approved guests are ready. Once the host finishes loading the match/map, **everyone
+  enters automatically**—no second guest Deploy click. Changing class/weapons or returning to the
+  menu clears guest readiness. Leave/reject/close/timeout are explicit; a failed engine boot can be
+  retried in the same lobby without losing approvals or RTC pairing.
+  New sessions cannot join after launch; pending requests are told the match started. An already
+  approved session can still auto-rejoin a lost seat. Refreshing creates a new session and needs a
+  new host lobby/approval. Desktop players still click the canvas for native pointer lock after
+  automatic entry. See [the lobby protocol and checks](docs/host-approved-lobby.md).
 - **The room code exists the moment you press Create room** (it no longer waits for the in-page
   engine to boot). It shows in the top-right HUD chip and on the class screen, and **clicking the chip
   copies an invite link** (`https://your-site/?code=1958 0121`) that pre-fills the room code. A short
@@ -154,8 +169,8 @@ connect straight to it. Nothing goes through a third-party service — no relay,
   rooms can run different maps at the same time** — something the Python server cannot do, since
   `combat.py` holds one world state per process.
 - **Pause and leaving**: press **Esc** for the menu. *Carry on* returns to the fight (while paused the
-  whole match on the host's machine stands still, and the others are told so), *Invite a friend* hands
-  out an invite code on the spot, and *Leave the match* goes back to the menu (the host's room closes
+  whole match on the host's machine stands still, and the others are told so), *Invite a friend* still
+  opens pairing tools (new sessions must wait for the next lobby), and *Leave the match* goes back to the menu (the host's room closes
   with it and the others are told). Esc can never trap you in a match.
 - Chat, scoreboard, kill feed and hit markers work exactly as on the LAN. If the host closes the
   page, everyone else is told *lost contact with the host* and can rejoin another room from the menu.
@@ -1216,3 +1231,19 @@ the real game entry point through character changes, authoritative primary/pisto
 third-person/scope transitions, pause/resume, missing-skin fallback/recovery and leave cleanup.
 Run with `public/` served on port 8080, test-only Python Playwright installed, and
 `CHROMIUM_EXECUTABLE=/path/to/chromium python tools/test-first-person-arms.py`.
+
+### Host-approved lobby checks
+
+```sh
+node tools/test-room-lobby-unit.mjs
+node tools/test-room-lobby.mjs
+```
+
+The browser check uses the same external test-only dependencies as `tools/test-vercel.mjs`.
+It exercises native approval/rejection/retry, automatic selection, host-only map/rules, readiness,
+failed engine boot with pairing preserved, synchronized launch, unapproved joins/spoofed leave,
+approved-seat rejoin, live departure, and bilingual/narrow layouts. Two isolated contexts also
+exchange real offer/answer codes with BroadcastChannel and WebSocket disabled, retain their
+paired channels through launch, and exchange chat. Run heavy WebGL suites sequentially to avoid
+software-renderer memory contention. This is local static-host verification, not cross-NAT or
+real-phone certification; no production Node/npm, build step or required backend was added.

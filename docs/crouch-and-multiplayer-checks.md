@@ -41,8 +41,9 @@ channel; falling back afterwards created a new, **unpaired** guest channel. This
 with a stale saved address.
 
 An explicitly paired guest or explicitly created browser room now takes priority over that saved
-address, including malformed saved addresses. The existing channel is reused. An unpaired player
-who intentionally configures a real backend still uses the normal backend path.
+address, including malformed saved addresses. The existing channel is reused. The current main-menu multiplayer flow always uses the browser-hosted approval lobby, including
+unpaired same-browser guests; the optional legacy backend transport remains available at the API
+level. See [host-approved-lobby.md](host-approved-lobby.md).
 
 ### Authority depended on drawing frames
 
@@ -71,10 +72,11 @@ just because a transport object opened.
 
 ## Vercel-only connection instructions and limits
 
-1. **Same-origin tabs in the same browser storage partition:** create a room, deploy the host,
-   enter its 8-digit code in the other tab and deploy. This uses BroadcastChannel.
+1. **Same-origin tabs in the same browser storage partition:** create a room, enter its code in
+   the other tab and request admission. The host accepts on the main page; guests auto-open character
+   selection and press Ready. The host chooses the map/character and starts everyone. This uses BroadcastChannel.
 2. **Another browser/profile/device:** use Invite a friend. Send `TFi1...` to the guest, return its
-   `TFa1...` answer to the host, complete pairing, deploy the host and then the guest. A code or
+   `TFa1...` answer to the host, complete pairing, then use the same approval/Ready/host-Start flow. A code or
    prefilled room link alone is not signalling and cannot connect independent devices.
 3. No external services are required for directly reachable networks. Optional STUN can help
    discover addresses across home networks, but is not a relay and cannot bypass every NAT or

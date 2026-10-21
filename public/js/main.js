@@ -6,6 +6,8 @@
 // match-level event handling.
 
 import * as THREE from 'three';
+import {RoomLobby} from './room-lobby.js';
+import {renderRoomLobby} from './room-lobby-view.js';
 import { loadConfig } from './config.js';
 import { World } from './map.js';
 import { ObjectivesView } from './objectives.js';
@@ -528,6 +530,7 @@ function setupPause() {
   app.hud.bindPause({
     onResume: () => togglePause(false),
     onSettings: () => {
+      app.roomLobby?.ready(false);
       app.sfx.resume();
       app.settings.open();
     },
@@ -576,6 +579,7 @@ function togglePause(on) {
  * back), and a guest simply says goodbye.
  */
 function leaveMatch() {
+  closeRoomLobby();
   clearDeathPresentation();deathImpacts.clear();app.killedBy=null;app.hud.resetCombatFeedback();
   app.leaving = true;
   app.paused = false;
@@ -652,7 +656,7 @@ function setupInvite() {
       app.hud.inviteStatus(t('正在配对…'));
       try {
         await ch.acceptAnswer(text);
-        app.hud.inviteStatus(t('配对成功：这位朋友已经连上你了，他现在能进这一局'), true);
+        app.hud.inviteStatus(t('配对成功；请回主页面接受这位玩家的加入申请。'), true);
         app.hud.toast(t('朋友已直连进来'), 3200);
       } catch (err) {
         app.hud.inviteStatus(err?.message || t('回答码用不了'), false);
@@ -663,7 +667,7 @@ function setupInvite() {
       try {
         const res = await joinByInvite(text);
         app.hud.el.inviteCode.value = res.answer;
-        app.hud.inviteStatus(t('回答码已生成，房号 {code}：发回房主完成配对；连接成功后再部署', { code: formatCode(res.room) }), true);
+        app.hud.inviteStatus(t('回答码已生成，房号 {code}：发回房主，完成配对后等待房主接受。', { code: formatCode(res.room) }), true);
       } catch (err) {
         app.hud.inviteStatus(err?.message || t('邀请码用不了'), false);
       }
@@ -697,6 +701,7 @@ function openInvite(mode) {
 
 /** Guest side of the invite exchange: learn the room, connect, return an answer. */
 async function joinByInvite(text) {
+  if(app.playing)throw Error(t('请先离开当前对局。'));
   const parsed = await parseCode(text);
   if (!parsed || parsed.kind !== 'invite') throw new Error(t('这不像一个邀请码：它应以 TFi1 开头（回答码是发给房主的）'));
   const room = String(parsed.room || '').replace(/\D/g, '');
@@ -705,11 +710,72 @@ async function joinByInvite(text) {
   app.roomCode = room;
   profile.save({ roomMode: 'join', room });
   app.hud.setRoomMode('join', room);
-  await connectRelay({ room, solo: false });
+  await requestRoom(room);
   const res = await app.net.acceptInvite(text);
   if (res.room) { app.relayHostCode = ''; }
-  app.hud.setRoomCode('');
+  app.hud.setRoomCode(room);
   return { room: res.room || room, answer: res.answer };
+}
+
+function updateRoomLobby(){
+  renderRoomLobby(app.roomLobby,app.hud,app.data);
+  const button=app.hud.el.modeMulti;
+  button.querySelector('b').textContent=t(app.roomLobby?'选择角色':app.roomMode==='join'?'申请加入':'创建房间');
+  button.querySelector('span').textContent=t(app.roomLobby?'房主控制地图与开始，其他玩家自动进入':'先申请并由房主接受，再选择角色');
+  button.disabled=!!app.roomLobby&&(app.roomLobby.phase!=='waiting'||app.roomLobby.selfStatus!=='approved');
+}
+function closeRoomLobby(notify=true){
+  const lobby=app.roomLobby;app.roomLobby=null;lobby?.close(notify);
+  app.hud.setRoomLink('');
+  app.connectionSerial=(app.connectionSerial||0)+1;
+  if(!app.playing){
+    app.net?.close();app.net=null;app.netUrl=null;
+    app.roomChannel?.close();app.roomChannel=null;app.relayHostCode='';
+    app.hud.setRoomCode('');
+  }
+  updateRoomLobby();
+}
+function installRoomLobby(role,channel,id){
+  const lobby=new RoomLobby({role,channel,id,code:channel.room,name:app.hud.playerName,map:app.mapPick,
+    gameMode:document.getElementById('game-mode').value,
+    onChange:l=>{
+      if(app.roomLobby!==l)return;
+      if(role==='guest'){
+        app.mapPick=l.config.map;app.hud.setMapPick(l.config.map);
+        document.getElementById('game-mode').value=l.config.gameMode;
+      }
+      updateRoomLobby();
+    },
+    onLeave:id=>{if(role==='host')app.net?._dropGuest?.(id);},
+    onApproved:()=>{if(app.roomLobby===lobby){app.hud.closeInvite();app.enterRoomSelect('multi');updateRoomLobby();}},
+    onStart:async(config,selection)=>{
+      if(app.roomLobby!==lobby)return;
+      app.hud.closeInvite();
+      const opts={...(selection||app.lobbySelection()),name:lobby.name,map:config.map,gameMode:config.gameMode,
+        solo:false,bots:false,botCount:0,room:role==='guest'?lobby.code:''};
+      const ok=await deploy(opts);
+      if(ok===false&&app.roomLobby===lobby){
+        if(role==='host'){lobby.failed();app.hud.toast(t('启动失败，请重试或返回大厅。'),4500);}
+        else lobby.end('launch');
+      }
+    },
+    onClosed:reason=>{
+      if(app.roomLobby!==lobby)return;
+      if(app.playing)leaveMatch();else closeRoomLobby(false);
+      app.hud.closeInvite();app.hud.screen('menu');
+      app.hud.menuError(t(reason==='denied'?'房主拒绝了申请。':reason==='started'?'对局已开始，请等待下一个大厅。':reason==='timeout'?'未收到房主回应，请检查房号或完成邀请码配对。':reason==='full'?'房间已满。':reason==='launch'?'进入对局失败，请返回大厅重试。':'房间已关闭或连接已断开。'));
+    },
+  });
+  app.roomLobby=lobby;app.hud.setRoomCode(lobby.code);
+  app.hud.setRoomLink(role==='host'?joinLink(lobby.code):'');
+  updateRoomLobby();return lobby;
+}
+async function requestRoom(room){
+  if(app.roomLobby?.role==='guest'&&app.roomLobby.code===room)return;
+  closeRoomLobby();
+  app.roomMode='join';app.roomCode=room;app.hud.setRoomMode('join',room);
+  await connectRelay({room});
+  installRoomLobby('guest',app.net.channel,app.net.sid);
 }
 
 function setupMenu() {
@@ -782,7 +848,7 @@ function setupMenu() {
   refreshRoomList();
   showStaticHint();
 
-  const enterSelect = (which) => {
+  const enterSelect = app.enterRoomSelect = (which) => {
     mode = which;
     app.sfx.resume();
     // Bots belong to solo only; multiplayer is humans only.
@@ -790,6 +856,7 @@ function setupMenu() {
     app.hud.screen('select');
     app.hud.selectClass(app.loadout.cls, 0);
     app.hud.pickWeapon(app.loadout.cls, app.loadout.primary || app.loadout.weapon || app.loadout.cls);
+    updateRoomLobby();
   };
 
   // Multiplayer is entered through a room code: creating one makes you the
@@ -801,44 +868,47 @@ function setupMenu() {
     if (code.length !== 8) return t('请输入房主给你的 8 位房号（例如 1234 5678）');
     return '';
   };
-  const enterMulti = () => {
-    const problem = roomProblem();
-    if (problem) {
-      app.hud.menuError(problem);
-      app.hud.setRoomMode('join', app.hud.joinCode);
+  const enterMulti = async () => {
+    if(app.roomLobby){
+      if(app.roomLobby.selfStatus==='approved'&&app.roomLobby.phase==='waiting')enterSelect('multi');
       return;
     }
-    app.hud.menuError('');
-    enterSelect('multi');
+    if(app.roomMode!=='join'){await createLobby();return;}
+    const problem=roomProblem();if(problem){app.hud.menuError(problem);return;}
+    if(app.lobbyConnecting)return;app.lobbyConnecting=true;
+    try{await requestRoom(app.hud.joinCode);}
+    catch(error){app.hud.menuError(error.message||t('联机通道不可用'));}
+    finally{app.lobbyConnecting=false;}
+  };
+  const createLobby=async()=>{
+    if(app.hostRoomPending)return;
+    if(app.roomLobby?.role==='host'){updateRoomLobby();return;}
+    app.hostRoomPending=true;app.hud.el.roomCreate.disabled=true;
+    try{
+      closeRoomLobby();mode='multi';app.hud.menuError('');
+      if(await hostNow())installRoomLobby('host',app.roomChannel,app.roomChannel._wireId);
+    }finally{app.hostRoomPending=false;app.hud.el.roomCreate.disabled=false;}
   };
 
   app.hud.bindMenu({
     onMulti: enterMulti,
-    onSolo: () => enterSelect('solo'),
+    onSolo: () => {closeRoomLobby();enterSelect('solo');},
     onSettings: () => {
+      app.roomLobby?.ready(false);
       app.sfx.resume();
       app.settings.open();
     },
     onBotCount: (n) => { botCount = n; botChoices[app.mapPick]=n; store.set('tf.mapBots',JSON.stringify(botChoices)); profile.save({ soloBots: n }); },
     onRoomMode: (m) => {
+      closeRoomLobby();
       app.roomMode = m;
       app.hud.menuError('');
       app.hud.setRoomMode(m, app.roomCode);
+      updateRoomLobby();
     },
     // One click, one room: hosting starts immediately instead of waiting for
     // the deploy button (and for a broker probe that no longer exists).
-    onHost: async () => {
-      app.hud.menuError('');
-      if (app.relayHostCode) {
-        app.hud.toast(t('房间 {code} 已经开着了：把房号发给朋友，或按 Esc →「邀请朋友」生成跨电脑邀请码',
-          { code: formatCode(app.relayHostCode) }), 4200);
-        return;
-      }
-      app.sfx.ui();
-      const ok = await hostNow();
-      if (!ok) return;
-      enterMulti();
-    },
+    onHost: createLobby,
     onInvite: () => {
       app.hud.menuError('');
       openInvite(app.relayHostCode ? 'host' : 'guest');
@@ -855,10 +925,12 @@ function setupMenu() {
         : t('房号：{code}（把这一串发给朋友，他们在「输入房号加入」里填）', { code: formatCode(code) }), 3200);
     },
     onTutorial: () => {
+      closeRoomLobby();
       app.hud.menuError('');
       app.tut?.open();
     },
     onMap: (id) => {
+      if(app.roomLobby&&!app.roomLobby.configure({map:id}))return;
       app.sfx.ui();
       app.mapPick = id;
       botCount=selectBotCount(id);
@@ -875,38 +947,39 @@ function setupMenu() {
   }
   if (saved.name) app.hud.el.name.value = saved.name;
 
+  app.lobbySelection=()=>{
+    const sel=app.hud.selected||{cls:app.loadout.cls,weapon:app.loadout.primary};
+    app.loadout={...app.loadout,...sel,primary:sel.weapon};const practice=!!app.tut?.active;
+    return {name:app.hud.playerName,cls:sel.cls,weapon:sel.weapon,secondary:sel.secondary,
+      bots:practice?false:mode==='solo',botCount:mode==='solo'?botCount:0,skin:app.loadout.skin||'',
+      solo:practice||mode==='solo',gameMode:practice?'control':document.getElementById('game-mode').value,
+      room:!practice&&mode==='multi'&&multiNeedsCode()?app.hud.joinCode:'',map:practice?'somme':app.mapPick};
+  };
   app.hud.buildSelect(
-    (clsId) => {
-      app.sfx.ui();
-      app.hud.selectClass(clsId, 0);
-      app.hud.pickWeapon(clsId, app.data.weaponsByClass[clsId][0].id);
+    clsId=>{
+      app.sfx.ui();app.hud.selectClass(clsId,0);app.hud.pickWeapon(clsId,app.data.weaponsByClass[clsId][0].id);
     },
-    () => {
-      const sel = app.hud.selected || { cls: app.loadout.cls, weapon: app.data.weaponsByClass[app.loadout.cls][0].id };
-      app.loadout = { ...app.loadout, ...sel };
-      const practice = !!app.tut?.active;
-      deploy({
-        name: app.hud.playerName,
-        cls: sel.cls,
-        weapon: sel.weapon,
-        secondary: sel.secondary,
-        // The walkthrough is a solo match with nobody shooting at the player.
-        bots: practice ? false : mode === 'solo',
-        botCount: mode === 'solo' ? botCount : 0,
-        skin: app.loadout.skin || '',
-        solo: practice || mode === 'solo',
-        gameMode: practice ? 'control' : document.getElementById('game-mode').value,
-        // Solo is its own private room; multiplayer either hosts (no code) or
-        // joins the code the player typed.
-        room: !practice && mode === 'multi' && multiNeedsCode() ? app.hud.joinCode : '',
-        map: practice ? 'somme' : app.mapPick,
-      });
+    ()=>{
+      const opts=app.lobbySelection(),l=app.roomLobby;
+      if(l){if(l.role==='host')l.start();else l.ready(true,opts);updateRoomLobby();return;}
+      deploy(opts);
     },
-    () => {
-      app.hud.setBotsVisible(mode === 'solo');
-      app.hud.screen('menu');
-    },
+    ()=>{app.roomLobby?.ready(false);app.hud.setBotsVisible(mode==='solo');app.hud.screen('menu');updateRoomLobby();},
   );
+  document.getElementById('btn-lobby-invite').onclick=()=>openInvite('host');
+  document.getElementById('btn-lobby-copy').onclick=()=>app.hud.copyRoomLink();
+  document.getElementById('btn-lobby-choose').onclick=()=>{
+    if(app.roomLobby?.phase==='waiting'&&app.roomLobby.selfStatus==='approved')enterSelect('multi');
+  };
+  document.getElementById('btn-lobby-leave').onclick=()=>{closeRoomLobby();app.hud.screen('menu');};
+  document.getElementById('lobby-requests').onclick=e=>{
+    const b=e.target.closest('button[data-lobby-action]');if(!b)return;
+    const l=app.roomLobby;if(l?.role!=='host')return;
+    if(b.dataset.lobbyAction==='approve')l.approve(b.dataset.sid);else l.reject(b.dataset.sid);
+  };
+  for(const id of ['class-row','weapon-row','secondary-row'])document.getElementById(id).addEventListener('click',()=>app.roomLobby?.ready(false));
+  document.getElementById('game-mode').addEventListener('change',()=>app.roomLobby?.configure({gameMode:document.getElementById('game-mode').value}));
+  onLangChange(updateRoomLobby);updateRoomLobby();
 
   for (const cls of app.data.classes) {
     const card = app.hud.classCards[cls.id];
@@ -1114,8 +1187,17 @@ function startRelayLobby() {
  */
 /** The handlers a match needs, whichever transport ends up carrying it. */
 function netHandlers(label) {
+  const serial=app.connectionSerial=(app.connectionSerial||0)+1;
   return {
-    onWelcome: onWelcome,
+    onWelcome:m=>{
+      if(serial!==app.connectionSerial)return;
+      onWelcome(m,serial).catch(error=>{
+        if(serial!==app.connectionSerial)return;
+        console.error('[trench] match load failed',error);
+        closeRoomLobby();app.controls.enabled=false;app.hud.screen('menu');
+        app.hud.menuError(error.message||t('无法进入战场'));
+      });
+    },
     onState: onState,
     onMe: onMe,
     onMessage: onMessage,
@@ -1127,6 +1209,7 @@ function netHandlers(label) {
       else app.hud.menuError(text);
     },
     onClose: () => {
+      if(app.roomLobby&&!app.leaving){app.roomLobby.end('closed');return;}
       if (!app.playing || app.leaving) return;
       app.playing = false;
       clearEffects();
@@ -1251,8 +1334,10 @@ async function connectRelay(opts = {}) {
     // The room opened from the menu is the same one the match will use.
     app.deployChannel = hosting ? app.roomChannel : null;
     app.netUrl = url;
+    const net=app.net,menuHandlers=app.deployChannel?.h;
     try {
-      await app.net.connect('', { code, channel: app.deployChannel });
+      await net.connect('', { code, channel: app.deployChannel });
+      if(app.net!==net){net.close();throw Error(t('已取消'));}
       app.deployChannel = null;
       app.relayKind = app.net.relayKind || '';
       app.relayLabel = app.net.relayLabel || '';
@@ -1260,9 +1345,11 @@ async function connectRelay(opts = {}) {
     } catch (err) {
       console.error('[trench] the relay could not be opened', err);
       app.hud.menuError(err.message || t('联机通道不可用'));
-      app.net.close();
-      app.net = null;
-      app.netUrl = null;
+      if(menuHandlers&&app.roomLobby?.role==='host'&&net.channel===app.roomChannel&&!app.roomChannel._closed){
+        app.roomChannel.h=menuHandlers;net.channel=null;
+      }
+      net.close();
+      if(app.net===net){app.net=null;app.netUrl=null;}
       throw err;
     }
   }
@@ -1277,6 +1364,7 @@ async function connectRelay(opts = {}) {
  * minute, which is exactly what players reported.
  */
 async function hostNow() {
+  const serial=app.connectionSerial;
   app.roomMode = 'create';
   app.roomCode = '';
   profile.save({ roomMode: 'create' });
@@ -1286,9 +1374,11 @@ async function hostNow() {
       const code = app.relayHostCode || createRoomCode();
       // Just the channel: the code is ready in milliseconds, and the engine
       // boots later, when the match is actually deployed.
-      app.roomChannel = await openRoomChannel(code, {
-        onMessage: (topic, text) => app.net?._onRelay?.(text),
+      const channel = await openRoomChannel(code, {
+        onMessage: (topic, text, sender) => app.net?._onRelay?.(text,sender),
       });
+      if(serial!==app.connectionSerial){channel.close();return false;}
+      app.roomChannel=channel;
       app.relayHostCode = code;
       app.relayKind = app.roomChannel.kind;
       app.relayLabel = app.roomChannel.label;
@@ -1305,6 +1395,8 @@ async function hostNow() {
 }
 
 async function deploy(opts) {
+  const lobbyAtStart=app.roomLobby;
+  if(!opts.solo&&app.roomLobby&&!['starting','started'].includes(app.roomLobby.phase))return false;
   app.hud.menuError('');
 
   // An explicit invite/created room wins over a remembered backend address.
@@ -1312,14 +1404,14 @@ async function deploy(opts) {
   const pairedRoom=!opts.solo&&!!opts.room&&app.net?.code===String(opts.room).replace(/\D/g,'')
     &&app.net?.channel?.peerCount>0;
   const createdRoom=!opts.solo&&!opts.room&&app.relayHostCode&&app.roomChannel?.connected;
-  const pinnedRelay=pairedRoom||createdRoom;
+  const pinnedRelay=pairedRoom||createdRoom||(!opts.solo&&!!app.roomLobby);
 
   let primary;
   try {
     primary = normalizeServer(pinnedRelay?'':app.hud.serverAddress);
   } catch (err) {
     app.hud.menuError(err.message);
-    return;
+    return false;
   }
   store.set('tf.server', app.hud.serverAddress);
 
@@ -1381,7 +1473,11 @@ async function deploy(opts) {
     app.hud.menuError(app.backendHere === false
       ? t('无法连接服务器（{hosts}）· {hint}', { hosts: failed, hint: staticHint() })
       : t('无法连接服务器（{host}）', { host: failed }));
-    return;
+    return false;
+  }
+  if(lobbyAtStart&&app.roomLobby!==lobbyAtStart){
+    if(!app.roomLobby){app.net?.close();app.net=null;app.netUrl=null;}
+    return false;
   }
   // The room list, the character library and the upload endpoint now follow the
   // server that actually answered -- on a static deployment that is not this
@@ -1400,6 +1496,7 @@ async function deploy(opts) {
   app.deployPick = opts.map || app.mapPick;
   app.net.join(opts.name, opts.cls, opts.weapon, opts.bots, opts.botCount, opts.skin,
     opts.solo, opts.map || app.mapPick, tabSessionId(), opts.room || '', opts.gameMode || 'tdm', opts.secondary || 'apx');
+  return true;
 }
 
 // ----------------------------------------------------------------- map swap
@@ -1454,7 +1551,7 @@ async function installMap(meta) {
 
 // ------------------------------------------------------------------ welcome
 
-async function onWelcome(m) {
+async function onWelcome(m,serial) {
   clearDeathPresentation();deathImpacts.clear();app.killedBy=null;app.hud.resetCombatFeedback();
   const meBeforeLoad=app.net?.lastMe;
   app.lastRecoverySeq = 0;
@@ -1468,6 +1565,7 @@ async function onWelcome(m) {
   // is safe: state/me/spawn messages only touch the HUD and controls, and tick()
   // is gated on app.playing.
   await setMap(m.mapId || app.data.defaultMapId);
+  if(serial!==undefined&&serial!==app.connectionSerial)return;
 
   app.cfg = m.cfg;
   const cls = app.data.classById[m.cls];
@@ -1509,7 +1607,9 @@ async function onWelcome(m) {
   // welcome's old primary overwrite a newer acknowledged active weapon.
   const newestMe=app.net?.lastMe;
   if(newestMe&&newestMe!==meBeforeLoad&&newestMe.id===m.id)onMe(newestMe);
+  if(serial!==undefined&&serial!==app.connectionSerial)return;
   app.playing = true;
+  app.roomLobby?.started();
   preloadGrenadeModels();
   app.matchStartedAt = performance.now();
   if (app.controls.mobileMode) app.controls.requestLock();
