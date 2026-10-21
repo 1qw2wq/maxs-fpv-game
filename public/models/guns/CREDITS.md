@@ -27,3 +27,28 @@ Game labels do not replace the original model titles or licenses. The uploaded G
 - Embedded license: SKETCHFAB Standard (https://sketchfab.com/licenses)
 
 The AWP metadata specifies a **non-commercial** license. The Longbow model specifies the Sketchfab Standard license; this credit file does not grant additional rights to that model or the Titanfall intellectual property. Verify permission before commercial use or redistribution beyond the original license terms.
+
+## Uploaded grenade bodies
+
+### Granade M26
+
+- File: `granade_m26.glb`
+- Author: Pablo88 (https://sketchfab.com/Pablo88)
+- Source: https://sketchfab.com/3d-models/granade-m26-ce7c6e5250d841a08a790de5c2f5ecc4
+- Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+### Hand Granade
+
+- File: `hand_granade.glb`
+- Author: DireRaven (https://sketchfab.com/direraven)
+- Source: https://sketchfab.com/3d-models/hand-granade-ea6fbc4363804dfda45d784a36dc9248
+- Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+### Toon_Granade
+
+- File: `toon_granade.glb`
+- Author: faroface (https://sketchfab.com/faroface)
+- Source: https://sketchfab.com/3d-models/toon-granade-4916b6f78b804bacb39eab3a24e02bd6
+- Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+Runtime presentation normalizes scale/pivot, adds type-identification collars, and omits the Toon upload’s expanded black outline shells. Original uploaded GLBs are unchanged. Flash/incendiary/smoke presentations reuse these grenade-shaped bodies; they are not newly scanned replicas of those devices.

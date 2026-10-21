@@ -17,6 +17,7 @@ import { testPerformance, testLiveCover } from './test-performance.mjs';
 import { testAim, testLiveAim } from './test-aim.mjs';
 import { testEffects } from './test-effects.mjs';
 import { testGrenades } from './test-grenades.mjs';
+import { testGrenadeModels } from './test-grenade-models.mjs';
 import { testGameplay, testLiveControl } from './test-gameplay.mjs';
 import { testHands } from './test-hands.mjs';
 import { testDeathLoadout } from './test-death-loadout.mjs';
@@ -368,6 +369,7 @@ try {
   await testSurvival(context, origin);
   await testGameplay(context, origin);
   await testGrenades(context, origin);
+  await testGrenadeModels(context, origin);
   await testCamera(context, origin);
   await testStairs(context, origin);
   await testDeathLoadout(context, origin);

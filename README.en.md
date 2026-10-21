@@ -573,7 +573,7 @@ pointer lock cancel an unthrown grenade without spending a charge. The shared in
 
 | Type | Detonation and effect |
 | --- | --- |
-| **Frag** | 2.6-second fuse; brief flame fireball, sparks and a blast report. Up to 120 damage with radial falloff inside 7 m. |
+| **Frag** | 2.6-second fuse; a sharp pressure flash, metal fragments, sparks, dusty smoke and a layered blast report. Up to 120 damage with radial falloff inside 7 m. |
 | **Incendiary** | Bursts on impact (3-second safety fuse); fuel spreads onto the floor below the contact. Animated flames and embers burn for 7 seconds, dealing 28 damage/second within 4 m. |
 | **Smoke** | 1.8-second fuse; small ignition pop followed by the existing 14-second, 13 m sight-blocking cloud. |
 | **Flash** | 1.6-second fuse; exposed players within 14m get a fully opaque **white screen**, then a smooth recovery (not a strobe). Distance/facing change duration, solid cover blocks exposure, and bots temporarily lose sight too. |
@@ -585,8 +585,44 @@ now visibly burn too, without turning their spotting ability into an incendiary 
 The browser host solves each trajectory and broadcasts a timed bounce path, rather than accepting
 a client-selected landing point. Python authority and the JavaScript preview share fixed-step
 physics tested on both maps, both ramp axes, thin walls and bounds. Joining mid-round retains the
-remaining lifetime of existing smoke/fire and in-flight grenades. All effects are procedural and
-run with the existing Vercel-only browser engine: no new backend, asset service or broker.
+remaining lifetime of existing smoke/fire and in-flight grenades. Detonation/smoke textures are
+procedural; throwable bodies use the included uploaded GLBs. Everything runs with the existing
+Vercel-only browser engine: no new backend, external asset service or broker.
+
+#### Uploaded grenade bodies and more grounded effects
+
+The flying balls are replaced by your uploaded models: **M26 for frag**, **Hand Grenade for
+incendiary/flash** (different identification collars), and **Toon Grenade for smoke**, without its
+expanded black outline shells. Original textures, levers and pull rings remain. These are adaptations
+of the supplied grenade-shaped art, not exact replicas of four different real-world devices.
+Models are centered/upright and fitted inside the unchanged **0.09 m collision radius**. Downloads
+are cached once per file (three files, about 20 MB total); clones share geometry/materials. A detailed
+body/cap/lever/pull-ring fallback stays visible during loading or a failed request—never a ball.
+Scout flares use a slim red cartridge instead of a sphere.
+
+Tumble follows the host path and stops when the body settles, rather than spinning in place until
+the fuse ends. The smoke body stays beneath its venting cloud, including for late arrivals.
+- Frag uses a sub-second pressure flash followed by non-emissive dust, seeded metal fragments and
+  sparks. Cosmetic fragments stop at solid surfaces; the **2.4-second visual tail adds no damage**.
+- Incendiary fire uses irregular rising flame tongues, cooler smoke wisps, embers and temporary
+  ground darkening. Fire placement checks floors and walls; it is not a floating giant glow sphere.
+- Smoke keeps its existing authoritative sight-blocking radius/density and layered cloud, with a
+  smaller vent/ignition puff. Flash uses a brief **white** environmental blink without orange fire
+  or shrapnel; the full-white host-authorized blindness and recovery are unchanged.
+- Two fixed, shadowless light slots handle nearby illumination, rather than adding a light per
+  explosion. Sparks and debris use instanced batches. Sounds layer a sharp crack, lower body and
+  air/debris tail, with softer smoke/flare ignition and a separate flash report.
+
+Run **`node tools/test-grenade-upgrade.mjs`** for the focused static-browser regression (same external
+test dependencies as the Vercel suite). It checks all three actual GLBs/four type presentations with
+rendered pixels, physical bounds, 20/60/144 Hz paths/rest, cache sharing, failed/pending loads, wall
+stops, effect lifetimes, light cleanup and the existing 150 Python/JS trajectory-parity cases.
+It also runs real main.js native G/B/Q throws, persistent fire/expiry, full-white flash/fade, pause
+cancellation, separate inventories and leave cleanup. `GRENADE_ASSETS_ONLY=1` skips the live-game
+portion; `GRENADE_MODEL_SHOTS=/tmp/grenade` saves model close-ups. The full Vercel suite includes
+the new model checks too. These are browser/physics regressions, not physical-phone FPS benchmarks.
+See [grenade model/effect details](docs/grenade-models-and-effects.md) and the
+[embedded asset credits](public/models/guns/CREDITS.md).
 
 ### Point control (new match rules)
 

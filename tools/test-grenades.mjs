@@ -10,7 +10,7 @@ export async function testGrenades(context, origin) {
     const T=await import('/vendor/three.module.js');
     const {World}=await import('/js/map.js');
     const {simulateThrow,sampleThrow}=await import('/js/throwing.js');
-    const {buildGrenadeEffect,updateGrenadeEffect}=await import('/js/grenadefx.js');
+    const {buildGrenadeEffect,updateGrenadeEffect,createGrenadeLights,updateGrenadeLights}=await import('/js/grenadefx.js');
     let tests=0, points=0;
     for(const fixture of fixtures.worlds) {
       const world=Object.assign(Object.create(World.prototype),fixture);world.grid=world._buildGrid();
@@ -43,18 +43,40 @@ export async function testGrenades(context, origin) {
       }
       updateGrenadeEffect(fx,4500);
       if((kind==='incendiary'||kind==='flare') !== fx.particles.some(p=>p.sprite.material.opacity>0)) throw new Error(`${kind}: wrong flame persistence`);
-      updateGrenadeEffect(fx,200);
-      if(!fx.particles.some(p=>p.sprite.material.opacity>0)) throw new Error(`${kind}: invisible detonation`);
+      updateGrenadeEffect(fx,kind==='flash'?20:200);
+      if(!fx.particles.some(p=>p.sprite.material.opacity>0)&&!fx.dust.some(p=>p.sprite.material.opacity>0)) throw new Error(`${kind}: invisible detonation`);
+      if(kind==='flash'){
+        if(fx.sparks.count||fx.fragments.count||fx.dust.length)throw Error('Flash must not contain orange fire/debris');
+        updateGrenadeEffect(fx,200);
+        if(fx.particles.some(p=>p.sprite.material.opacity>0)||fx.glow>0)throw Error('Flash must be a brief white blink');
+      }
       effects.push(fx,duplicate);
       if(kind==='incendiary') scene.add(fx.obj);
     }
+    const wallWorld={solid:[{t:'wall',x:.6,y:2,z:0,w:.08,h:4,d:20}],bounds:{minX:-20,maxX:20,minZ:-20,maxZ:20},floorBase:0,floorAt:()=>0};
+    let reference;
+    for(const hz of [20,60,144]){
+      const fx=buildGrenadeEffect({k:'frag',p:[0,.091,0],r:7,dur:1000,eid:82},wallWorld);
+      if(fx.fragmentPaths.some(p=>p.path.some(row=>row[1]>.5481)))throw Error('Cosmetic fragments cross a solid wall');
+      for(let i=0;i<=hz;i++)updateGrenadeEffect(fx,i/hz*1000);
+      const matrix=Array.from(fx.fragments.instanceMatrix.array);
+      if(reference&&matrix.some((v,i)=>Math.abs(v-reference[i])>1e-6))throw Error('Debris depends on frame rate');
+      reference=matrix;effects.push(fx);
+    }
+    const fire=buildGrenadeEffect({k:'incendiary',p:[0,.091,0],r:4,dur:7000,eid:82},wallWorld);
+    if(fire.particles.some(p=>p.x>.56))throw Error('Ground fire spreads through a wall');effects.push(fire);
+    const poolParent=new T.Group(),lights=createGrenadeLights(poolParent);
+    updateGrenadeLights(lights,[{landed:true,kind:'flash',obj:effects[0].obj,detonation:{glow:14}},{landed:true,kind:'incendiary',obj:fire.obj,detonation:{glow:1}}],new T.Vector3());
+    if(lights.length!==2||lights[0].intensity!==14||lights.some(l=>l.castShadow))throw Error('Unbounded/incorrect explosion light pool');
+    updateGrenadeLights(lights,[],new T.Vector3());if(lights.some(l=>l.intensity!==0))throw Error('Explosion light survives cleanup');
     renderer.render(scene,camera);
+    if(renderer.getContext().getError()!==0)throw Error('Grenade effects caused a WebGL error');
     const pixels=new Uint8Array(640*400*4),gl=renderer.getContext();gl.readPixels(0,0,640,400,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
     let orange=0;for(let i=0;i<pixels.length;i+=4) if(pixels[i]>90&&pixels[i]>pixels[i+1]*1.15&&pixels[i+2]<pixels[i]*.75) orange++;
     if(orange<100) throw new Error(`Fire is not visibly rendered: ${orange} orange pixels`);
     const baseline=renderer.info.memory.geometries;
     for(const effect of effects) {
-      effect.obj.removeFromParent();effect.obj.traverse(o=>{if(o.isMesh)o.geometry.dispose();o.material?.dispose();});
+      effect.obj.removeFromParent();effect.obj.traverse(o=>{if(o.isInstancedMesh)o.dispose();if(o.isMesh)o.geometry.dispose();o.material?.dispose();});
     }
     renderer.render(scene,camera);
     if(renderer.info.memory.geometries>=baseline) throw new Error('Detonation geometries leaked');
@@ -66,11 +88,17 @@ export async function testGrenades(context, origin) {
   assert.equal(result.tests,150);
   assert.deepEqual(errors,[]);
   console.log(`PASS: ${result.tests} Python/JS throw parity cases (${result.points} sampled coordinates), sphere sweeps, ramp slopes, fuses, bounces and remote replay`);
-  console.log(`PASS: all grenade/flare fire lifetimes, seeded effects, visible WebGL flames (${result.orange} orange pixels) and resource disposal`);
+  console.log(`PASS: typed grenade/flare lifetimes, 20/60/144 Hz debris, wall-stopped fragments/fire, pooled lights, visible WebGL flames (${result.orange} orange pixels) and resource disposal`);
   await page.close();
 }
 
 export async function testLiveGrenades(page) {
+  // Prime art for this integration assertion; loading/failure fallback is tested
+  // separately. Observe the brief blink in-frame, not after a CDP round trip.
+  await page.evaluate(async()=>{
+    const {preloadGrenadeModels}=await import('/js/grenade-models.js');
+    const result=await preloadGrenadeModels();if(result.some(r=>r.status!=='fulfilled'))throw Error('Live grenade art preload failed');
+  });
   await page.evaluate(async()=>{
     const {app}=window.__trench;
     const T=await import('/vendor/three.module.js'),{World}=await import('/js/map.js');
@@ -98,6 +126,17 @@ export async function testLiveGrenades(page) {
       };
       requestAnimationFrame(observe);
     });
+    await page.evaluate(kind=>{
+      const after=Math.max(0,...__trench.app.effects.map(e=>e.eid));
+      const w=window.grenadeWitness={imported:false,detonated:false,active:true};
+      const observe=()=>{
+        for(const e of __trench.app.effects)if(e.kind===kind&&e.eid>after){
+          w.imported ||= !!e.proj?.userData.imported;
+          w.detonated ||= !!(e.landed&&(e.detonation?.particles.some(p=>p.sprite.material.opacity>0)||e.detonation?.dust.some(p=>p.sprite.material.opacity>0)));
+        }
+        if(w.active)requestAnimationFrame(observe);
+      };requestAnimationFrame(observe);
+    },kind);
     await page.keyboard.down('g');
     await page.waitForFunction(()=>window.__trench.app.charge?.source==='grenade' && document.getElementById('grenade-chip').classList.contains('charging'));
     await page.keyboard.press('b'); // must not switch a grenade already in hand
@@ -107,7 +146,8 @@ export async function testLiveGrenades(page) {
     await page.waitForFunction(ms=>performance.now()-window.__trench.app.charge.t0>=ms,chargeTime);
     await page.keyboard.up('g');
     await page.waitForFunction(kind=>window.__trench.app.effects.some(e=>e.kind===kind && !e.landed && e.flyPath?.length>2),kind);
-    try {await page.waitForFunction(kind=>window.__trench.app.effects.some(e=>e.kind===kind && e.landed && e.detonation?.particles.some(p=>p.sprite.material.opacity>0)),kind,{timeout:8000});}
+    await page.waitForFunction(()=>grenadeWitness.imported,null,{timeout:8000});
+    try {await page.waitForFunction(()=>grenadeWitness.detonated,null,{timeout:8000});await page.evaluate(()=>{grenadeWitness.active=false;});}
     catch(error) {console.error('GRENADE STATE',await page.evaluate(()=>{const {app}=window.__trench;return {me:app.net.lastMe,paused:app.paused,flash:app.flash,now:performance.now(),effects:app.effects.map(e=>({kind:e.kind,start:e.start,dur:e.dur,landed:e.landed,alpha:e.detonation?.particles[0]?.sprite.material.opacity}))};}));throw error;}
 
     assert.equal(await page.evaluate(()=>window.__trench.app.charge),null);

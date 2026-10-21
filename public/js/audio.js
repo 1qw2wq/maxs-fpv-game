@@ -281,10 +281,19 @@ export class Sfx {
   detonate(kind, distance = 0) {
     const gain = Math.max(0, 1-distance/100);
     if (!gain || !this.enabled) return;
-    if (kind === 'flash') { this._noise(0.16,0.18*gain,2600,0.5); return; }
-    if (kind === 'smoke' || kind === 'flare') { this._noise(0.22,0.12*gain,900,0.7); return; }
-    this._noise(kind === 'incendiary' ? 0.65 : 0.4,0.55*gain,700,0.6,'lowpass');
-    this._thump(0.4,0.65*gain,90,28);
+    if(kind==='flash') {
+      this._noise(.075,.27*gain,3200,.5,'highpass');
+      this._thump(.09,.14*gain,240,100);return;
+    }
+    if(kind==='smoke'||kind==='flare') {
+      this._noise(.06,.12*gain,1700,.6,'highpass');
+      this._noise(.7,.09*gain,kind==='smoke'?1200:2200,.7);return;
+    }
+    // Initial pressure crack, lower body and a softer debris/air tail, rather
+    // than the same single bass noise for every throwable. No delayed timers.
+    this._noise(.055,(kind==='incendiary'?.25:.42)*gain,2400,.5,'highpass');
+    this._noise(kind==='incendiary'?.65:.55,.28*gain,650,.6,'lowpass');
+    this._thump(kind==='incendiary'?.22:.45,(kind==='incendiary'?.26:.62)*gain,95,25);
   }
 
   reload() {

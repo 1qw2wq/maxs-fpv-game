@@ -18,8 +18,9 @@ import { createGirl, yawToRotation } from './character.js';
 import { ViewModel } from './viewmodel.js';
 import { FirstPersonPass } from './first-person-pass.js';
 import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
-import { simulateThrow, sampleThrow } from './throwing.js';
-import { buildGrenadeEffect, updateGrenadeEffect } from './grenadefx.js';
+import { simulateThrow } from './throwing.js';
+import { buildGrenadeEffect, updateGrenadeEffect, grenadeVisualDuration, createGrenadeLights, updateGrenadeLights } from './grenadefx.js';
+import { createGrenadeProjectile, updateGrenadeProjectile, disposeGrenadeProjectile, preloadGrenadeModels } from './grenade-models.js';
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
 import { updateSpawnShield } from './spawn-shield.js';
@@ -233,6 +234,7 @@ async function boot() {
 
   app.fxGroup = new THREE.Group();
   app.scene.add(app.fxGroup);
+  app.grenadeLights = createGrenadeLights(app.fxGroup);
   app.gunfx = new GunFx({ group: app.fxGroup, scene: app.scene });
 
   addEventListener('resize', () => {
@@ -579,6 +581,7 @@ function leaveMatch() {
   app.paused = false;
   app.hud.hidePause();
   app.playing = false;
+  clearEffects();
   document.getElementById('scope-overlay').classList.add('hidden');
   document.body.classList.remove('scope-active');
   app.objectiveView?.setState(null);
@@ -1126,6 +1129,7 @@ function netHandlers(label) {
     onClose: () => {
       if (!app.playing || app.leaving) return;
       app.playing = false;
+      clearEffects();
       app.paused = false;
       app.hud.hidePause();
       app.controls.releaseLock();
@@ -1506,6 +1510,7 @@ async function onWelcome(m) {
   const newestMe=app.net?.lastMe;
   if(newestMe&&newestMe!==meBeforeLoad&&newestMe.id===m.id)onMe(newestMe);
   app.playing = true;
+  preloadGrenadeModels();
   app.matchStartedAt = performance.now();
   if (app.controls.mobileMode) app.controls.requestLock();
   app.tut?.onDeploy();
@@ -1895,20 +1900,16 @@ async function onMessage(m) {
 
 // Per-ability presentation. Smoke is a cloud of soft sprites, the medic/support
 // crates are solid boxes that stand until the server says otherwise, and the
-// scout's flare is a glowing ball of light.
+// scout's flare uses a small cartridge with a persistent red ignition.
 const FX_STYLES = {
-  smoke: { kind: 'cloud', proj: 0x9aa4ad },
+  smoke: { kind: 'cloud' },
   heal: { kind: 'crate' },
   ammo: { kind: 'crate' },
-  flare: { kind: 'detonation', proj: 0xff6a4a },
-  frag: { kind: 'detonation', proj: 0x687449 },
-  incendiary: { kind: 'detonation', proj: 0xdf6b2d },
-  flash: { kind: 'detonation', proj: 0xd8dce0 },
+  flare: { kind: 'detonation' },
+  frag: { kind: 'detonation' },
+  incendiary: { kind: 'detonation' },
+  flash: { kind: 'detonation' },
 };
-
-// The shell a thrown ability spends its flight as. One shared geometry (never
-// disposed) with a per-throw material, like the tracers.
-const projGeo = new THREE.SphereGeometry(0.09, 8, 6);
 
 /** Medic/support crate: a solid box plus a ground ring showing the area it covers. */
 function buildCrate(fx) {
@@ -1968,7 +1969,7 @@ function spawnEffect(fx) {
 
   const now = performance.now();
   const rec = {
-    eid: fx.eid, start: now, dur: Math.max(300, fx.dur || 700),
+    eid: fx.eid, start: now, dur: Math.max(300, grenadeVisualDuration(fx.k, fx.dur || 700)),
     persist: !!fx.persist, style, kind: fx.k,
   };
 
@@ -1996,15 +1997,18 @@ function spawnEffect(fx) {
   rec.start = now-age+flyMs;
   rec.landed = age >= flyMs;
   rec.playDetonation = flyMs > 0 && age < flyMs;
-  if (flyMs > 0 && !rec.landed) {
+  if (flyMs > 0 && (!rec.landed || fx.k === 'smoke')) {
     rec.flyPath = fx.path;
     rec.flyFrom = new THREE.Vector3(...fx.from);
     rec.flyTo = new THREE.Vector3(...fx.p);
     rec.flyCtrl = throwCurve(rec.flyFrom, rec.flyTo, rec.flyFrom.distanceTo(rec.flyTo)*0.26); // old-host compatibility
-    rec.proj = new THREE.Mesh(projGeo, new THREE.MeshBasicMaterial({ color: style.proj ?? 0xdddddd }));
+    rec.proj = createGrenadeProjectile(fx.k, fx.eid);
     rec.proj.position.copy(rec.flyFrom);
     app.fxGroup.add(rec.proj);
-    rec.obj.visible = false;
+    if(rec.landed){
+      if(rec.flyPath)updateGrenadeProjectile(rec.proj,rec.flyPath,flyMs);
+      else rec.proj.position.copy(rec.flyTo);
+    }else rec.obj.visible = false;
   }
   app.effects.push(rec);
 }
@@ -2013,15 +2017,14 @@ function disposeEffect(e) {
   e.obj?.removeFromParent();
   // three.js shares one geometry between all Sprites, so only meshes own theirs.
   e.obj?.traverse?.((o) => {
+    if (o.isInstancedMesh) o.dispose();
     if (o.isMesh && o.geometry) o.geometry.dispose();
     if (o.material) {
       for (const m of (Array.isArray(o.material) ? o.material : [o.material])) m.dispose();
     }
   });
   e.light?.removeFromParent();
-  // The shell shares projGeo with every other throw, so only its material goes.
-  e.proj?.removeFromParent();
-  e.proj?.material.dispose();
+  disposeGrenadeProjectile(e.proj);
   e.projLight?.removeFromParent();
 }
 
@@ -2045,6 +2048,7 @@ function clearEffects() {
   clearFlash();
   for (const e of app.effects) disposeEffect(e);
   app.effects.length = 0;
+  for(const light of app.grenadeLights || [])light.intensity=0;
 }
 
 function updateEffects(now) {
@@ -2062,14 +2066,19 @@ function updateEffects(now) {
     if (e.flyMs && !e.landed) {
       const f = (now - e.flyStart) / e.flyMs;
       if (f < 1) {
-        if (e.flyPath) sampleThrow(e.flyPath, Math.max(0,now-e.flyStart), e.proj.position);
-        else bezierPoint(e.flyFrom, e.flyCtrl, e.flyTo, Math.max(0, f), e.proj.position);
-        e.proj.rotation.set((now-e.flyStart)*0.006,(now-e.flyStart)*0.009,0);
+        if (e.flyPath) updateGrenadeProjectile(e.proj,e.flyPath,Math.max(0,now-e.flyStart));
+        else {
+          bezierPoint(e.flyFrom,e.flyCtrl,e.flyTo,Math.max(0,f),e.proj.position);
+          updateGrenadeProjectile(e.proj,null,Math.max(0,now-e.flyStart));
+        }
         e.projLight?.position.copy(e.proj.position);
         continue;
       }
       e.landed = true;
-      e.proj.visible = false;
+      if(e.flyPath)updateGrenadeProjectile(e.proj,e.flyPath,e.flyMs);
+      else e.proj.position.copy(e.flyTo);
+      // The spent smoke canister stays underneath its venting plume.
+      e.proj.visible = e.kind === 'smoke';
       if (e.projLight) e.projLight.visible = false;
       e.obj.visible = true;
     }
@@ -2099,6 +2108,7 @@ function updateEffects(now) {
       e.ring.material.opacity = 0.34 + 0.10 * Math.sin(now * 0.002);
     }
   }
+  updateGrenadeLights(app.grenadeLights || [],app.effects,app.camera.position);
 }
 
 // ------------------------------------------------------------ smoke vision
