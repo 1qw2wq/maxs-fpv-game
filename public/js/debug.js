@@ -8,9 +8,10 @@
 // connection would work. This page says all of it in one place, with the raw
 // JSON and a copyable report for when something needs reporting.
 //
-// It is deliberately independent of the game's own modules (except the tiny
-// language helper): if main.js fails to boot, this page still has to be able to
-// tell you why.
+// It only shares the lightweight P2P transport, not the game's boot modules:
+// if main.js fails to boot, this page must still check the deployment and
+// browser independently. It does not load main.js,
+// and a missing window.__trench here is expected, not evidence of a game boot failure.
 
 import { Peer, getStun, unpackCode } from './p2p.js';
 
@@ -52,8 +53,8 @@ function setStatic() {
   document.title = L('API 调试 · Trench Front', 'API debug · Trench Front');
   $('title').textContent = L('API 调试', 'API debug');
   $('subtitle').innerHTML = L(
-    '这一页显示：本地打开的页面究竟在用什么引擎、<code>/api/*</code> 哪些答得上、联机通道走到哪一步。改完部署、朋友说"进不去"的时候，先看这里。',
-    'What this deployment really is: which engine the page runs, which <code>/api/*</code> endpoints answer, and how far multiplayer gets. Look here first when a deploy misbehaves.',
+    '独立诊断：检查 <code>/api/*</code> 接口、浏览器能力和本机直连。此页不启动游戏，也无法读取其他标签页的实时游戏状态。',
+    'Independent diagnostics: checks <code>/api/*</code> endpoints, browser capabilities and a same-browser direct link. This page does not start the game or read live game state from other tabs.',
   );
   $('run').textContent = L('重新探测', 'Probe again');
   $('p2p').textContent = L('自测直连（P2P）', 'Self-test direct link (P2P)');
@@ -69,7 +70,7 @@ function setStatic() {
   $('h-api-3').textContent = L('耗时', 'Time');
   $('h-api-4').textContent = L('返回', 'Answer');
   $('h-net').textContent = L('联机', 'Multiplayer');
-  $('h-net-state').textContent = L('这一页的联机状态', 'Multiplayer state on this page');
+  $('h-net-state').textContent = L('游戏运行状态（仅当前页面）', 'Game runtime (this page only)');
   $('h-net-test').textContent = L('直连自测结果', 'Direct-link self-test');
   $('h-logs').textContent = L('日志', 'Log');
 }
@@ -175,9 +176,14 @@ function netState() {
   const g = window.__trench;
   const app = g?.app;
   if (!app) {
-    row(t, L('游戏脚本', 'Game script'), L('没有加载（main.js 没跑起来）', 'not loaded (main.js did not run)'), 'bad');
-    row(t, L('怎么办', 'What to do'), L('刷新页面；若仍然如此，看浏览器控制台的报错（多半是缓存或部署缺文件）。',
-      'Reload; if it stays like this, check the browser console (usually a cache or a missing file in the deploy).'));
+    // debug.html only loads debug.js. Globals belong to each document, so
+    // absence here cannot diagnose main.js on index.html (or in another tab).
+    row(t, L('游戏脚本', 'Game script'), L('此诊断页不启动 main.js（正常）',
+      'Not started on this diagnostics page (expected)'), 'dim');
+    row(t, L('原因', 'Why'), L('debug.html 只加载 debug.js，不加载游戏。这里没有游戏状态不代表游戏装载失败。',
+      'debug.html loads debug.js, not main.js. The absence of game state here does not mean the game failed to load.'));
+    row(t, L('检查游戏', 'Check the game'), L('点击「回到游戏」打开 index.html。若游戏页面卡住，请在游戏页面的控制台查看错误；此页无法检查其他标签页。',
+      'Use “Back to the game” to open index.html. If the game is stuck, inspect the console on the game page; this page cannot inspect another tab.'));
     return;
   }
   const engine = app.localEngine === true ? L('页面内引擎（Pyodide，静态托管）', 'in-page engine (Pyodide, static hosting)')
@@ -252,8 +258,8 @@ async function p2pSelfTest() {
       ? L('通了（来回各一条消息）', 'works (one message each way)')
       : L(`失败了：host 收到 ${hostGot.length} 条、guest 收到 ${guestGot.length} 条`,
         `failed: host got ${hostGot.length}, guest got ${guestGot.length}`), okHost && okGuest ? 'ok' : 'bad');
-    row(t, L('说明', 'Note'), L('这里没有用任何服务器；真实对局用的就是同一条通道，只是邀请码由你们两个人手工传递。',
-      'No server was involved; a real match uses exactly this channel, with the two codes passed between the players by hand.'));
+    row(t, L('测试范围', 'Test scope'), L('仅测试此浏览器内的两个连接，使用与游戏相同的邀请码/回答码流程。通过不代表游戏已经启动，也不保证另一台设备或不同网络能够连接。',
+      'Tests two connections in this browser using the game’s invite/answer transport. Passing does not verify game startup or a connection to another device/network.'));
     log(`P2P self-test: both directions ${okHost && okGuest ? 'ok' : 'FAILED'}`);
   } catch (err) {
     row(t, L('结果', 'Result'), String(err?.message || err), 'bad');
@@ -281,6 +287,9 @@ function buildReport(api) {
     capabilities: caps,
     api,
     multiplayer: {
+      // null engine/empty transport below mean unobserved, not a failed game.
+      scope: 'current-document-only',
+      runtimeStatus: window.__trench?.app ? 'app-handle-present' : 'not-applicable-on-diagnostics-page',
       hosting: window.__trench?.app?.relayHostCode || '',
       kind: window.__trench?.app?.relayKind || '',
       engine: window.__trench?.app?.localEngine ?? null,
@@ -312,7 +321,8 @@ $('copy').addEventListener('click', async () => {
     log('clipboard refused: the report is in the log box above, select and copy it');
   }
 });
-// A small live view of the game's own state, if it did load.
+// Only update an app handle in this document, if a developer supplies one.
+// Do not pretend this polls the game in another tab or loads main.js.
 setInterval(() => { if (window.__trench?.app) netState(); }, 3000);
 
 setStatic();

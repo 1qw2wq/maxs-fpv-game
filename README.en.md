@@ -178,9 +178,13 @@ connect straight to it. Nothing goes through a third-party service — no relay,
   mosquitto / EMQX / HiveMQ), or pin it with `localStorage.setItem('tf.relay.broker', 'wss://…')`.
   Nothing outside is used by default, so the page works the same with no relay in sight.
 - **When something looks wrong, open `/debug.html`**: it shows what each of the three `/api/*`
-  endpoints returns, what this browser can do (WebRTC / BroadcastChannel / WebAssembly…), the current
-  multiplayer state, a **local peer-to-peer self-test** (two WebRTC connections exchanging a line) and
-  a report you can copy.
+  endpoints returns, what this browser can do (WebRTC / BroadcastChannel / WebAssembly…), a
+  **local peer-to-peer self-test** (two WebRTC connections exchanging a line) and a report you can copy.
+  This is an independent page: it intentionally loads `debug.js`, not `main.js`, and cannot read game
+  state from another tab. “Not started on this diagnostics page (expected)” is informational, **not a
+  game-loading error**. To investigate startup, return to `index.html` and inspect that page’s console.
+  Passing the same-browser self-test does not verify game startup or cross-device connectivity.
+  See [diagnostic status and regression checks](docs/diagnostics.md).
 - Want to try "one host plus several players" on a single machine? Open a few tabs: create the room
   in the first, join with the code in the others. A real server (next section) is still the better
   answer when you want a permanent lobby and a shared character library.

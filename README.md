@@ -148,8 +148,11 @@ python server/server.py --open
   HiveMQ），或 `localStorage.setItem('tf.relay.broker', 'wss://…')` 固定下来。没有任何外部中转
   时页面也照常工作，因为默认根本不用它。
 - **出问题时先看诊断页**：`/debug.html` 一次列出三个 `/api/*` 端点返回了什么、浏览器的能力
-  （WebRTC / BroadcastChannel / WebAssembly…）、当前联机状态，还能做一次**本机点对点自测**
-  （两条 WebRTC 连接互相发一句话）并复制成一份报告。
+  （WebRTC / BroadcastChannel / WebAssembly…），还能做一次**本机点对点自测**
+  （两条 WebRTC 连接互相发一句话）并复制成一份报告。此页独立运行，只加载 `debug.js`，
+  不加载 `main.js`，也无法读取其他标签页的游戏状态。「此诊断页不启动 main.js（正常）」
+  是说明而非游戏装载错误。若要排查游戏启动，请返回 `index.html`，查看**游戏页面**的控制台。
+  本机自测通过不代表游戏已启动，也不保证不同设备/网络之间能连接。详见[诊断状态与回归检查](docs/diagnostics.md)。
   自建服务端（下一节）仍然是想要固定大厅、共享角色库时更好的选择。
 
 ### 在受限的浏览器环境里运行
