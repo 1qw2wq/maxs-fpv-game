@@ -1,88 +1,48 @@
-# Grenade bodies and detonation presentation
+# Grenades and effects
+
+Press **B** to cycle Frag → Incendiary → Smoke → Flash → Poison gas. Hold **G** to charge and release to throw; the fuse starts on release, not while charging. Mobile has grenade and type-selection controls. All five types share **two charges** and a **24-second refill**; Q class abilities are separate.
 
 ## Uploaded art
 
-`public/js/grenade-models.js` loads the supplied GLBs through the vendored GLTFLoader:
+The [model loader](../public/js/grenade-models.js) uses vendored GLTFLoader and the actual uploads:
 
-| Gameplay type | Included file | Identification |
+| Type | Model in `public/models/guns/` | Identification |
 | --- | --- | --- |
-| Frag | `models/guns/granade_m26.glb` | Muted yellow collar |
-| Incendiary | `models/guns/hand_granade.glb` | Orange collar |
-| Smoke / assault smoke ability | `models/guns/smoke_granade.glb` | Gray collar; dedicated uploaded canister |
-| Flash | `models/guns/flashbang_grenade.glb` | Pale collar; dedicated uploaded flashbang |
-| Poison gas | `models/guns/gas_grenade.glb` | Yellow collar; upright canister only, not its lying showcase duplicate |
-| Scout flare | Slim procedural red cartridge | Not the uploaded flare **gun**, which remains a weapon |
+| Frag | `granade_m26.glb` | Muted yellow collar |
+| Incendiary | `hand_granade.glb` | Orange collar |
+| Smoke / assault smoke | `smoke_granade.glb` | Gray collar |
+| Flash | `flashbang_grenade.glb` | Pale collar |
+| Poison gas | `gas_grenade.glb` | Yellow collar; upright canister only |
+| Scout flare | Procedural red cartridge | Not the flare-pistol gun model |
 
-These uploads are grenade-shaped artwork, reused for recognizable gameplay types. They are not
-newly authored replicas of real incendiary, smoke and flash devices. Their textures/mesh detail
-are preserved; original files are not rewritten. Embedded authors, licenses and modifications
-are listed in `public/models/guns/CREDITS.md`.
+Source spelling is retained in filenames. Artwork is adapted to recognizable game roles, not claimed as an accurate replica of every device. Runtime filtering removes the gas showcase's lying duplicate without rewriting the GLB. Preserve [authors, licenses and adaptations](../public/models/guns/CREDITS.md).
 
-The loader normalizes orientation, centers the rigid prop and fits it inside the existing 0.09 m
-collision envelope. The type collar follows the body cross-section. Five throwable GLBs are downloaded
-and parsed, cached across throws and map changes. Instances share template geometry, textures and
-materials. Per-instance disposal never destroys those templates. Failed downloads retain a detailed
-mechanical fallback; a disposed throw ignores a later asynchronous load completion.
+Bodies are centered/oriented inside the **0.09 m collision envelope**. Templates share geometry, textures and materials across throws. Failed loads keep detailed mechanical fallback art; late loads cannot resurrect disposed objects.
 
-## Flight and settled bodies
+## Flight and detonation
 
-The original host path remains authoritative; the loader does not resize colliders, move impacts
-or change fuse times. Tumbling uses accumulated movement/time on that sampled path. Stationary
-segments do not keep accumulating spin. Legacy hosts without samples retain the old curve fallback.
-The smoke/gas body remains at the final sampled pose underneath its venting cloud, even when its
-welcome snapshot is already past the fuse. Expired flashes/blasts are not replayed on late arrival.
+Host physics owns the path, impacts, fuse and damage. Cosmetic tumbling follows sampled movement and stops accumulating spin at rest. Smoke/gas canisters stay at their settled pose under the cloud. Late arrivals receive remaining age, not a restarted fuse or expired blast replay.
 
-## Detonations
+[Effects](../public/js/grenadefx.js) are type-specific:
 
-`public/js/grenadefx.js` supplies deterministic per-effect particles and cosmetic fragments:
+- **Frag:** pressure flash, dusty smoke, sparks and wall-stopped cosmetic fragments. Fragments add no damage; dust is not AI smoke cover.
+- **Incendiary:** floor-supported flames, smoke, sparks, ground glow and temporary soot. Shared geometry blocks visual spread through walls/unrelated floors.
+- **Smoke:** 36-card sight-blocking cloud and small canister vents, not a fireball.
+- **Gas:** yellow/ochre cloud and vents. See [gas damage and mask protection](poison-gas-and-mask.md).
+- **Flash:** fast white glare/halo plus authoritative LOS/distance/facing exposure and full-screen **white blindness** with recovery—not orange blast particles.
+- **Flare:** red-orange ignition, embers and spotting behavior, not incendiary damage.
 
-- **Frag:** short hot pressure flash, non-emissive dusty smoke and sparks. Twenty-four metal
-  fragments use precomputed short gravity arcs, stopped by shared world sweeps. Their rendering
-  adds no hit registration or damage. Dust lasts up to 2.4 seconds independently of host damage.
-- **Incendiary:** thirty candidate flame tongues (blocked/unsupported positions omitted), ten
-  cooler smoke wisps, twelve batched sparks, subtle ground glow and a temporary soot mark.
-  Floor/wall checks prevent spreading the flame layout through a solid wall or to unrelated floors.
-- **Smoke:** existing 36-card sight-blocking cloud/density unchanged, plus four smaller vent puffs;
-  no large incendiary fireball. The canister stays beneath it until cleanup.
-- **Poison gas:** yellow/ochre version of the 36-card cloud and small vent; same settled-canister lifecycle. Host damage and usable gas-mask protection are documented in [poison gas and mask](poison-gas-and-mask.md).
-- **Flash:** one fast white glare plus a white halo; no orange fire, dust or fragment batch. The
-  existing host LOS/distance/facing exposure and full-screen white blindness/fade remain unchanged.
-- **Flare:** small red-orange ignition, embers and wisps for its existing lifetime; still spotting,
-  not incendiary damage.
+Instanced fragments/sparks and two persistent shadowless light slots bound rendering cost. Effect resources clean up on expiry/leave/map changes; shared templates/textures stay cached. Layered procedural audio needs no external service. This is real-time game presentation, **not fluid simulation or physically accurate fragmentation**.
 
-Fragments and sparks each use one instanced mesh batch, not a separate draw/material per piece.
-Two persistent shadowless PointLight slots select the strongest nearby active effects. Their count
-never changes during a burst, avoiding light-count shader churn. Clearing effects zeroes both.
-Shared procedural textures remain cached; per-effect meshes/materials and instance buffers are
-released on expiry/leave/map changes. Sounds use separate pressure crack, bass and air/debris
-layers; smoke/flare and flash have distinct ignition/report profiles. No delayed audio timers or
-external samples/services are introduced.
-
-The effect is still bounded real-time game presentation, not a fluid simulation or physically
-accurate fragmentation solver. Decorative dust/soot does not become AI smoke cover. The original presentation upgrade did not change gameplay tuning. The subsequent poison/mask feature adds a separate 6.5 m / 18 HP/s gas type; existing grenade inventory, shields, friendly-fire rules and throw physics remain unchanged.
-
-## Verification
-
-Test dependencies remain outside production/the repository:
+## Checks
 
 ```sh
-npm install --prefix /tmp/maxs-fpv-browser-tests playwright-core @sparticuz/chromium
-node tools/test-grenade-upgrade.mjs
-# Faster asset/effect-only subset:
-GRENADE_ASSETS_ONLY=1 node tools/test-grenade-upgrade.mjs
-# Optional actual model close-ups / live incendiary image:
-GRENADE_MODEL_SHOTS=/tmp/grenade GRENADE_SCREENSHOT=/tmp/fire.png node tools/test-grenade-upgrade.mjs
 python tools/test-grenades.py
+node tools/test-grenade-upgrade.mjs
+GRENADE_ASSETS_ONLY=1 node tools/test-grenade-upgrade.mjs
+GRENADE_MODEL_SHOTS=/tmp/grenade GRENADE_SCREENSHOT=/tmp/fire.png node tools/test-grenade-upgrade.mjs
 ```
 
-Checks cover 180 host/preview parity cases / 36,096 sampled coordinates, actual pixels for all
-five imported presentations, bounds, cache reuse across 32 clones, canceled/failed loads, rest and
-late-path poses at 20/60/144 Hz, deterministic wall-stopped fragments and fire placement, white-flash
-separation, lifetime/geometry cleanup and two fixed light slots. The live fixture runs native G/B/Q,
-charged throws and inventory checks, persistent fire/expiry, full-white flash recovery, pause
-cancellation, an injected aged smoke snapshot (settled canister/remaining clock), active fire
-illumination and leaving-to-menu cleanup. The live fixture primes the model cache; failed/pending
-loads are separately tested. Short-lived flashes are observed in-frame instead of relying on
-a later browser-protocol round trip. Scenery is hidden in that fixture to focus software GPU
-work on real input, models and effects; its physics/authority remain active. The full Vercel suite
-also imports the new model checks. This is not a physical-device FPS or cross-network RTC benchmark.
+Checks cover host/preview trajectory parity, actual model bounds/pixels, caching, failed/pending loads, settled and late paths, white flash, resource cleanup and real throw inputs. See [test dependencies and scope](testing.md); isolated effect fixtures are not whole-map FPS benchmarks.
+
+中文：按 B 选类型、按住 G 蓄力后松开投掷。实际上传模型仅负责外观，碰撞和伤害由主机决定；闪光弹是白屏致盲，烟雾/毒气不是爆炸火球。

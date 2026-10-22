@@ -4,6 +4,8 @@ The four built-in character uploads are listed below using their embedded GLB me
 
 以下信息来自仓库内模型的内嵌元数据。署名不代表额外授权；发布或商用前仍需核对原始许可及角色相关权利。
 
+Choose these appearances independently of class/loadout in character selection. Custom imports and bone mapping are covered in [settings](../../../docs/operations-submenus.md); third-person placement preview is available in [Gun Lab](../../../docs/gun-placement-lab.md).
+
 ## Clorinde rigged
 
 - File: `clorinde.glb`

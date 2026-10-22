@@ -1,129 +1,57 @@
-# Third-person gun-placement lab / 第三人称持枪调校
+# Third-person Gun Lab / 第三人称持枪调校
 
-Open **`/gun-lab.html`** on your running game site, or click **第三人称持枪调校 / Gun Lab** in the main menu.
-It is a static developer page: no account, backend, npm install or frontend build is needed. Serve the
-site normally rather than opening an HTML `file://` URL. It uses the same vendored Three/GLTF loader,
-uploaded gun models, four built-in character skeletons and third-person IK as the game.
+Open **`/gun-lab.html`** on the running site or choose Gun Lab from the main menu. This static developer tool uses the game's uploaded guns, four built-in rigs, procedural avatar and real third-person IK. No backend, npm install or build is needed; serve the site rather than opening local HTML files.
 
-## Tune, record, send
+## Tune → record → export
 
-1. Select a **weapon** and **character**. All weapons come from `shared/weapons.json`; there is no
-   separate hard-coded gun list. You can also inspect the procedural fallback character.
-2. Drag on the canvas to orbit, scroll to zoom, or use **Front / Back / Left / Right / Hands**.
-   This is an orbit camera for development only; it does not change the game's native pointer-lock controls.
-3. Adjust **Position X/Y/Z** in metres and **Rotation X/Y/Z** in degrees using sliders or numeric boxes.
-   Numeric entries allow finer precision than the sliders. Changes are immediate and both hands follow
-   the gun via the real IK pipeline. Zero values mean the current game baseline, not the world origin.
-4. Try idle, walk, sprint, crouch and firing poses, vary the aim pitch, and inspect multiple skins.
-   **Freeze animation** stops animation time while allowing camera and placement adjustments.
-   **Hold: compare baseline** temporarily shows zero offsets; release to restore the draft.
-5. Click **Record this gun**. Repeat for other guns. Switching weapons preserves each gun's draft;
-   only recorded guns go into the export. After changing a recorded gun, record it again to replace
-   its previous values. **Reset this gun** resets the draft only; record again to export that reset.
-6. Add notes, then click **Copy recorded** or **Download JSON**. Send the JSON file or paste the whole
-   document into our chat. Optional screenshots from front/side help explain clipping or intent.
+1. Select a weapon and character. `?gun=mp18&skin=builtin-navia` opens a particular preview without changing saved values.
+2. Drag to orbit, scroll to zoom, or choose Front/Back/Left/Right/Hands. This developer camera does **not** change gameplay's native pointer-lock controls.
+3. Adjust Position XYZ (metres) and Rotation XYZ (degrees). Numeric fields allow finer precision; zero means the shipping baseline, not world origin. Hands follow the real IK.
+4. Check idle/walk/sprint/crouch/fire, pitch and multiple rigs. Freeze stops animation while allowing edits; hold Compare baseline to inspect zero offsets temporarily.
+5. **Record this gun** after tuning. Weapon switching keeps drafts, but **only recorded guns export**. Editing or resetting a recorded gun changes its draft: record again to replace its export values.
+6. Add notes, Copy recorded or Download JSON, and send the **whole JSON file**. Screenshots are useful supplements, not substitutes for units/IDs/frame.
 
-**The lab does not automatically modify matches.** The exported numbers are the requested third-person
-adjustments I can apply to the repository later. First-person mounting, grip/socket calibration, ammo,
-aim/hit rules and network data are not edited by the page.
+The lab does not automatically edit matches or repository files. It affects neither first-person mounting, grip sockets, ammo, hit rules nor network data. Adjustments are relative to the current baseline and may need rechecking if that baseline changes.
 
-## Numbers and coordinate convention
+## Coordinate and data contract
 
-- Position is a delta in the **animated anatomical chest frame**, in metres at avatar scale 1. `+Y`
-  is up and `+Z` is forward in the neutral character frame. X is the frame's X, not camera/screen X.
-  Imported characters with a custom avatar scale scale these offsets with the avatar.
-- Rotation is a delta composed **after the existing carry/aim rotation**, using local intrinsic **XYZ**
-  Euler angles in **degrees**. Rotation pivots around the **trigger-hand contact**, not the gun origin;
-  changing rotation alone therefore does not translate the trigger grip away from its baseline contact.
-- Red / green / blue axes on the gun show **gun-local X / Y / Z**. These rotate with the gun, unlike
-  chest-frame position directions. They can be hidden with **Gun axes**.
-- Range limits: position ±0.5 m per axis; rotation ±180° per axis. Export precision is six decimals.
-  An out-of-range/incomplete numeric entry disables recording until corrected.
-- Placement is **per gun, not per skin**. Character selection is a preview context. Check the same
-  adjustment on multiple rigs before recommending it globally. The export also records the preview
-  skin/pose/pitch used when each gun was recorded (`context.reviewedOn`).
-- Large offsets or rotations may exceed arm reach or clip clothing/the body. The wrist-error indicator
-  turns amber beyond 7 cm on imported rigs; it is diagnostic, not an automatic physical constraint or
-  a guarantee that the skin does not clip. The procedural preview requires visual inspection.
+- Translation: **animated anatomical chest frame**, metres at avatar scale 1; +Y up, +Z neutral forward. X is chest-frame X, not screen X. Custom avatar scale scales the offset.
+- Rotation: intrinsic local **XYZ Euler degrees**, composed **after** baseline carry/aim rotation, pivoting around the **trigger-hand contact**. Rotation alone does not translate that contact.
+- Red/green/blue axes show **gun-local** XYZ, rotating with the gun—not chest-frame translation directions.
+- Limits: **±0.5 m** translation and **±180°** rotation per axis; six-decimal export precision. Incomplete/out-of-range entries disable recording.
+- Values are **per gun, not per skin**. Preview skin/pose/pitch is retained in `context.reviewedOn`. Inspect several rigs; large offsets may exceed reach or clip clothing. Imported-rig wrist error turns amber above 7 cm; it is a diagnostic, not an automatic constraint.
 
-An example record (the actual export also includes readable weapon/model metadata and review context):
+Minimal valid example; actual exports also include model/name metadata and review context:
 
 ```json
 {
   "schema": "trench-front/third-person-gun-placement",
   "version": 1,
   "frame": "animated-chest-translation; trigger-pivot-local-XYZ-rotation",
-  "units": { "position": "metres-at-avatar-scale-1", "rotation": "degrees" },
+  "units": {"position": "metres-at-avatar-scale-1", "rotation": "degrees"},
   "scope": "third-person-only",
-  "context": { "notes": "MP18 was clipping the coat; checked from both sides." },
-  "placements": {
-    "mp18": {
-      "position": [0.025, 0.01, -0.02],
-      "rotation": [0, 7, -3],
-      "name": "MP 18",
-      "model": "mp18"
-    }
-  }
+  "context": {"notes": "Checked both sides and several rigs."},
+  "placements": {"mp18": {"position": [0.025, 0.01, -0.02], "rotation": [0, 7, -3]}}
 }
 ```
 
-Send the **whole file**, not just a screenshot of sliders. The stable gun IDs, units and frame prevent
-confusing radians/degrees, absolute values/deltas, or first-person/third-person coordinates. These are
-relative adjustments to this lab version's game baseline; retain your notes/screenshots if the baseline
-changes in a later revision. A file calibrated on another baseline may need rechecking.
+## Saving and failure handling
 
-## Saving, imports and failures
+Drafts, records and notes use localStorage **`tf.thirdPersonGunLab.v1`**, separate from game settings. Download a portable backup: private mode, origin/browser changes or cleared storage can lose local records. Storage failure keeps in-memory editing available with a warning; clipboard failure allows manual copying/download.
 
-- Drafts, recorded values and notes are saved under **`tf.thirdPersonGunLab.v1`** in this browser's
-  local storage. This is separate from the game's profile/settings. A downloaded file is the portable
-  backup; clearing browser data, changing browser/origin, or using private mode can lose local records.
-- **Import JSON** validates the entire document before merging. Valid records replace matching gun
-  records/drafts; omitted guns stay untouched. Unknown guns, changed model IDs, invalid/non-finite
-  numbers, incompatible schema/frame/units and files over 200 KB are rejected without partial application.
-- Storage refusal/quota failure leaves the tool usable in memory and shows an explicit warning.
-  Download before closing. Clipboard refusal selects the JSON for manual Ctrl/Cmd+C; Download remains
-  an alternative. Imports are JSON data only: they do not run code or write server/repository files.
-- Loading failures are shown explicitly. Editing is disabled until a real uploaded gun has loaded;
-  a procedural gun fallback is not silently presented as a calibrated uploaded model. Choose another
-  setup or refresh to retry. Selecting another gun while loading is supported; the latest request wins.
-- Use `?gun=mp18&skin=builtin-navia` to open a particular setup. This changes selection, not stored values.
+Import validates the **whole document before merging**, rejecting incompatible schema/frame/units, unknown guns, changed model IDs, non-finite/out-of-range numbers and text over **200,000 characters** (the tool labels this 200 KB). Valid matching records replace drafts/records; omitted guns remain untouched. JSON is data, never executable code.
 
-## Implementation and verification
+Editing waits for the real uploaded gun; loading errors are explicit, not silently calibrated against fallback art. New selections supersede pending loads. Production preview APIs `setWeaponPlacement` / `getWeaponPlacement` use baseline unless called; switching gun resets the instance offset and the lab reapplies that gun's draft. There is no global live-match override.
 
-- Page/controller/style: `public/gun-lab.html`, `public/js/gun-lab.js`, `public/css/gun-lab.css`.
-- Data contract: `public/js/third-person-placement.js` (strict validation and JSON import/export).
-- TP-only preview APIs on imported/procedural characters: `setWeaponPlacement` / `getWeaponPlacement`.
-  Without a caller setting offsets, both use the existing baseline; switching guns resets the instance's
-  preview adjustment, and the lab reapplies the selected gun's draft. There is no global live-game override.
-- `node tools/test-gun-placement.mjs`: dependency-free schema/units/ranges/ID/round-trip tests.
-- Optional actual-browser test, with external Python Playwright and a Chromium executable:
+## Source and checks
 
-  ```sh
-  python -m http.server 8080 --bind 0.0.0.0 --directory public
-  # In another shell:
-  CHROMIUM_EXECUTABLE=/path/to/chromium CITY_ORIGIN=http://127.0.0.1:8080 \
-    python tools/test-gun-lab.py
-  ```
+[Page](../public/gun-lab.html) · [controller](../public/js/gun-lab.js) · [validated contract](../public/js/third-person-placement.js)
 
-The browser test uses every catalog gun on all four imported rigs plus the procedural character,
-checks trigger-pivot invariance and metre-scale translation, and exercises recording, download/import,
-invalid-import atomicity, persistence, denied storage, baseline comparison and responsive layouts.
-`GUN_LAB_SCREENSHOT=/tmp/gun-lab.png` optionally saves a preview. Browser dependencies are test-only,
-not part of the frontend or Vercel deployment. Physical phones and deployed-Vercel connectivity are
-not claimed as tested by this tool's local WebGL/UI checks.
+```sh
+node tools/test-gun-placement.mjs
+python tools/test-gun-lab.py
+```
 
-## 中文快速说明
+See [Python browser setup](testing.md). `GUN_LAB_SCREENSHOT=/tmp/gun-lab.png` saves a preview. Tests cover schema/round-trip, actual catalog/rig previews, trigger pivot, recording/import atomicity, persistence/storage failure and responsive layouts—not physical-phone certification.
 
-打开 `/gun-lab.html`，选择枪械和角色，用 XYZ 位移（米）与 XYZ 旋转（度）调位置，双手会跟随真实 IK。
-从多个方向检查，也可试行走、冲刺、蹲下、开火姿态和俯仰；按住比较按钮暂看默认位置。
-**调好一把就点「Record this gun / 记录这把枪」**，再换下一把；未记录的草稿不会导出。
-最后复制或下载 JSON，整份发给我即可据此修改第三人称持枪位置；截图可作为补充说明。
-
-参数是相对当前默认持枪姿态的偏移，不是绝对世界坐标；旋转绕扳机握点，顺序为局部 XYZ，单位是度。
-位移用动画胸部坐标系，不等于屏幕左右；图上红绿蓝轴是枪的局部 XYZ。每把枪一组参数，在不同角色间共用，
-因此建议换几套骨架检查。重置只改草稿，需要再次记录才会覆盖导出值。大幅调整可能超出手臂可达范围，
-橙色误差提示需要人工检查，而不是自动修正。
-
-草稿与记录保存在当前浏览器，但请下载备份；更换浏览器、站点来源、隐私窗口或清除数据都可能丢失记录。
-可导入之前导出的 JSON 接着调，不匹配的格式/单位/枪 ID/模型或非法数值会整份拒绝，不会只应用一部分。
-本页只做预览，不会自动修改正式对局、第一人称、弹药、射击规则或服务端文件，也不需要 npm/构建/外部后端。
+中文：选枪和角色，调位移（米）及旋转（度），换姿态/视角检查。**每把调好都要记录；修改或重置后也要重新记录**。复制或下载整份 JSON；工具不会自动修改正式对局。每把枪的参数跨角色共用，请检查多个骨架并下载备份。

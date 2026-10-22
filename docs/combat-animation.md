@@ -1,97 +1,38 @@
 # Kill and death presentation
 
-## Visible behavior
+## Feedback and lifecycle
 
-- An authoritative `kill` event triggers a compact gold confirmation card and stronger kill marker
-  for the killer. The victim's name is text, never HTML. Headshots have a separate label/treatment;
-  successive kills less than three seconds apart increment the short streak counter.
-- No killer camera shake, slow motion, aim lock, weapon flourish or fire interruption is introduced.
-- Victims react to impact, buckle their legs, tip over and settle over about 1.25 seconds.
-  Headshots have a sharper initial reaction. Fall heading is away from the killer's last rendered
-  position, converted into victim-local coordinates; missing/suicide sources use a consistent
-  fallback. This is presentation data only, not a new network payload.
-- Four imported skeletons and the procedural avatar share the same timing and lifecycle. Imported
-  knee/head offsets use character-space rotation axes rather than assuming identical bone rolls.
-- A corpse remains briefly visible, stopping all pose/geometry work after settling. It disappears
-  after at most 4.2 seconds; an earlier respawn restores it immediately. Dead snapshots are
-  idempotent: repeated `setAlive(false)` calls never restart a fall.
-- A remote player first encountered already dead stays hidden instead of showing a new fake death.
-  Disconnected players follow the existing avatar removal path, with no separate corpse pool.
+- An authoritative kill event gives the killer a gold confirmation/marker, a separate headshot treatment and a short streak counter for kills less than three seconds apart. Victim names are text, not HTML. Feedback does not shake/lock aim, slow gameplay or interrupt firing.
+- Imported rigs and the procedural avatar react, buckle and settle over about **1.25 s**. Fall direction uses the killer's last rendered position when available; missing/suicide sources use a consistent fallback. This is presentation, not a new hit/network rule.
+- A corpse stops pose/geometry work once settled and disappears after at most **4.2 s**. Repeated dead snapshots do not restart it; respawn restores the body immediately. Players first encountered already dead stay hidden; disconnect uses normal avatar removal.
 
-## When you are killed
+## When you die
 
-The game immediately hides the viewmodel and imported first-person arms, clears flash blindness
-and cancels any charged throw using the existing death handling. The full local character becomes
-available for the collapse even if you were playing first person. A roughly 0.95-second camera
-transition pulls back and lowers its focus, with only a small decaying roll. It uses the same
-`resolveCamera` near-plane sweep as FP/TP cameras, not a wall-ignoring orbit.
+The viewmodel/first-person arms hide immediately, flash blindness clears and a charged throw cancels. The full local avatar becomes visible for collapse. A roughly **0.95 s** camera transition pulls back with small decaying roll, using the same collision-aware near-plane sweep as normal cameras.
 
-For the first approximately 1.05 seconds the redeploy card is visually withheld so the fall is
-readable. The authoritative countdown and selection data still update immediately. The normal
-class/primary/pistol card then becomes interactive, with its original respawn eligibility. No
-extra respawn lock or server delay is added. Camera and corpse clocks catch up with real elapsed
-time after slow frames; returning to the tab does not restart a stale cinematic. The operating
-system's reduced-motion preference skips camera travel/roll and leaves the redeploy panel visible
-without this introductory transition, and simplifies the kill-card/marker CSS animation.
+The redeploy card's visual introduction lasts roughly **1.05 s**; authoritative countdown/selection update immediately and normal respawn eligibility is unchanged. The picker retains class, primary and pistol choices. Changing the next loadout does not replace/restart the fallen avatar.
 
-Spawn, welcome/rejoin and leaving the match clear presentation state. Respawning also resets the
-body's presentation transform and captured joint rotations before normal animation resumes.
-Changing the next loadout while dead does not replace/restart your local fallen avatar.
+Reduced-motion preference skips camera travel/roll and the delayed panel introduction, and simplifies kill feedback. Clocks catch up after slow frames rather than replaying stale cinematics. Spawn, welcome/rejoin and leaving clear presentation state.
 
-## Implementation and scope
+## Implementation and limits
 
-- `public/js/death-motion.js`: dependency-free curves and idempotent `DeathClock`.
-- `public/js/death-animation.js`: per-avatar presentation pivot, frozen live-pose capture,
-  modest joint relaxation, floor clearance and bounded lifetime. Only visual children move;
-  the gameplay root position/yaw/scale remain unchanged.
-- `rig.js` / `character.js`: imported/procedural callbacks and `setAlive(alive, impact)`,
-  `setDeathGround(offset)`, read-only `deathState` (`visible`, `elapsed`). Live holding and reload
-  paths are unchanged when alive. The Gun Lab continues to use the same production rigs.
-- `main.js`: existing kill events, remote snapshots, local camera and spawn/menu lifecycle.
-- `hud.js`, `index.html`, `style.css`, `i18n.js`: safe, bilingual UI and reduced-motion treatment.
+[death-motion.js](../public/js/death-motion.js) defines curves and the idempotent clock; [death-animation.js](../public/js/death-animation.js) captures pose, applies joint relaxation and support-plane clearance, and bounds lifetime. [main.js](../public/js/main.js) integrates events/camera/lifecycle. Imported/procedural rigs expose `setAlive(alive, impact)`, `setDeathGround(offset)` and read-only `deathState`.
 
-The corpse uses the existing map's support height at the victim's feet. During the short moving
-phase it probes deformed skin vertices and static-mesh bounding corners, including asynchronously
-loaded gun geometry present when the fall starts, to keep the visual model above that support
-plane. No shared material opacity is changed and no geometry is cloned every frame.
+Only visual children move: gameplay root/collider, authority, shields, damage and respawn timing remain unchanged. A bounded sample of deformed skin vertices/static bounds keeps the body above the support plane; no shared material opacity changes or per-frame geometry cloning are required.
 
-**Limits:** this is a keyframed collapse, not a physical ragdoll or a kill replay. Bodies do not
-roll down stairs, collide with other bodies, or dynamically fit themselves around wall corners.
-At ledges/sloped stairs, the support plane is an approximation; limbs may visually overlap nearby
-scenery. Skin clearance uses a bounded vertex sample, not exact per-triangle ground collision.
-The corpse does not block bullets or movement. Damage, actual hitboxes, weapon placement defaults,
-server authority, spawn shields, multiplayer transport and respawn rules are unchanged.
-There is no build step, npm runtime dependency, external animation service or physics/Wasm library.
+**This is a keyframed collapse, not ragdoll physics or kill replay.** Bodies do not roll down stairs, collide with bodies, fit wall corners or block bullets/movement. At ledges/slopes, sampled support is approximate and limbs can overlap scenery. No external animation/physics service or build step is needed.
 
-## Regression tests
-
-Pure tests (no dependencies):
+## Checks
 
 ```sh
 node tools/test-death-motion.mjs
+node tools/test-avatar-visibility.mjs
 node tools/test-gun-placement.mjs
 node tools/test-reload-motion.mjs
-node tools/test-avatar-visibility.mjs
-```
-
-With `public/` served on port 8080, test-only Python Playwright installed, and a Chromium executable:
-
-```sh
-export CHROMIUM_EXECUTABLE=/path/to/chromium
-# Optional: CITY_ORIGIN=http://127.0.0.1:8080
 python tools/test-death-animation.py
 python tools/test-death-gameplay.py
-python tools/test-gun-lab.py
 ```
 
-The death animation test exercises 40 real character/pose/direction combinations, independent
-floor samples, finite vertices, unchanged gameplay roots, repeated dead snapshots, stationary
-settled corpses, expiry, respawn restoration and unchanged shared materials. It also checks safe
-victim names, multi-kill feedback, responsive HUD widths and reduced-motion CSS. Optional
-`DEATH_SCREENSHOT=/tmp/death.png` captures an actual imported fallen character.
+See [Python browser setup and limits](testing.md). Tests cover real rigs, frozen roots, idempotence, clearance, cleanup/restoration, reduced motion and Solo/Pyodide death/redeploy integration. Optional `DEATH_SCREENSHOT=/tmp/death.png` and `DEATH_GAME_SCREENSHOT=/tmp/death-game.png` save images. These do not establish every map/ledge or two-device multiplayer scenario.
 
-The gameplay test runs the real Solo/Pyodide engine and production render loop: authoritative
-headshot confirmation, remote collapse, local camera, hidden FP arms, untouched controls,
-death picker/countdown and redeployment. Optional `DEATH_GAME_SCREENSHOT` captures the death panel.
-It tests Solo integration, not a live two-device multiplayer session or every map/ledge combination.
-The existing gun lab and hold regressions cover all 30 catalog guns and default hand attachment.
+中文：死亡是有限时长的关键帧倒地，非物理布娃娃；镜头和界面过渡不延长服务器重生倒计时。减少动态效果设置可跳过镜头移动，尸体不阻挡子弹或人物。

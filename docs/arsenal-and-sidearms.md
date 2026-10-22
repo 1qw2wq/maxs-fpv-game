@@ -1,121 +1,45 @@
-# Expanded arsenal and secondary inventory
+# Weapons and loadouts
 
-The latest upload is integrated as **11 additional primaries and four selectable sidearms**. The shared
-weapon table now contains **26 primaries + 4 secondaries**. All thirty uploaded gun GLBs are mapped.
+The shared [weapon table](../public/shared/weapons.json) contains **26 primaries and four secondaries**. Each class equips one of its primaries and any one sidearm.
 
-| Class | Added primary models |
+| Class | Primary weapons |
 | --- | --- |
-| Assault | Beretta PMX, LR-300, MP5 |
-| Medic | AR-15 Tactical, M4A1 |
-| Support | M249 SAW, M60 Light, M60 Vietnam |
-| Scout | GM6 Lynx, M170 Precision, PGM Ultima Ratio |
+| Assault | MP18 Bergmann, Automatico M1918, Hellriegel M1915, Beretta PMX, LR-300, MP5 |
+| Medic | Cei-Rigotti, RSC M1917, Fedorov Avtomat, AR-15 Tactical, M4A1 |
+| Support | Lewis Gun, BAR M1918, Chauchat M1915, M249 SAW, M60 Light, M60 Vietnam |
+| Scout | SMLE MkIII, Mannlicher M95, Springfield M1903, Sentinel SR-1, AWP, Longbow DMR, GM6 Lynx, M170 Precision, PGM Ultima Ratio |
 
-Every class chooses exactly one secondary: **Beretta APX Carry, G17 Gen 5, Desert Eagle or Flare Pistol**.
-The flare pistol is a utility weapon: its round launches the shared collision-tested revealing flare,
-with its own magazine/reserves. It does not silently become a zero-damage hitscan pistol or spend the
-class ability/grenade charges. The GM6 is semi-automatic; M170/PGM use the existing scoped bolt behavior.
-Legacy SMLE, M95 and Springfield remain iron-sight-only. The uploaded AR-15 optic is enabled too.
+Sidearms: **Beretta APX Carry, G17 Gen 5, Desert Eagle, Flare Pistol**. The flare pistol fires the collision-tested spotting flare from its own ammunition, not class-ability/grenade charges. GM6 is semi-automatic; M170/PGM use scoped bolt behavior. SMLE, M95 and Springfield are **iron-sight-only**; scoped models and the AR-15 optic use their actual sight presentation.
 
-## Controls and loadouts
+## Selection and inventory
 
-- **1**: primary; **2**: pistol; **X**: toggle.
-- Mobile: dedicated **Switch weapon** button in the third action row. It supports the existing saved
-  portrait/landscape control-layout editor and does not replace native desktop pointer lock.
-- Sidearm selection appears below the primary cards, is preserved when changing class, and is saved
-  in the local profile. The death/redeploy picker can also choose a new pistol.
-- HUD shows the active slot and that slot's ammunition. Remote players receive the actual active gun.
+- **1** selects primary, **2** selects secondary (number row or keypad); **X** toggles. Mobile has a dedicated, layout-editable Switch weapon button.
+- Choose a sidearm under the primary cards or in the death/redeploy picker. Class changes retain that selection; the local profile remembers it. Invalid/missing secondaries default to APX.
+- The HUD shows the active slot's ammo; other players see the actual equipped gun.
+- Each slot keeps its own magazine, reserves and accepted-shot timestamp. Switching takes **350 ms**, cancels reload, never refills ammo, and is unavailable while dead. Seated clip-fed rounds are billed once. Respawn refills both inventories and selects primary.
+- Native Python, Solo/Pyodide and browser-hosted multiplayer use the same authoritative inventory validation; a primary cannot occupy the secondary slot.
 
-`Net`, `LocalNet` and `RelayNet` carry the same validated secondary field on joins/retries; respawn uses
-the same field. `Room` and `Match` own inventory in both native Python and browser-hosted Pyodide.
-Missing/invalid choices default to APX; a primary can never be equipped through the secondary slot.
+## Models, grips and reloads
 
-Each slot preserves its magazine, reserve and accepted-shot timestamp. Switching has a 350 ms equip
-lock, cancels reload, cannot be used while dead, and bills already seated clip-fed rounds exactly once.
-Respawn returns to the primary and refills both inventories. Switching never refills ammunition.
+[Gun loading](../public/js/guns.js) defines per-model orientation, scale and offsets. Display stands, duplicate showcase guns and loose accessories are filtered at runtime where needed; uploaded GLBs are unchanged. The G17 muzzle follows its barrel rather than its flashlight. The flare pistol keeps one complete gun; M60 Vietnam keeps one assembled copy.
 
-## Model placement and hands
+[Hand contacts](../public/js/weaponpose.js) specify each gun's trigger, support, service and ejection positions. Hip placement, ADS reach and pistol support wraps are gun-specific, not a single global offset. Imported arms use IK when reachable and a connected procedural glove pair otherwise; contacts are not moved merely to hide an unreachable wrist.
 
-`guns.js` contains per-model orientation/scale/offset profiles in metres, with independently inspected
-muzzle directions. Loose display parts are filtered via original GLTF node associations:
+[Reload motion](../public/js/reload-motion.js) gives all 30 weapons distinct feed timing, tilt, withdrawal and recovery profiles. First- and third-person hands follow the same sockets and authoritative progress. These are procedural motions around static assemblies, **not newly articulated magazine/bolt meshes or baked mechanical clips**. Presentation does not change ammo or completion/cancellation rules. Existing sound recordings use per-gun trims/effects with synth fallback.
 
-- AR-15: remove presentation floor/glass/stands and loose magazines/ammunition/alternate accessories.
-- G17: keep the installed magazine, frame, slide and Olight; remove the spare display magazines.
-  Its flash is calibrated to the gun barrel, **not the forward end of its flashlight**.
-- Flare pistol: keep one complete gun instead of the second display variant/loose flares, and correct
-  its source pitch so the barrel lies along the firing axis.
-- M60 Vietnam: retain one assembled gun rather than both staged copies and spare components.
+For manual third-person adjustments, use [Gun Lab](gun-placement-lab.md). For original authors, sources and restrictions—including non-commercial assets—see [asset credits](../public/models/guns/CREDITS.md).
 
-No uploaded binary was rewritten. Other GLBs retain their source materials and all assembled parts.
-`weaponpose.js` supplies individual trigger, support, service and ejection contacts. All thirty weapons
-have their own first-person hip placement; ADS reach derives from the actual trigger, not one fixed
-camera Z position. The long M170, bullpup GM6, traditional rifles and machine guns therefore mount
-at different positions. The old global support-span clamp has been removed: sliding a contact along
-an arbitrary line could place palms on magazines or in air. Explicit per-model handguard/foregrip
-contacts are now used unchanged by both FP and TP; unreachable imported-arm poses use the existing
-connected procedural fallback rather than moving the contact or stretching a wrist.
+## Checks
 
-### Complete-model orientation/contact audit
+```sh
+python tools/test-secondaries.py
+node tools/test-weapon-keys.mjs
+node tools/test-gun-calibration.mjs
+node tools/test-gun-calibration.mjs /tmp/gun-audit
+node tools/test-reload-motion.mjs
+CITY_LIVE=1 python tools/test-expanded-assets.py
+```
 
-The LR300 was pointing stock-first and is now yawed correctly. Hellriegel/Chauchat source tilts are
-leveled in normalized space, with the same correction applied to contacts. GM6 now grips the trigger
-rather than its bipod; PMX/M170/MP5 grips and pistol support wraps were refitted. Several traditional
-rifle and LMG support contacts were moved onto actual handguards instead of the generic clamped point.
-All 30 assembled silhouettes were inspected (including legitimate Automatico top-feed geometry).
+Calibration reads actual assembled geometry and can export annotated silhouettes. Browser tests cover selection, switching, ammo, hands and relay synchronization; see [test setup and outstanding validation limits](testing.md).
 
-`node tools/test-gun-calibration.mjs` checks every contact against actual assembled GLB triangles,
-with a maximum palm-contact distance of 2.7 cm and regression landmarks for the corrected handles.
-A loading-time viewmodel race is also guarded: the latest acknowledged snapshot wins over an older
-welcome, and acknowledgement checks the actual rendered gun as well as cached ids. The live suite
-reproduces a stale visual rebuild and verifies that the real acknowledged packet repairs it.
-
-An optional output directory writes a separate annotated SVG silhouette for every gun:
-`node tools/test-gun-calibration.mjs /tmp/gun-audit`. This is an offline diagnostic, not a build step.
-
-Pistols use a close two-handed grip, including a separate support-palm rotation rather than the rifle's
-under-fore-end grasp. The same hand frame is used by procedural gloves, imported character IK,
-first-person borrowed arms and third-person characters. Recoil, sway and reload still move the hands
-with their own weapon sockets. Existing recordings are reused with per-gun effects/sound trims; there
-were no new recorded gunfire sounds in the upload. Synth fallback remains available.
-
-## Tests
-
-`python tools/test-secondaries.py` has 12 inventory/validation/equip/reload/respawn/flare/room cases.
-The complete Python gameplay set totals 111 tests including city, sniper, AI, movement, cover, survival,
-grenade and control-point regressions. `node tools/test-proc-city.mjs` additionally checks 32 seeds.
-
-`tools/test-expanded-assets.py` loads all thirty actual GLBs and checks dimensions, fitted poses,
-close pistol contacts, the real selection UI and city collision. With `CITY_LIVE=1`, it additionally
-exercises actual Solo/Pyodide, keyboard and touch switching, ammo preservation and two Relay seats.
-Existing optional JS hand/aim/effects assertions have been extended to the new thirty-weapon data.
-Physical-phone ergonomics and deployed-Vercel connectivity still require device/deployment testing.
-
-### Verified in this workspace
-
-- 111 Python regressions and 32 deterministic map seeds passed.
-- Real WebGL: all 30 uploaded model loads/dimensions; 454,970 city collision samples and 513 ramp sprints.
-- All 30 assembled-geometry palm contacts passed the offline calibration audit.
-- All 30 ADS sight anchors and actual imported-mesh reticle rays passed, including short pistols.
-- Imported hands: **960 poses across four shipped skeletons**. 429 poses used the imported arms;
-  unreachable poses correctly fell back to the connected procedural glove pair, rather than stretching a wrist.
-- Third-person holds: **23,040 animated frames** across all 30 weapons/four skeletons, including
-  direction changes, extreme pitch, reloads and throws. Both wrist-contact errors stayed below 0.001 mm.
-- Actual main.js Solo/Pyodide deploy, desktop-key/touch switching and independent sidearm ammo passed.
-- Two real RelayHostNet/RelayNet seats retained different pistol selections and synchronized active guns.
-- Four portrait/landscape screen sizes passed touch-control overlap checks.
-- No missing game assets or uncaught browser errors in the final expanded browser run. Bare-static-host
-  API/WebSocket discovery failures and autoplay/legacy-Chromium warnings are expected, not a required backend.
-
-## Version-7 procedural reload update
-
-Every one of the 30 guns now has a distinct profile in `public/js/reload-motion.js`, with individual
-feed timing, gun tilt, withdrawal direction and recovery reach. The shared choreography drives FP
-borrowed arms/gloves and imported/procedural TP hands. Feed sockets are measured on the actual
-assembled GLBs (offline surface error below 3 mm), including corrected RSC, Federov, BAR, Chauchat
-and flare service points. The authority publishes reload duration/progress; presentation never
-changes ammo, completion time or cancellation rules. Models remain static assemblies: no new moving
-magazine/bolt meshes or baked mechanical clips are claimed.
-
-Fresh reload coverage: 30 unique profiles / 9,030 real VM/glove frames; continuity and cancellation;
-960 FP poses on four imported skeletons; 720 imported TP reload poses; 210 procedural weapon/effects
-poses. See [city validation](proc-city.md) for the matching park, eight-car and lighting/performance revision.
-The earlier counts/results above describe the original arsenal integration, not this new city artifact.
+中文：每个兵种可选主武器和任一手枪；1/2 切换主副武器，X 循环。换枪不会补弹。老式无镜步枪不套用狙击镜特效；手部、持枪与装填按实际枪型设置。
