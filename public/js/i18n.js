@@ -102,7 +102,7 @@ const EN = {
   '弹匣 {n} 发': '{n}-round magazine',
   '副武器 · 选择一把手枪':'Secondary · choose one pistol',
   '副武器':'Secondary', '切换武器':'Switch weapon',
-  '1 主武器 · 2 手枪 · X 切换武器':'1 Primary · 2 Pistol · X Switch weapon',
+  '1 主武器 · 2 副武器 · X 切换武器':'1 Main gun · 2 Secondary gun · X Switch weapon',
   '瞄准镜': 'Scoped',
   '出生保护 · {seconds}秒': 'Spawn shield · {seconds}s',
   '自定义触屏布局': 'Customize touch layout',
@@ -260,8 +260,8 @@ const EN = {
   '新手指引': 'Tutorial',
   '学习移动 / 手榴弹 / 据点控制 / 联机': 'Movement, grenades, flags and multiplayer',
   '第一次玩？从这里开始 · 学会手榴弹与据点控制': 'First time? Start here',
-  '操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · M 防毒面具 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
-    'WASD move · Shift sprint · C crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · hold G throw · B grenade type · M gas mask · V camera · Tab scoreboard · Esc pause',
+  '操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · 1 主武器 · 2 副武器 · X 切换武器 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · M 防毒面具 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
+    'WASD move · Shift sprint · C crouch · Space jump · LMB fire · RMB aim · R reload · 1 main gun · 2 secondary gun · X switch weapon · Q ability · hold G throw · B grenade type · M gas mask · V camera · Tab scoreboard · Esc pause',
   '角色出现白块 / 黑块（头发、衣服、鞋子变色）？': 'Character pieces showing up white or black (hair, clothes, shoes discoloured)?',
   '打开颜色修复者 ColorFixer': 'Open the ColorFixer tool',
 

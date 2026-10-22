@@ -77,6 +77,7 @@ export class Controls {
 
     this.onFireDown = null;
     this.onReload = null;
+    this.onWeaponSwitch = null;
     // Q is held to charge a throw: down opens the aim preview, up releases it.
     this.onAbilityDown = null;
     this.onAbilityUp = null;
@@ -169,8 +170,9 @@ export class Controls {
       if (e.code === 'Escape') { this.releaseLook(); this.onEscape?.(); return; }
       if (e.repeat) return;
       this.keys.add(e.code);
-      if (e.code === 'Digit1') this.onWeaponSwitch?.('primary');
-      if (e.code === 'Digit2') this.onWeaponSwitch?.('secondary');
+      // Direct selection: 1 always means main gun; 2 always means secondary.
+      if (e.code === 'Digit1' || e.code === 'Numpad1') this.onWeaponSwitch?.('primary');
+      if (e.code === 'Digit2' || e.code === 'Numpad2') this.onWeaponSwitch?.('secondary');
       if (e.code === 'KeyX') this.onWeaponSwitch?.();
       if (e.code === 'KeyR') this.onReload?.();
       if (e.code === 'KeyQ') this.onAbilityDown?.();

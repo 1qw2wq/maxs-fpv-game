@@ -657,6 +657,9 @@ Use `TEST_DEPS` to change the external test-dependency directory; no npm build s
 | `C` / `Ctrl` | Crouch (half height, the only way through low passages) |
 | `Space` | Jump |
 | `R` | Reload |
+| `1` | Select main gun (number row or numeric keypad) |
+| `2` | Select secondary gun (number row or numeric keypad) |
+| `X` | Toggle between main and secondary guns |
 | `Q` | Use your class ability (hold/release to throw smoke or a flare) |
 | `G` (hold/release) | Charge and throw the selected grenade |
 | `B` | Cycle frag → incendiary → smoke → flash → poison gas |
