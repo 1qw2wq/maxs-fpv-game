@@ -475,6 +475,7 @@ export function createGirl(cls, team, data) {
   const girl = {
     root, marker, headG, shadow,
     height: 1.70,
+    maskHeadPosition(out) { headG.getWorldPosition(out); return root.worldToLocal(out); },
 
     setWeapon(weapon) {
       if (st.weapon === weapon) return;

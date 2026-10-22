@@ -32,7 +32,7 @@ export async function testGrenades(context, origin) {
     const scene=new T.Scene();scene.background=new T.Color(0x111722);
     const camera=new T.PerspectiveCamera(65,1.6,.06,100);camera.position.set(7,5,9);camera.lookAt(0,.5,0);
     const effects=[];
-    for(const kind of ['frag','incendiary','smoke','flash','flare']) {
+    for(const kind of ['frag','incendiary','smoke','flash','gas','flare']) {
       const spec=fixtures.definitions.find(g=>g.id===kind)||{dur:9000,radius:.3};
       const fx=buildGrenadeEffect({k:kind,p:[0,.091,0],r:spec.radius,dur:spec.dur,eid:42});
       const duplicate=buildGrenadeEffect({k:kind,p:[0,.091,0],r:spec.radius,dur:spec.dur,eid:42});
@@ -85,7 +85,7 @@ export async function testGrenades(context, origin) {
     renderer.dispose();
     return {tests,points,orange};
   },fixtures);
-  assert.equal(result.tests,150);
+  assert.equal(result.tests, fixtures.worlds.reduce((n,w)=>n+w.cases.length,0));
   assert.deepEqual(errors,[]);
   console.log(`PASS: ${result.tests} Python/JS throw parity cases (${result.points} sampled coordinates), sphere sweeps, ramp slopes, fuses, bounces and remote replay`);
   console.log(`PASS: typed grenade/flare lifetimes, 20/60/144 Hz debris, wall-stopped fragments/fire, pooled lights, visible WebGL flames (${result.orange} orange pixels) and resource disposal`);

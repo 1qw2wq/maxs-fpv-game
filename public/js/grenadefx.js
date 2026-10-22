@@ -43,7 +43,7 @@ export function buildGrenadeEffect(fx,world) {
   textures();
   const obj=new THREE.Group();obj.position.fromArray(fx.p);
   const rng=random((fx.eid||1)*7919),particles=[],dust=[];
-  const burning=fx.k==='incendiary',flare=fx.k==='flare',smoke=fx.k==='smoke',flash=fx.k==='flash';
+  const burning=fx.k==='incendiary',flare=fx.k==='flare',smoke=fx.k==='smoke'||fx.k==='gas',flash=fx.k==='flash';
   const persistent=burning||flare,dur=grenadeVisualDuration(fx.k,fx.dur);
   const count=burning?30:flare?7:smoke?4:flash?1:8;
   const radius=burning?(fx.r||4):flare?.16:smoke?.08:.15;
@@ -52,7 +52,7 @@ export function buildGrenadeEffect(fx,world) {
     if(burning&&world&&sweepThrow(world,[fx.p[0],fx.p[1]+.4,fx.p[2]],[fx.p[0]+x,fx.p[1]+.4,fx.p[2]+z],.01))continue;
     const floor=burning&&world?world.floorAt(fx.p[0]+x,fx.p[2]+z,fx.p[1]-.1)-fx.p[1]:0;
     if(burning&&Math.abs(floor)>.65)continue;
-    const s=sprite(smoke?smokeTexture():persistent?flameTexture:glowTexture,flash?0xffffff:smoke?0xb6bbba:flare?0xff6635:0xffbf65,!smoke&&!persistent);
+    const s=sprite(smoke?smokeTexture():persistent?flameTexture:glowTexture,flash?0xffffff:smoke?(fx.k==='gas'?0xdfce58:0xb6bbba):flare?0xff6635:0xffbf65,!smoke&&!persistent);
     obj.add(s);
     particles.push({sprite:s,x,z,floor,phase:rng(),width:burning?.9+rng()*.55:.25,height:flare?.35+rng()*.4:.5+rng()*1.1,speed:.7+rng()*.8,
       vx:Math.cos(angle)*(1+rng()*3),vz:Math.sin(angle)*(1+rng()*3),vy:1+rng()*3});

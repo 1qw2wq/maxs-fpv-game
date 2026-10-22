@@ -269,7 +269,7 @@ class GrenadeTests(unittest.TestCase):
         for map_id in ('somme', 'italy'):
             combat.set_map(map_id)
             for team in (0, 1):
-                for kind in ('frag', 'incendiary', 'smoke', 'flash', 'flare'):
+                for kind in ('frag', 'incendiary', 'smoke', 'flash', 'gas', 'flare'):
                     for pitch in (-0.8, 0.0, 0.7):
                         pos, _ = combat.random_spawn(team, rng)
                         origin = [pos[0], pos[1]+1.58, pos[2]]
@@ -292,7 +292,7 @@ def fixtures():
             combat._build_grid()
         cases = []
         for team in (0, 1):
-            for kind in ('frag', 'incendiary', 'smoke', 'flash', 'flare'):
+            for kind in ('frag', 'incendiary', 'smoke', 'flash', 'gas', 'flare'):
                 for pitch, power in ((-.7, 0.1), (0, .6), (.7, 1)):
                     pos, _ = combat.random_spawn(team, rng)
                     origin = [pos[0], pos[1]+1.58, pos[2]] if map_id in ('somme','italy') else [-1, 3, 0]

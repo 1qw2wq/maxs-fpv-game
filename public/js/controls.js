@@ -83,6 +83,7 @@ export class Controls {
     this.onGrenadeDown = null;
     this.onGrenadeUp = null;
     this.onGrenadeCycle = null;
+    this.onMaskToggle = null;
     // Charge dropped without a throw (lost lock, tab blur, death).
     this.onAbilityCancel = null;
     this.onScoreboard = null;
@@ -175,6 +176,7 @@ export class Controls {
       if (e.code === 'KeyQ') this.onAbilityDown?.();
       if (e.code === 'KeyG') this.onGrenadeDown?.();
       if (e.code === 'KeyB') this.onGrenadeCycle?.();
+      if (e.code === 'KeyM') this.onMaskToggle?.();
       if (e.code === 'KeyV') this.onViewToggle?.();
       if (e.code === 'Enter') this.onChat?.();
       if (e.code === 'Space') e.preventDefault();

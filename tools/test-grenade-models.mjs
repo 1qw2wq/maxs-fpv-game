@@ -19,6 +19,7 @@ export async function testGrenadeModels(context,origin){
   for(const kind of Object.keys(GRENADE_MODELS)){
    const model=createGrenadeProjectile(kind,71);await model.userData.modelReady;
    if(!model.userData.imported)throw Error(`${kind}: fallback instead of uploaded art`);
+   if(kind==='gas'){let meshes=0;model.traverse(o=>{if(o.isMesh)meshes++;});if(meshes!==2)throw Error('Gas must use one canister, not both showcase copies');}
    scene.add(model);model.updateMatrixWorld(true);
    const bounds=new T.Box3().setFromObject(model),sphere=bounds.getBoundingSphere(new T.Sphere());
    if(sphere.radius+sphere.center.length()>.09001)throw Error(`${kind}: art exceeds collision sphere ${sphere.radius+sphere.center.length()}`);
@@ -54,8 +55,8 @@ export async function testGrenadeModels(context,origin){
   const flare=createGrenadeProjectile('flare',0);await flare.userData.modelReady;
   let flareParts=0;flare.traverse(o=>{if(o.isMesh)flareParts++;});
   if(flareParts<4)throw Error('Flare must have a detailed cartridge fallback');disposeGrenadeProjectile(flare);
-  const resources=performance.getEntriesByType('resource').filter(r=>/granade.*\.glb/.test(r.name));
-  if(resources.length!==3)throw Error(`Models downloaded ${resources.length} times instead of three cached files`);
+  const resources=performance.getEntriesByType('resource').filter(r=>/(?:granade|grenade).*\.glb/.test(r.name));
+  if(resources.length!==5)throw Error(`Models downloaded ${resources.length} times instead of five cached files`);
   renderer.dispose();return {cases,samples,sharedGeometries:geometries.size};
  },!!process.env.GRENADE_MODEL_SHOTS);
  if(process.env.GRENADE_MODEL_SHOTS)for(const image of await page.evaluate(()=>grenadeShots))await writeFile(`${process.env.GRENADE_MODEL_SHOTS}-${image.kind}.png`,Buffer.from(image.data.split(',')[1],'base64'));

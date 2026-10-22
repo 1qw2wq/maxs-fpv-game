@@ -56,7 +56,7 @@ export function buildSmokeCloud(fx) {
     const radial = radius * Math.sqrt((Math.floor(i / 3) + 0.5) / 12) * (layer === 2 ? 0.48 : 0.72);
     const size = radius * (layer === 0 ? 0.62 : 0.74) * (0.85 + rng() * 0.35);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: smokeTexture(), color: layer === 0 ? 0xa4adb6 : 0xcbd1d5,
+      map: smokeTexture(), color: fx.k === 'gas' ? (layer === 0 ? 0xa89832 : 0xdfce58) : (layer === 0 ? 0xa4adb6 : 0xcbd1d5),
       transparent: true, depthWrite: false, opacity: 0, fog: false,
       rotation: rng() * Math.PI * 2,
     }));

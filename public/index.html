@@ -137,7 +137,7 @@
         <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
       </label></div></div>
       </section>
-      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人可由房主添加 AI；同一台机器多开两个标签页也能对战</p></div><div><label class="field">
+      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · M 防毒面具 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人可由房主添加 AI；同一台机器多开两个标签页也能对战</p></div><div><label class="field">
         <span>服务器地址</span>
         <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
       </label>
@@ -300,8 +300,8 @@
         <span id="room-copy" class="rc-copy">复制</span>
       </button>
       <div id="objective-hud" class="hidden"><b id="objective-mode">据点控制</b><div id="objective-cards"></div><p id="objective-status"></p></div>
+      <div id="mask-status" class="hidden" role="status"></div>
     </div>
-
     <div class="loadout-info">
       <div id="ability-chip">
         <div class="ab-key">Q</div>
@@ -403,6 +403,7 @@
 
 </section>
 
+  <div id="gas-mask-view" class="hidden" aria-hidden="true"><i></i></div>
   <div id="flash-veil" aria-hidden="true"></div>
   <div id="scope-overlay" class="hidden" aria-hidden="true"><div class="scope-lens"><svg viewBox="0 0 100 100"><path d="M0 50H46 M54 50H100 M50 0V46 M50 54V100 M30 48V52 M40 48V52 M60 48V52 M70 48V52 M48 30H52 M48 40H52 M48 60H52 M48 70H52"/><circle cx="50" cy="50" r=".45"/></svg></div></div>
 

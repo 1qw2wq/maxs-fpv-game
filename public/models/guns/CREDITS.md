@@ -51,4 +51,38 @@ The AWP metadata specifies a **non-commercial** license. The Longbow model speci
 - Source: https://sketchfab.com/3d-models/toon-granade-4916b6f78b804bacb39eab3a24e02bd6
 - Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
 
-Runtime presentation normalizes scale/pivot, adds type-identification collars, and omits the Toon upload’s expanded black outline shells. Original uploaded GLBs are unchanged. Flash/incendiary/smoke presentations reuse these grenade-shaped bodies; they are not newly scanned replicas of those devices.
+Runtime presentation normalizes scale/pivot, adds type-identification collars, and omits the Toon upload’s expanded black outline shells. Original uploaded GLBs are unchanged. Incendiary still reuses Hand Granade. Smoke/flash now use the dedicated uploads below; the older Toon file remains in the repository but is not the active smoke mapping.
+
+## Newly uploaded gas / mask / smoke / flash assets
+
+### Gas Grenade
+
+- File: `gas_grenade.glb`
+- Author: LiliumLetifer (https://sketchfab.com/LiliumLetifer)
+- Source: https://sketchfab.com/3d-models/gas-grenade-86246492f2114484b867ec2b28ebec5c
+- Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+### Gas Mask
+
+- File: `gas_mask.glb`
+- Author: David Wigforss (https://sketchfab.com/dwigfor)
+- Source: https://sketchfab.com/3d-models/gas-mask-2eb180c68ac146989a8a3247ab19b6ae
+- Embedded license: CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+
+### Smoke granade
+
+- File: `smoke_granade.glb`
+- Author: deepak (https://sketchfab.com/dcdeepakdc)
+- Source: https://sketchfab.com/3d-models/smoke-granade-122abbcbd0fc49d2a0b157dd63730da0
+- Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+### Flashbang grenade
+
+- File: `flashbang_grenade.glb`
+- Author: Nikolay Kudrin (https://sketchfab.com/knik211)
+- Source: https://sketchfab.com/3d-models/flashbang-grenade-2799b0b859c74db6ae8752fdc6bb4c04
+- Embedded license: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+**Gas Mask is CC BY-NC 4.0 (non-commercial), not CC BY 4.0.** Its use remains subject to those original terms; neither this attribution nor the game's code license grants commercial rights. Review/replace restricted assets before commercial deployment.
+
+Runtime adaptations: the gas-grenade showcase contains two complete copies; only its upright canister is used. Throwable bodies are centered/upright, scaled together with their identification collar to fit the existing collision envelope. The mask is centered/scaled and attached to avatar faces. Textures and source GLBs are unchanged. Detailed implementation and licensing notes: [poison gas and mask](../../../docs/poison-gas-and-mask.md).

@@ -420,6 +420,20 @@ def think(match, p, dt_ms):
         p["flags"] = {"move": False, "sprint": False, "crouch": False, "ground": True}
         return events
 
+    # React to actual inhalation, not hidden/future clouds or the thrower's intent.
+    # Same 750 ms seal as humans; lower tiers take longer to notice the hazard.
+    if p.get("gas_until", 0) > now:
+        st["mask_last_gas"] = now
+        if not p.get("mask_on"):
+            if not st.get("mask_react_at"):
+                st["mask_react_at"] = now + _RNG.uniform(*skill["reaction"])
+            elif now >= st["mask_react_at"]:
+                match._on_mask(p, {"on": True})
+    else:
+        st["mask_react_at"] = 0
+        if p.get("mask_on") and now-st.setdefault("mask_last_gas", now) > 2000:
+            match._on_mask(p, {"on": False})
+
     crouch = p["flags"].get("crouch", False)
     eye = (p["pos"][0], p["pos"][1] + COMBAT["crouchEyeHeight" if crouch else "standEyeHeight"], p["pos"][2])
     _manage_weapon(match, p)

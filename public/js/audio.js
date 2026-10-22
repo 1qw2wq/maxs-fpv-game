@@ -285,9 +285,9 @@ export class Sfx {
       this._noise(.075,.27*gain,3200,.5,'highpass');
       this._thump(.09,.14*gain,240,100);return;
     }
-    if(kind==='smoke'||kind==='flare') {
+    if(kind==='smoke'||kind==='gas'||kind==='flare') {
       this._noise(.06,.12*gain,1700,.6,'highpass');
-      this._noise(.7,.09*gain,kind==='smoke'?1200:2200,.7);return;
+      this._noise(.7,.09*gain,kind==='flare'?2200:1200,.7);return;
     }
     // Initial pressure crack, lower body and a softer debris/air tail, rather
     // than the same single bass noise for every throwable. No delayed timers.
@@ -339,7 +339,7 @@ export class Sfx {
     if (kind === 'heal') { this._blip(0.3, 0.2, 520, 900, 'sine'); setTimeout(() => this._blip(0.3, 0.16, 700, 1200, 'sine'), 90); }
     else if (kind === 'ammo') { this._blip(0.12, 0.2, 340, 620, 'square'); setTimeout(() => this._blip(0.12, 0.18, 420, 760, 'square'), 90); }
     else if (kind === 'flare') { this._blip(0.4, 0.2, 1300, 500, 'sawtooth'); }
-    else if (kind === 'smoke') { this._noise(0.5, 0.16, 900, 0.8, 'lowpass'); this._blip(0.24, 0.14, 320, 180, 'triangle'); }
+    else if (kind === 'smoke' || kind === 'gas') { this._noise(0.5, 0.16, 900, 0.8, 'lowpass'); this._blip(0.24, 0.14, 320, 180, 'triangle'); }
     else this._blip(0.18, 0.22, 600, 260, 'triangle');
   }
 

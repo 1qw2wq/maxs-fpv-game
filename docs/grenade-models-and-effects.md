@@ -8,8 +8,9 @@
 | --- | --- | --- |
 | Frag | `models/guns/granade_m26.glb` | Muted yellow collar |
 | Incendiary | `models/guns/hand_granade.glb` | Orange collar |
-| Smoke / assault smoke ability | `models/guns/toon_granade.glb` | Gray collar, outline shells hidden |
-| Flash | `models/guns/hand_granade.glb` | Pale collar |
+| Smoke / assault smoke ability | `models/guns/smoke_granade.glb` | Gray collar; dedicated uploaded canister |
+| Flash | `models/guns/flashbang_grenade.glb` | Pale collar; dedicated uploaded flashbang |
+| Poison gas | `models/guns/gas_grenade.glb` | Yellow collar; upright canister only, not its lying showcase duplicate |
 | Scout flare | Slim procedural red cartridge | Not the uploaded flare **gun**, which remains a weapon |
 
 These uploads are grenade-shaped artwork, reused for recognizable gameplay types. They are not
@@ -18,7 +19,7 @@ are preserved; original files are not rewritten. Embedded authors, licenses and 
 are listed in `public/models/guns/CREDITS.md`.
 
 The loader normalizes orientation, centers the rigid prop and fits it inside the existing 0.09 m
-collision envelope. The type collar follows the body cross-section. Only three GLBs are downloaded
+collision envelope. The type collar follows the body cross-section. Five throwable GLBs are downloaded
 and parsed, cached across throws and map changes. Instances share template geometry, textures and
 materials. Per-instance disposal never destroys those templates. Failed downloads retain a detailed
 mechanical fallback; a disposed throw ignores a later asynchronous load completion.
@@ -28,7 +29,7 @@ mechanical fallback; a disposed throw ignores a later asynchronous load completi
 The original host path remains authoritative; the loader does not resize colliders, move impacts
 or change fuse times. Tumbling uses accumulated movement/time on that sampled path. Stationary
 segments do not keep accumulating spin. Legacy hosts without samples retain the old curve fallback.
-The smoke body remains at the final sampled pose underneath its venting cloud, even when its
+The smoke/gas body remains at the final sampled pose underneath its venting cloud, even when its
 welcome snapshot is already past the fuse. Expired flashes/blasts are not replayed on late arrival.
 
 ## Detonations
@@ -43,6 +44,7 @@ welcome snapshot is already past the fuse. Expired flashes/blasts are not replay
   Floor/wall checks prevent spreading the flame layout through a solid wall or to unrelated floors.
 - **Smoke:** existing 36-card sight-blocking cloud/density unchanged, plus four smaller vent puffs;
   no large incendiary fireball. The canister stays beneath it until cleanup.
+- **Poison gas:** yellow/ochre version of the 36-card cloud and small vent; same settled-canister lifecycle. Host damage and usable gas-mask protection are documented in [poison gas and mask](poison-gas-and-mask.md).
 - **Flash:** one fast white glare plus a white halo; no orange fire, dust or fragment batch. The
   existing host LOS/distance/facing exposure and full-screen white blindness/fade remain unchanged.
 - **Flare:** small red-orange ignition, embers and wisps for its existing lifetime; still spotting,
@@ -57,8 +59,7 @@ layers; smoke/flare and flash have distinct ignition/report profiles. No delayed
 external samples/services are introduced.
 
 The effect is still bounded real-time game presentation, not a fluid simulation or physically
-accurate fragmentation solver. Decorative dust/soot does not become AI smoke cover. No new gameplay
-radius, damage, inventory, shield, team rules or throw physics were added.
+accurate fragmentation solver. Decorative dust/soot does not become AI smoke cover. The original presentation upgrade did not change gameplay tuning. The subsequent poison/mask feature adds a separate 6.5 m / 18 HP/s gas type; existing grenade inventory, shields, friendly-fire rules and throw physics remain unchanged.
 
 ## Verification
 
@@ -74,8 +75,8 @@ GRENADE_MODEL_SHOTS=/tmp/grenade GRENADE_SCREENSHOT=/tmp/fire.png node tools/tes
 python tools/test-grenades.py
 ```
 
-Checks cover 150 host/preview parity cases / 29,168 sampled coordinates, actual pixels for all
-four imported presentations, bounds, cache reuse across 32 clones, canceled/failed loads, rest and
+Checks cover 180 host/preview parity cases / 36,096 sampled coordinates, actual pixels for all
+five imported presentations, bounds, cache reuse across 32 clones, canceled/failed loads, rest and
 late-path poses at 20/60/144 Hz, deterministic wall-stopped fragments and fire placement, white-flash
 separation, lifetime/geometry cleanup and two fixed light slots. The live fixture runs native G/B/Q,
 charged throws and inventory checks, persistent fire/expiry, full-white flash recovery, pause

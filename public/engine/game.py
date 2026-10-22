@@ -37,6 +37,11 @@ REGEN_SECONDS = 8.0
 SPAWN_SHIELD_MS = float(COMBAT.get("spawnShieldMs", 5000))
 
 
+def mask_protected(p, now):
+    """Only a live, host-confirmed seal protects against poison, never bullets/fire."""
+    return bool(p["alive"] and p.get("mask_on") and now >= p.get("mask_ready", 0))
+
+
 def shield_remaining(p, now):
     # A corrupt/extended deadline must never grant more than one spawn window.
     deadline = min(p.get("shield_until", 0.0), p.get("spawned_at", now - SPAWN_SHIELD_MS) + SPAWN_SHIELD_MS)
@@ -219,6 +224,7 @@ class Match:
             "ability_charges": int(CLASSES[cls].get("abilityCharges", 1)),
             "grenades": int(combat.THROW["grenadeCharges"]), "grenade_ready": 0.0,
             "velocity": [0.0, 0.0, 0.0], "flash_until": 0.0,
+            "mask_on": False, "mask_ready": 0.0, "gas_until": 0.0,
             "kills": 0, "deaths": 0, "respawn_at": 0.0, "reveal_until": 0.0,
             "last_input": now_ms(), "bot": bot, "ws": ws, "ping": 0,
             "suppress_until": 0.0, "healed_at": 0.0, "resupply_at": 0.0,
@@ -301,6 +307,8 @@ class Match:
             return self._on_ability(p, msg)
         elif t == "grenade":
             return self._on_grenade(p, msg)
+        elif t == "mask":
+            self._on_mask(p, msg)
         elif t == "respawn":
             return self._on_respawn(p, msg)
         elif t == "chat":
@@ -573,6 +581,7 @@ class Match:
         now = now_ms()
         victim["hp"] = 0.0
         victim["alive"] = False
+        victim["mask_on"], victim["mask_ready"], victim["gas_until"] = False, 0.0, 0.0
         victim["deaths"] += 1
         victim["respawn_at"] = now + float(COMBAT["respawnMs"])
         victim["flags"] = {}
@@ -639,6 +648,7 @@ class Match:
         p["velocity"] = [0.0, 0.0, 0.0]
         p["suppress_until"] = 0.0
         p["reveal_until"] = 0.0
+        p["mask_on"], p["mask_ready"], p["gas_until"] = False, 0.0, 0.0
         s, spawn_yaw = random_spawn(p["team"], self.rng)
         p["pos"] = list(s)
         p["yaw"] = spawn_yaw
@@ -727,6 +737,17 @@ class Match:
         inherited = p.get("velocity", (0, 0, 0)) if p["bot"] or now_ms()-p["last_input"] < 200 else (0, 0, 0)
         return simulate_throw(eye_pos(p), direction, clamp(power, 0, 1), kind, inherited)
 
+    def _on_mask(self, p, msg):
+        # Explicit desired state is idempotent across repeated/delayed packets.
+        # No client-provided ready timestamp or protection flag is ever used.
+        on = msg.get("on")
+        if not p["alive"] or self.phase != "live" or type(on) is not bool:
+            return
+        if on == p.get("mask_on", False):
+            return
+        p["mask_on"] = on
+        p["mask_ready"] = now_ms() + combat.WEAPONS_DATA["gasMask"]["equipMs"] if on else 0.0
+
     def _on_grenade(self, p, msg):
         if not p["alive"] or self.phase != "live":
             return []
@@ -811,10 +832,17 @@ class Match:
                 victim["flash_until"] = max(victim["flash_until"], now+duration)
                 self.outbox.append({"to": victim["id"], "msg": {"t": "flash", "strength": strength, "ms": duration}})
             else:
-                active = max(0, min(now, e["until"])-max(now-dt_ms, e["start"])) / 1000
+                end = min(now, e["until"])
+                if kind == "gas":
+                    # Exposure is private host state, also used by bot perception/HUD.
+                    victim["gas_until"] = max(victim.get("gas_until", 0), min(e["until"], now+200))
+                    if victim.get("mask_on"):
+                        # Charge only the unsealed part of a tick crossing equip completion.
+                        end = min(end, victim["mask_ready"])
+                active = max(0, end-max(now-dt_ms, e["start"])) / 1000
                 damage = spec["damage"]*max(0, 1-distance/e["r"]) if kind == "frag" else spec["damagePerSecond"]*active
                 if damage > 0:
-                    self.outbox.extend(self._grenade_damage(e, victim, damage, "blast" if kind == "frag" else "fire"))
+                    self.outbox.extend(self._grenade_damage(e, victim, damage, "blast" if kind == "frag" else "gas" if kind == "gas" else "fire"))
 
     def _drop_crates(self, pid):
         """Take down a caster's standing heal/ammo crates.
@@ -841,7 +869,7 @@ class Match:
         now = now_ms()
         for e in self.effects:
             # A cloud still in the air (start in the future) blinds nobody yet.
-            if (e["k"] == "smoke" and e.get("start", 0.0) <= now
+            if (e["k"] in ("smoke", "gas") and e.get("start", 0.0) <= now < e["until"]
                     and dist3(pos, e["p"]) <= e["r"]):
                 return True
         return False
@@ -858,7 +886,7 @@ class Match:
         ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
         ab2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]
         for e in self.effects:
-            if e["k"] != "smoke" or e.get("start", 0.0) > now:
+            if e["k"] not in ("smoke", "gas") or not e.get("start", 0.0) <= now < e["until"]:
                 continue
             c = e["p"]
             if ab2 < 1e-9:
@@ -960,12 +988,12 @@ class Match:
         # sees clouds that are actually still burning.
         self.effects = [e for e in self.effects if e.get("persist") or e["until"] > now
                         or e["k"] in ("frag", "flash") and not e.get("triggered")
-                        or e["k"] == "incendiary" and e["until"] > now-dt_ms]
+                        or e["k"] in ("incendiary", "gas") and e["until"] > now-dt_ms]
         for e in self.effects:
             # A thrown cloud/flare is inert until it lands (start = impact time).
             if now < e.get("start", 0.0):
                 continue
-            if e["k"] in ("frag", "incendiary", "flash"):
+            if e["k"] in ("frag", "incendiary", "flash", "gas"):
                 self._tick_grenade(e, now, dt_ms)
             elif e["k"] == "heal":
                 for p in self.players.values():
@@ -1067,6 +1095,7 @@ class Match:
                 "rt": int(p["reload_total"]) if p["reload_end"] > now else 0,
                 "ri": int(max(0,p["reload_end"]-now)),
                 "sk": p["skin"], "ai": p["bot_skill"],
+                "mk": 1 if p["alive"] and p.get("mask_on") else 0,
                 "k": p["kills"], "d": p["deaths"],
             })
         return out
@@ -1083,6 +1112,10 @@ class Match:
             "reloading": 1 if p["reload_end"] > now else 0,
             "alive": 1 if p["alive"] else 0,
             "shieldMs": int(math.ceil(shield_remaining(p, now))),
+            "mask": 1 if p["alive"] and p.get("mask_on") else 0,
+            "maskIn": int(math.ceil(max(0, p.get("mask_ready", 0)-now))) if p.get("mask_on") else 0,
+            "maskProtected": 1 if mask_protected(p, now) else 0,
+            "gas": 1 if p["alive"] and p.get("gas_until", 0) > now else 0,
             "recovery": {"seq": p["recovery_seq"], "p": p["recovery_pos"]} if p.get("recovery_pos") else None,
             "respawnIn": int(max(0, p["respawn_at"] - now)) if not p["alive"] else 0,
             "abilityIn": int(max(0, p["ability_ready"] - now)),

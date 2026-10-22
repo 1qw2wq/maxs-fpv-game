@@ -628,7 +628,7 @@ static-deployment test, **not** a live Vercel deployment or a cross-NAT connecti
 The same command also runs `tools/test-effects.mjs`: 30 imported models / 210 weapon poses,
 third-person grip tracking, animated flash/ejection sockets, reload cancellation, deterministic smoke
 and an actual solo deploy/fire/reload/grenade render. `python tools/test-grenades.py` covers
-21 authority/physics cases; the browser runner additionally checks 150 Python/JS trajectory pairs,
+21 authority/physics cases; the browser runner additionally checks 180 Python/JS trajectory pairs,
 visible fire pixels and cleanup, real WebRTC grenade delivery, and actual G/B/Q controls and effects. `tools/test-hands.mjs` additionally exercises
 all four shipped skeletons across 960 weapon/ADS/recoil/sprint/reload poses, checking wrist rotation,
 30 finger joints per character, repeated-frame stability, unreachable-pose fallback and world-character
@@ -659,7 +659,8 @@ Use `TEST_DEPS` to change the external test-dependency directory; no npm build s
 | `R` | Reload |
 | `Q` | Use your class ability (hold/release to throw smoke or a flare) |
 | `G` (hold/release) | Charge and throw the selected grenade |
-| `B` | Cycle frag → incendiary → smoke → flash |
+| `B` | Cycle frag → incendiary → smoke → flash → poison gas |
+| `M` | Put on/remove gas mask (750 ms to seal; mobile: Gas mask button) |
 | `V` | First / third person camera |
 | `Tab` (hold) | Scoreboard |
 | `Enter` | Chat input (`Esc` cancels) |
@@ -684,9 +685,10 @@ pointer lock cancel an unthrown grenade without spending a charge. The shared in
 | **Frag** | 2.6-second fuse; a sharp pressure flash, metal fragments, sparks, dusty smoke and a layered blast report. Up to 120 damage with radial falloff inside 7 m. |
 | **Incendiary** | Bursts on impact (3-second safety fuse); fuel spreads onto the floor below the contact. Animated flames and embers burn for 7 seconds, dealing 28 damage/second within 4 m. |
 | **Smoke** | 1.8-second fuse; small ignition pop followed by the existing 14-second, 13 m sight-blocking cloud. |
+| **Poison gas** | 1.8-second fuse; yellow/ochre smoke lasts 12 seconds within 6.5 m and deals 18 HP/second to unprotected enemies/the thrower. Press **M** or mobile **Gas mask**; protection starts after a 750 ms seal. |
 | **Flash** | 1.6-second fuse; exposed players within 14m get a fully opaque **white screen**, then a smooth recovery (not a strobe). Distance/facing change duration, solid cover blocks exposure, and bots temporarily lose sight too. |
 
-Solid cover blocks blast/fire damage and flash exposure. Frag/fire can hurt the thrower but not
+Solid walls/floors block blast/fire/gas damage and flash exposure. Frag/fire/gas can hurt the thrower but not
 teammates; suicide never awards a kill or team point. Flashes can affect either team. Scout flares
 now visibly burn too, without turning their spotting ability into an incendiary attack.
 
@@ -699,12 +701,12 @@ Vercel-only browser engine: no new backend, external asset service or broker.
 
 #### Uploaded grenade bodies and more grounded effects
 
-The flying balls are replaced by your uploaded models: **M26 for frag**, **Hand Grenade for
-incendiary/flash** (different identification collars), and **Toon Grenade for smoke**, without its
-expanded black outline shells. Original textures, levers and pull rings remain. These are adaptations
-of the supplied grenade-shaped art, not exact replicas of four different real-world devices.
-Models are centered/upright and fitted inside the unchanged **0.09 m collision radius**. Downloads
-are cached once per file (three files, about 20 MB total); clones share geometry/materials. A detailed
+Throwables use the actual uploaded models: **M26 for frag**, **Hand Grenade for incendiary**,
+**`smoke_granade.glb` for smoke**, **`flashbang_grenade.glb` for flash**, and
+**`gas_grenade.glb` for poison**. The gas upload contains two showcase canisters; only its upright
+body is thrown. Original textures, levers and pull rings remain. Bodies and identification collars
+are centered/upright and fitted together inside the unchanged **0.09 m collision radius**. Five
+throwable files (about 30 MB total) are cached once per page; clones share geometry/materials. A detailed
 body/cap/lever/pull-ring fallback stays visible during loading or a failed request—never a ball.
 Scout flares use a slim red cartridge instead of a sphere.
 
@@ -722,15 +724,41 @@ the fuse ends. The smoke body stays beneath its venting cloud, including for lat
   air/debris tail, with softer smoke/flare ignition and a separate flash report.
 
 Run **`node tools/test-grenade-upgrade.mjs`** for the focused static-browser regression (same external
-test dependencies as the Vercel suite). It checks all three actual GLBs/four type presentations with
+test dependencies as the Vercel suite). It checks all five actual throwable GLBs/type presentations with
 rendered pixels, physical bounds, 20/60/144 Hz paths/rest, cache sharing, failed/pending loads, wall
-stops, effect lifetimes, light cleanup and the existing 150 Python/JS trajectory-parity cases.
+stops, effect lifetimes, light cleanup and the 180 Python/JS trajectory-parity cases.
 It also runs real main.js native G/B/Q throws, persistent fire/expiry, full-white flash/fade, pause
 cancellation, separate inventories and leave cleanup. `GRENADE_ASSETS_ONLY=1` skips the live-game
 portion; `GRENADE_MODEL_SHOTS=/tmp/grenade` saves model close-ups. The full Vercel suite includes
 the new model checks too. These are browser/physics regressions, not physical-phone FPS benchmarks.
 See [grenade model/effect details](docs/grenade-models-and-effects.md) and the
 [embedded asset credits](public/models/guns/CREDITS.md).
+
+#### Poison gas and a working protective mask
+
+The new yellow cloud is a gameplay hazard, not a cosmetic smoke recolor. Select it with **B** and
+throw with **G**; use **M** / mobile **Gas mask** before entering. The host takes **750 ms to seal**
+the mask and confirms its protected state. Unsealed players take **18 HP/s**, sealed players do not;
+removing the mask resumes exposure. Gas still blocks sight when masked; bullets, fire, fragments
+and flash remain dangerous. Existing grenade friendly-fire policy is unchanged: self/enemies can
+be hurt, teammates cannot. Death/redeploy/new rounds clear the mask.
+
+First person gets a peripheral visor; third-person players/bots wear your actual **`gas_mask.glb`**
+with head/crouch following. Mobile gets a translucent, rounded, customizable mask button without
+adding another action row. Bots react to actual exposure with their difficulty's reaction delay and
+the same seal delay—not instant immunity. Solo, browser-hosted tab rooms and manually paired
+WebRTC use the same Python authority; no new backend, broker, npm or production build step.
+
+**Asset license warning:** `gas_mask.glb` is credited to **David Wigforss, CC BY-NC 4.0**. This is a
+**non-commercial** asset license. Its attribution/terms are retained; the code license does not grant
+commercial rights to it. The new gas/smoke/flash grenade files identify CC BY 4.0.
+
+Validation: **24 engine tests** (`python tools/test-poison-gas.py`), actual native M/B/G/V Solo and
+mobile controls plus all five avatar mask renders (`node tools/test-poison-gas-browser.mjs`), and
+real tab-room + isolated WebRTC command/damage synchronization
+(`GAS_LOBBY_TEST=1 node tools/test-room-lobby.mjs`). The touch editor also handles direct tap events
+after captured drags, fixing a compatibility-click issue exposed by this mobile regression.
+See [full poison/mask rules, tuning, model inspection, licensing and tests](docs/poison-gas-and-mask.md).
 
 ### Point control (new match rules)
 

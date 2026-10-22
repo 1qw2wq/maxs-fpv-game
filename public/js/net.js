@@ -346,6 +346,7 @@ export class Net {
     this.send(msg);
   }
   grenade(dir, kind, power = 0.55) { this.send({ t: 'grenade', life: this._lastMe?.life, kind, power, d: [r3(dir.x), r3(dir.y), r3(dir.z)] }); }
+  mask(on) { this.send({ t: 'mask', life: this._lastMe?.life, on: !!on }); }
   respawn(cls, weapon, secondary) { this.send({ t: 'respawn', life: this._lastMe?.life, c: cls, w: weapon, secondary }); }
   chat(text) { this.send({ t: 'chat', m: text }); }
 
@@ -399,7 +400,7 @@ export class Net {
         reloadProgress: pb.rt?Math.min(1,Math.max(0,1-((pb.ri||0)-Math.max(0,performance.now()-b.t))/pb.rt)):0,
         shieldMs: pb.life !== undefined && pb.life !== this.remoteProtection.get(id)?.life
           ? 0 : this.remoteProtection.get(id)?.remaining(performance.now()) || 0,
-        alive: pb.al,
+        alive: pb.al, mask: !!pb.mk,
         name: pb.n, cls: pb.c, weapon: pb.w, team: pb.tm, skin: pb.sk || '',
         hp: pb.hp, kills: pb.k, deaths: pb.d,
         reveal: pb.rv, suppressed: pb.sp,

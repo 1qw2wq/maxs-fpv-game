@@ -1061,7 +1061,7 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 #mobile-controls button.held { color:#ffde8c; border-color:#ffcf5c; background:rgba(255,207,92,.24); box-shadow:0 0 12px #ffcf5c22; }
 .touch-tools { position:absolute; right:max(12px, env(safe-area-inset-right)); top:max(10px, env(safe-area-inset-top)); display:flex; gap:5px; }
 .touch-actions { position:absolute; right:max(16px, env(safe-area-inset-right)); bottom:max(18px, env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,50px); gap:7px; }
-#mobile-controls .touch-cycle { grid-column:span 2; min-height:44px; }
+#mobile-controls .touch-cycle { grid-column:span 1; min-height:44px; }
 #mobile-controls .touch-fire { position:absolute; right:max(22px, env(safe-area-inset-right)); bottom:calc(192px + env(safe-area-inset-bottom)); width:74px; height:74px; border-radius:50%; background:rgba(180,70,60,.18); border:2px solid #ffb4a899; font-size:15px; }
 .touch-guide { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); margin:0; font-size:10px; color:#dde7f6a0; white-space:nowrap; text-shadow:0 1px 3px #000; }
 .mobile-mode #screen-hud > .overlay { z-index:20; }
@@ -1326,3 +1326,11 @@ html[lang="en"] .mode-btn span { font-size: 9.7px; line-height: 1.42; }
 .lobby-list li span{overflow-wrap:anywhere;min-width:0}.lobby-list .lobby-row-actions{display:flex;gap:8px}
 #btn-deploy:disabled{opacity:.55;cursor:not-allowed}#lobby-selection{width:100%}
 @media(max-width:560px){.room-lobby{padding:12px}.lobby-actions button{flex:1 1 42%}.lobby-list li{align-items:flex-start}}
+
+/* Host-confirmed mask. Visor never intercepts aiming, touch or flash blindness. */
+#gas-mask-view { position:fixed; inset:0; z-index:20; pointer-events:none; background:radial-gradient(ellipse 60% 65% at 50% 46%, transparent 58%, #14211738 76%, #101711e6 94%, #070c08 100%); box-shadow:inset 0 0 28px 9px #050a07; }
+#gas-mask-view i { position:absolute; left:35%; right:35%; bottom:-11%; height:19%; border-radius:50% 50% 0 0; border:7px solid #222b24; background:linear-gradient(#384239,#101712); box-shadow:0 -4px 10px #0008; }
+#mask-status { max-width:100%; padding:4px 10px; border:1px solid #d6c54a55; border-radius:8px; background:#0c131ce6; color:#ccd2d7; font-size:11px; text-align:center; overflow-wrap:anywhere; }
+#mask-status.sealed { color:#b8efb0; border-color:#a2db8055; }
+#mask-status.danger { color:#ffe568; border-color:#e6ca52; background:#3a3015e8; font-weight:800; }
+.mobile-mode #mask-status { font-size:10px; padding:3px 7px; }

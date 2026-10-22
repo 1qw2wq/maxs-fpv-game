@@ -26,6 +26,13 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  "防毒面具": "Gas mask",
+  "毒气！戴上面具": "GAS! Equip your mask",
+  "防毒面具：未佩戴": "Gas mask: off",
+  "面具密封中…": "Sealing mask…",
+  "毒气中 · 面具已保护": "In gas · mask protected",
+  "面具已密封": "Mask sealed",
+
   "兵种与职责": "Class & role",
   "返回作战室": "Back to operations",
   "作战工具": "OPERATIONS TOOLS",
@@ -253,8 +260,8 @@ const EN = {
   '新手指引': 'Tutorial',
   '学习移动 / 手榴弹 / 据点控制 / 联机': 'Movement, grenades, flags and multiplayer',
   '第一次玩？从这里开始 · 学会手榴弹与据点控制': 'First time? Start here',
-  '操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
-    'WASD move · Shift sprint · C crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · hold G throw · B grenade type · V camera · Tab scoreboard · Esc pause',
+  '操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · M 防毒面具 · V 切换视角 · Tab 战绩 · Esc 暂停菜单':
+    'WASD move · Shift sprint · C crouch · Space jump · LMB fire · RMB aim · R reload · Q ability · hold G throw · B grenade type · M gas mask · V camera · Tab scoreboard · Esc pause',
   '角色出现白块 / 黑块（头发、衣服、鞋子变色）？': 'Character pieces showing up white or black (hair, clothes, shoes discoloured)?',
   '打开颜色修复者 ColorFixer': 'Open the ColorFixer tool',
 

@@ -1090,6 +1090,11 @@ export function createExternalGirl({ template, meta, data, team }) {
     root, marker, shadow,
     skinId: '',
     height: TARGET_HEIGHT * k,
+    maskHeadPosition(out) {
+      if (driven.head) { driven.head.bone.getWorldPosition(out); root.worldToLocal(out); out.y += .06; }
+      else out.set(0, TARGET_HEIGHT * k - .24, 0);
+      return out;
+    },
 
     setWeapon(weapon) {
       if (st.weapon === weapon) return;

@@ -7,8 +7,9 @@ import { sampleThrow } from './throwing.js';
 export const GRENADE_MODELS = Object.freeze({
   frag: {file:'granade_m26.glb', band:0xc2b878},
   incendiary: {file:'hand_granade.glb', band:0xe06b30},
-  smoke: {file:'toon_granade.glb', band:0xaeb8b9},
-  flash: {file:'hand_granade.glb', band:0xe4dfca},
+  smoke: {file:'smoke_granade.glb', band:0xaeb8b9},
+  flash: {file:'flashbang_grenade.glb', band:0xe4dfca},
+  gas: {file:'gas_grenade.glb', band:0xd6c54a},
 });
 const loader=new GLTFLoader(), files=new Map(), variants=new Map(), fallbacks=new Map();
 const radius=.0825; // All art fits INSIDE the unchanged .09 m collision sphere.
@@ -50,6 +51,17 @@ function fallback(kind) {
 function loadFile(file) {
   if(!files.has(file))files.set(file,loader.loadAsync('models/guns/'+file).then(gltf=>{
     const root=gltf.scene;
+    if(file==='gas_grenade.glb') {
+      // The upload is a showcase of TWO complete canisters (upright + lying).
+      // Throw just the upright body, not both models and the space between them.
+      root.updateMatrixWorld(true);
+      const bodies=[];root.traverse(o=>{if(o.isMesh)bodies.push(o);});
+      if(bodies.length===2) {
+        const height=o=>new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()).y;
+        const keep=height(bodies[0])>=height(bodies[1])?bodies[0]:bodies[1];
+        for(const body of bodies)if(body!==keep)body.removeFromParent();
+      }
+    }
     // Toon upload includes expanded black backface shells: omit those outlines,
     // not the actual detailed body, to match the game's lit/PBR presentation.
     root.traverse(o=>{if(o.isMesh){
@@ -79,7 +91,7 @@ export function loadGrenadeModel(kind) {
     const band=new THREE.Mesh(new THREE.CylinderGeometry(Math.min(.055,beltRadius+.0006),Math.min(.055,beltRadius+.0006),.005,20),
       new THREE.MeshStandardMaterial({color:spec.band,roughness:.68,metalness:.15}));
     band.position.y=-.01;
-    const result=new THREE.Group();result.add(model,band);return result;
+    const result=new THREE.Group();result.add(model,band);return fit(result);
   }).catch(error=>{variants.delete(kind);throw error;}));
   return variants.get(kind);
 }

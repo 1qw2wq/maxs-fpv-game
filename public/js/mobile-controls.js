@@ -28,13 +28,13 @@ export class MobileControls {
       <div class="touch-actions">
         <button type="button" data-action="aim"></button><button type="button" data-action="reload"></button><button type="button" data-action="jump"></button>
         <button type="button" data-action="ability"></button><button type="button" data-action="grenade"></button><button type="button" data-action="crouch"></button>
-        <button type="button" data-action="weapon"></button><button type="button" class="touch-cycle" data-action="cycle"></button>
+        <button type="button" data-action="weapon"></button><button type="button" class="touch-cycle" data-action="cycle"></button><button type="button" data-action="mask"></button>
       </div>`;
     (parent || document.body).appendChild(this.root);
     this.stick = this.root.querySelector('.touch-stick');
     this.knob = this.root.querySelector('.touch-stick-knob');
     this.buttons = [...this.root.querySelectorAll('[data-action]')];
-    this.labels = { fire:'开火', aim:'瞄准', reload:'换弹', jump:'跳跃', ability:'技能', grenade:'手榴弹', crouch:'蹲下', cycle:'切换手榴弹', weapon:'切换武器', view:'视角', score:'战绩', chat:'聊天', pause:'暂停' };
+    this.labels = { mask:'防毒面具', fire:'开火', aim:'瞄准', reload:'换弹', jump:'跳跃', ability:'技能', grenade:'手榴弹', crouch:'蹲下', cycle:'切换手榴弹', weapon:'切换武器', view:'视角', score:'战绩', chat:'聊天', pause:'暂停' };
     this.renderLabels();
     onLangChange(() => this.renderLabels());
     controls.onInputReset = () => this.reset();
@@ -50,6 +50,22 @@ export class MobileControls {
     this.editor.querySelector('[data-layout="reset"]').onclick = () => {
       this.layout[layoutOrientation()] = {}; this.applyLayout(); this.editor.querySelector('.layout-status').textContent = '';
     };
+    // Some touch browsers suppress compatibility clicks after a captured drag.
+    // Handle an actual tap directly; leave mouse/keyboard click behavior intact.
+    for (const button of this.editor.querySelectorAll('button')) {
+      let tap = null;
+      button.addEventListener('pointerdown', e => {
+        if (!['touch','pen'].includes(e.pointerType)) return;
+        e.preventDefault(); tap = { id:e.pointerId, x:e.clientX, y:e.clientY };
+      });
+      button.addEventListener('pointerup', e => {
+        const start=tap; tap=null;
+        if (start?.id===e.pointerId && Math.hypot(e.clientX-start.x,e.clientY-start.y)<12) {
+          e.preventDefault(); button.click();
+        }
+      });
+      button.addEventListener('pointercancel', () => { tap=null; });
+    }
     this.editor.addEventListener('keydown', e => { if (e.code === 'Escape') { e.stopPropagation(); this.finishLayout(false); } });
     addEventListener('resize', () => { this.reset(); this.applyLayout(); });
     onLangChange(() => this.renderEditor());
@@ -151,6 +167,7 @@ export class MobileControls {
       case 'ability': c.onAbilityDown?.(); break;
       case 'grenade': c.onGrenadeDown?.(); break;
       case 'cycle': c.onGrenadeCycle?.(); break;
+      case 'mask': c.onMaskToggle?.(); break;
       case 'view': c.onViewToggle?.(); break;
       case 'score': c.onScoreboard?.(true); break;
       case 'chat': c.releaseLook(); c.onChat?.(); break;
@@ -192,7 +209,7 @@ export class MobileControls {
   syncButtons() {
     for(const button of this.buttons) {
       const action=button.dataset.action;
-      const active=action==='aim' ? this.controls.mouse.right : action==='crouch' ? this.controls.touchKeys.has('KeyC') : [...this.pointers.values()].some(p=>p.action===action);
+      const active=action==='mask' ? !!this.maskOn : action==='aim' ? this.controls.mouse.right : action==='crouch' ? this.controls.touchKeys.has('KeyC') : [...this.pointers.values()].some(p=>p.action===action);
       button.classList.toggle('held',active);
       button.setAttribute('aria-pressed',String(active));
     }

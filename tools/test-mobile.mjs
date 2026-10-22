@@ -6,7 +6,7 @@ async function touches(page) {
   return {
     async down(id,x,y){points.set(id,{x,y});await send('touchStart');},
     async move(id,x,y){points.set(id,{x,y});await send('touchMove');},
-    async up(id){const p=points.get(id);points.delete(id);await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[{id,...p}]});},
+    async up(id){const p=points.get(id);points.delete(id);await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:points.size?[{id,...p}]:[]});},
     async cancel(){points.clear();await send('touchCancel');},
     async tap(selector,id=20){const r=await page.locator(selector).boundingBox();assert.ok(r,selector);await this.down(id,r.x+r.width/2,r.y+r.height/2);await this.up(id);},
   };
@@ -28,7 +28,7 @@ export async function testMobile(browser, origin) {
       const data=await(await fetch('/shared/weapons.json')).json();
       const world=new World(new T.Scene(),{groundY:0,boxes:[{t:'ground',x:0,y:-.5,z:0,w:200,h:1,d:200}],bounds:{minX:-90,maxX:90,minZ:-90,maxZ:90}},data.combat);
       window.c=new Controls(document.querySelector('canvas'),world,data.combat,data);c.enabled=true;c.setClass(data.classes[0]);c.setMobileMode(true);c.reset([0,0,0],0);
-      window.trace={};for(const [name,key] of Object.entries({fire:'onFireDown',reload:'onReload',ability:'onAbilityDown',abilityUp:'onAbilityUp',grenade:'onGrenadeDown',grenadeUp:'onGrenadeUp',cancel:'onAbilityCancel',cycle:'onGrenadeCycle',view:'onViewToggle'}))c[key]=()=>trace[name]=(trace[name]||0)+1;
+      window.trace={};for(const [name,key] of Object.entries({fire:'onFireDown',reload:'onReload',ability:'onAbilityDown',abilityUp:'onAbilityUp',grenade:'onGrenadeDown',grenadeUp:'onGrenadeUp',cancel:'onAbilityCancel',cycle:'onGrenadeCycle',mask:'onMaskToggle',view:'onViewToggle'}))c[key]=()=>trace[name]=(trace[name]||0)+1;
       c.onScoreboard=show=>trace.score=show;
       window.mobile=new MobileControls(c,{onPause:()=>c.releaseLook()});mobile.update(true);document.body.classList.add('mobile-mode');
       window.lockRequests=0;c.canvas.requestPointerLock=()=>{lockRequests++;throw Error('Touch requested native lock');};
@@ -61,8 +61,8 @@ export async function testMobile(browser, origin) {
     assert.ok(await page.evaluate(before=>c.mouse.left && c.yaw<before,yaw),'Fire finger must also aim');
     await touch.up(3);await touch.up(1);
     assert.equal(await page.evaluate(()=>Math.hypot(c.touchMove.x,c.touchMove.y)),0);
-    for(const name of ['aim','crouch','reload','cycle','view'])await touch.tap(action(name));
-    await page.evaluate(()=>{c.update(1/60,true,false);if(!c.ads || !c.crouch || trace.reload!==1 || trace.cycle!==1 || trace.view!==1)throw Error('Touch actions not wired');});
+    for(const name of ['aim','crouch','reload','cycle','mask','view'])await touch.tap(action(name));
+    await page.evaluate(()=>{c.update(1/60,true,false);if(!c.ads || !c.crouch || trace.reload!==1 || trace.cycle!==1 || trace.mask!==1 || trace.view!==1)throw Error('Touch actions not wired');});
     await touch.tap(action('aim'));await touch.tap(action('crouch'));
     await page.evaluate(()=>c.reset([0,0,0],0));
     await touch.tap(action('jump'));
@@ -170,6 +170,11 @@ export async function testMobile(browser, origin) {
     await liveTouch.tap(action('reload'));await page.waitForFunction(()=>window.__trench.app.net.lastMe.reloading);
     await liveTouch.tap(action('aim'));await page.waitForFunction(()=>window.__trench.app.controls.mouse.right);
     await liveTouch.tap(action('view'));assert.equal(await page.evaluate(()=>window.__trench.app.cameraMode),'tp');
+    await liveTouch.tap(action('mask'));
+    await page.waitForFunction(()=>__trench.app.net.lastMe.maskProtected===1);
+    assert.equal(await page.locator(action('mask')).getAttribute('aria-pressed'),'true');
+    await liveTouch.tap(action('mask'));
+    await page.waitForFunction(()=>__trench.app.net.lastMe.mask===0);
     await liveTouch.tap(action('cycle'));
     const inventory=await page.evaluate(()=>window.__trench.app.net.lastMe.grenades),grenade=await center(page,action('grenade'));
     await liveTouch.down(4,grenade.x,grenade.y);
@@ -199,7 +204,7 @@ export async function testMobile(browser, origin) {
     // desktop-window resize used to emulate orientation changes.
     await page.evaluate(async()=>{if(document.fullscreenElement)await document.exitFullscreen();});
     await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>window.__trench.app.mobile.visible);
-    for(const name of ['fire','aim','reload','jump','ability','grenade','crouch','cycle','score','view','chat','pause']) {
+    for(const name of ['fire','aim','reload','jump','ability','grenade','crouch','cycle','mask','score','view','chat','pause']) {
       const box=await page.locator(action(name)).boundingBox();assert.ok(box && box.x>=0 && box.y>=0 && box.x+box.width<=390.1 && box.y+box.height<=844.1,`${name} is outside portrait viewport`);
     }
     for(const viewport of [{width:320,height:568},{width:568,height:320},{width:844,height:390},{width:390,height:844}]) {
@@ -247,6 +252,9 @@ export async function testMobile(browser, origin) {
 
     assert.deepEqual(errors,[]);
     console.log('PASS: actual mobile auto-detect/saved mode, native fullscreen, timed sprint/ADS, sniper scope, touch drag/save editor, combat/pause, 320px/short-landscape targets and no pointer-lock prompt');
+  } catch(error) {
+    console.log('MOBILE DEBUG',await page.evaluate(()=>{const a=window.__trench?.app;return {width:innerWidth,height:innerHeight,editing:a?.mobile.editing,status:document.querySelector('.layout-status')?.textContent,items:a?.mobile.items.map(el=>({name:el.dataset.action||el.dataset.touch,rect:el.getBoundingClientRect().toJSON()}))};}));
+    await page.screenshot({path:'/tmp/gas-mobile-failure.png'});throw error;
   } finally {
     // The bundled Chromium uses --single-process. Destroying an isolated
     // context while other WebRTC contexts are live can crash that process;

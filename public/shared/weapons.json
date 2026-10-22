@@ -1992,6 +1992,19 @@
       "radius": 14,
       "flashMs": 2300,
       "color": "#fff1ce"
+    },
+    {
+      "id": "gas",
+      "name": "毒气手榴弹",
+      "nameEn": "Poison gas grenade",
+      "fuseMs": 1800,
+      "dur": 12000,
+      "radius": 6.5,
+      "damagePerSecond": 18,
+      "color": "#d6c54a"
     }
-  ]
+  ],
+  "gasMask": {
+    "equipMs": 750
+  }
 }

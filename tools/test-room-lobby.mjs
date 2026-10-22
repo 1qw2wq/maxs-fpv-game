@@ -7,6 +7,7 @@ import {readFile} from 'node:fs/promises';
 import {resolve,extname,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import './test-room-lobby-unit.mjs';
+import {testMultiplayerGas} from './test-poison-gas.mjs';
 const require=createRequire(resolve(process.env.TEST_DEPS||'/tmp/maxs-fpv-browser-tests','package.json'));
 const {chromium:pw}=require('playwright-core');
 const {default:chromium,inflate,setupLambdaEnvironment}=await import(require.resolve('@sparticuz/chromium'));
@@ -88,6 +89,7 @@ async function readyAndStart(host,guest){
  assert.equal(await guest.evaluate(()=>__trench.app.loadout.cls),'medic');
  assert.equal(await guest.evaluate(()=>__trench.app.mapId),'somme');
  assert.equal(await host.evaluate(()=>__trench.app.net._lastState.gameMode),'control');
+ if(process.env.GAS_LOBBY_TEST)await testMultiplayerGas(host,guest);
 }
 try{
  const c=await context(),host=await page(c,'Host QA'),guest=await page(c,'Guest QA');

@@ -18,6 +18,7 @@ import { AdaptiveResolution, poseInterval } from './performance.js';
 import { resolveCamera } from './camera-collision.js';
 import { ArmPresentation, bodyVisibleAtDistance } from './avatar-visibility.js';
 import { createGirl, yawToRotation } from './character.js';
+import { preloadGasMask, updateAvatarMask, disposeGasMask } from './gas-mask.js';
 import { ViewModel } from './viewmodel.js';
 import { FirstPersonPass } from './first-person-pass.js';
 import { buildSmokeCloud, updateSmokeCloud } from './smoke.js';
@@ -368,13 +369,10 @@ function makeRemoteGirl(cls, team, skinId) {
   const meta = skinId ? app.charMeta.get(skinId) : null;
   const template = meta ? app.charTemplates.get(skinId) : null;
   if (meta && !template) ensureTemplate(skinId, meta);
-  if (template) {
-    const girl = createExternalGirl({ template, meta, data: app.data, team });
-    girl.skinId = skinId;
-    return girl;
-  }
-  const girl = createGirl(cls, team, app.data);
-  girl.skinId = '';
+  const girl = template ? createExternalGirl({ template, meta, data: app.data, team }) : createGirl(cls, team, app.data);
+  girl.skinId = template ? skinId : '';
+  const destroy = girl.destroy.bind(girl);
+  girl.destroy = () => { disposeGasMask(girl.gasMask); destroy(); };
   return girl;
 }
 
@@ -1620,6 +1618,7 @@ async function onWelcome(m,serial) {
   app.playing = true;
   app.roomLobby?.started();
   preloadGrenadeModels();
+  preloadGasMask().catch(() => {});
   app.matchStartedAt = performance.now();
   if (app.controls.mobileMode) app.controls.requestLock();
   app.tut?.onDeploy();
@@ -1694,6 +1693,11 @@ function wireControls() {
   c.onAbilityUp = () => releaseCharge('ability');
   c.onGrenadeDown = () => beginCharge('grenade');
   c.onGrenadeUp = () => releaseCharge('grenade');
+  c.onMaskToggle = () => {
+    if (!app.playing || app.paused || !app.net?.lastMe?.alive || !c.canLook) return;
+    cancelCharge();
+    app.net.mask(!app.net.lastMe.mask);
+  };
   c.onGrenadeCycle = () => {
     if (!app.playing || app.paused || app.charge) return;
     const types = app.data.grenades;
@@ -2012,6 +2016,7 @@ async function onMessage(m) {
 // scout's flare uses a small cartridge with a persistent red ignition.
 const FX_STYLES = {
   smoke: { kind: 'cloud' },
+  gas: { kind: 'cloud' },
   heal: { kind: 'crate' },
   ammo: { kind: 'crate' },
   flare: { kind: 'detonation' },
@@ -2106,7 +2111,7 @@ function spawnEffect(fx) {
   rec.start = now-age+flyMs;
   rec.landed = age >= flyMs;
   rec.playDetonation = flyMs > 0 && age < flyMs;
-  if (flyMs > 0 && (!rec.landed || fx.k === 'smoke')) {
+  if (flyMs > 0 && (!rec.landed || fx.k === 'smoke' || fx.k === 'gas')) {
     rec.flyPath = fx.path;
     rec.flyFrom = new THREE.Vector3(...fx.from);
     rec.flyTo = new THREE.Vector3(...fx.p);
@@ -2187,7 +2192,7 @@ function updateEffects(now) {
       if(e.flyPath)updateGrenadeProjectile(e.proj,e.flyPath,e.flyMs);
       else e.proj.position.copy(e.flyTo);
       // The spent smoke canister stays underneath its venting plume.
-      e.proj.visible = e.kind === 'smoke';
+      e.proj.visible = e.kind === 'smoke' || e.kind === 'gas';
       if (e.projLight) e.projLight.visible = false;
       e.obj.visible = true;
     }
@@ -2195,7 +2200,7 @@ function updateEffects(now) {
       e.playDetonation = false;
       // A short pop must get at least one visible frame even after a long GPU
       // stall. This affects only the visual burst, never the host's fuse/damage.
-      if (['frag','flash','smoke'].includes(e.kind)) e.detonationStart = now;
+      if (['frag','flash','smoke','gas'].includes(e.kind)) e.detonationStart = now;
       app.sfx.detonate(e.kind, e.obj.position.distanceTo(app.camera.position));
     }
     if (e.detonation) updateGrenadeEffect(e.detonation, now-(e.detonationStart ?? e.start));
@@ -2234,15 +2239,36 @@ function updateEffects(now) {
 // three.js from recompiling every material in the scene the first time a player
 // steps into smoke.
 const SMOKE_TINT = new THREE.Color(0xd8dee4);
+const GAS_TINT = new THREE.Color(0xd6c85c);
 const SMOKE_NEAR = 0.6;
 const SMOKE_FAR = 5.5;
 const SMOKE_EDGE = 0.25;
+
+function updateMaskPresentation() {
+  const me = app.net?.lastMe;
+  const live = app.playing && !!me?.alive && !app.resultShown;
+  const on = live && !!me.mask;
+  document.getElementById('gas-mask-view')?.classList.toggle('hidden', !on || thirdPersonView());
+  const chip = document.getElementById('mask-status');
+  if (chip) {
+    chip.classList.toggle('hidden', !live);
+    chip.classList.toggle('danger', live && !!me.gas && !me.maskProtected);
+    chip.classList.toggle('sealed', on && !!me.maskProtected);
+    const label = !on ? (me?.gas ? '毒气！戴上面具' : '防毒面具：未佩戴') : me.maskIn > 0 ? '面具密封中…' : me.gas ? '毒气中 · 面具已保护' : '面具已密封';
+    const text = t(label) + (app.controls.mobileMode ? '' : ' · M');
+    if (chip.textContent !== text) chip.textContent = text;
+  }
+  if (app.mobile && app.mobile.maskOn !== on) {
+    app.mobile.maskOn = on;
+    app.mobile.syncButtons();
+  }
+}
 
 function updateSmokeVision() {
   const world = app.world;
   if (!world?.scene) return;
 
-  let deep = 0;
+  let deep = 0, gasDeep = 0;
   if (app.playing) {
     const eye = app.camera.position;
     for (const e of app.effects) {
@@ -2253,6 +2279,7 @@ function updateSmokeVision() {
       if (d >= e.r) continue;
       const k = Math.min(1, (e.r - d) / (e.r * SMOKE_EDGE));
       if (k * (e.density || 0) > deep) deep = k * (e.density || 0);
+      if (e.kind === 'gas') gasDeep = Math.max(gasDeep, k * (e.density || 0));
     }
   }
   if (deep <= 0 && !app.smokeOn) return;
@@ -2285,14 +2312,15 @@ function updateSmokeVision() {
     return;
   }
 
+  const tint = gasDeep > 0 ? GAS_TINT : SMOKE_TINT;
   const fog = app.smokeFog;
-  fog.color.setHex(base.fogColor ?? SMOKE_TINT.getHex()).lerp(SMOKE_TINT, k);
+  fog.color.setHex(base.fogColor ?? tint.getHex()).lerp(tint, k);
   fog.near = base.fogNear + (SMOKE_NEAR - base.fogNear) * k;
   fog.far = base.fogFar + (SMOKE_FAR - base.fogFar) * k;
   world.scene.fog = fog;
-  if(base.bgTexture)world.scene.background=SMOKE_TINT.clone();
+  if(base.bgTexture)world.scene.background=tint.clone();
   if (base.bg != null && world.scene.background?.isColor) {
-    world.scene.background.setHex(base.bg).lerp(SMOKE_TINT, k);
+    world.scene.background.setHex(base.bg).lerp(tint, k);
   }
   if (world.sky) {
     world.sky.material.transparent = true;
@@ -2478,6 +2506,7 @@ function loop(now) {
   // Muzzle flashes, smoke, brass and the punch decay all ride one clock.
   app.gunfx?.update(dt);
   updateThrowAim(now);
+  updateMaskPresentation();
   updateEffects(now);
   app.objectiveView?.update(app.controls, now, app.playing);
   updateSmokeVision();
@@ -2748,6 +2777,7 @@ function syncSelfAvatar(dt, alive) {
   const c = app.controls;
   if(alive)app.self.setWeapon(app.data.weaponById[app.loadout.weapon] || app.data.weaponsByClass[cls.id][0]);
   app.self.setAlive(alive,deathImpacts.get(app.myId));
+  updateAvatarMask(app.self, alive && !!app.net.lastMe?.mask, c.pitch);
   app.self.root.visible = alive ? thirdPersonView() : app.self.deathState.visible;
   if(alive||!app.deathCamera)app.self.root.position.copy(c.pos);
   if(alive)app.self.root.rotation.y = yawToRotation(c.yaw);
@@ -2778,6 +2808,7 @@ function syncSelfAvatar(dt, alive) {
     firing: alive && tnow - app.fireAt < 150,
     ability: alive && (!!app.charge || tnow - app.throwAt < 700),
   });
+  updateAvatarMask(app.self, !!me?.mask, c.pitch);
 }
 
 // ------------------------------------------------------ first-person arms
@@ -2949,6 +2980,7 @@ function updateRemotePlayers(dt, me) {
       remoteSphere.center.copy(pos);remoteSphere.center.y+=.5;
       girl.root.visible=girl.deathState.visible&&remoteFrustum.intersectsSphere(remoteSphere);
     } else girl.root.visible=false;
+    updateAvatarMask(girl, !!p.alive && p.mask, p.pitch);
     updateContactShadow(girl, app.world, girl.root.visible);
     // Read sockets AFTER the live avatar pose. Accepted-shot sequences avoid
     // missing bolt shots between snapshots or repeating one shot's flag pulse.
