@@ -7,6 +7,10 @@ Run commands from the repository root. Tests are development tools, not a produc
 Python gameplay tests use the same authoritative modules as the browser's Pyodide engine. Node-only math/data tests do not require a package installation; some collision suites use Node **22.15+** import hooks.
 
 ```sh
+python tools/test-hit-latency.py
+python tools/test-shooting.py
+node tools/test-effect-inbox.mjs
+node tools/test-interpolation.mjs
 python tools/test-secondaries.py
 python tools/test-grenades.py
 python tools/test-poison-gas.py
@@ -43,6 +47,7 @@ npm install --prefix /tmp/maxs-fpv-browser-tests playwright-core @sparticuz/chro
 node tools/test-landing.mjs
 node tools/test-operations.mjs
 node tools/test-hud.mjs
+node tools/test-combat-rendering.mjs
 node tools/test-key-settings.mjs
 node tools/test-diagnostics.mjs
 node tools/test-room-lobby.mjs
@@ -50,6 +55,7 @@ BOT_LOBBY_TEST=1 node tools/test-room-lobby.mjs
 GAS_LOBBY_TEST=1 node tools/test-room-lobby.mjs
 node tools/test-bot-settings.mjs
 node tools/test-multiplayer.mjs
+MULTIPLAYER_MAPS_ONLY=1 node tools/test-multiplayer.mjs
 node tools/test-grenade-upgrade.mjs
 node tools/test-poison-gas-browser.mjs
 node tools/test-vercel.mjs
@@ -86,3 +92,7 @@ A bare static server does not apply Vercel API rewrites. Optional discovery requ
 - The broad weapon-hold suite has a previously reported **approximately 0.051 m remote torso-attachment drift assertion**. Its resolution is not established by focused UI/lobby tests; rerun and investigate that assertion before claiming the broad suite is clean.
 
 中文：专项通过不等于全游戏、真机或跨网络验证。浏览器依赖安装在仓库外；没有运行、被跳过或失败的测试应明确记录，不要把历史结果写成永久保证。
+
+## Camera hands, Italy gas and latency
+
+See [the focused combat guide](combat-rendering-and-hits.md) for closed first-person gloves, decode-time effect preservation, bounded RTT rewind, specific regression coverage and software-WebGL timing limitations. Third-person uploaded costumes remain unchanged.

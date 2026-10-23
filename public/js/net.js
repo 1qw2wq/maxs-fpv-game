@@ -367,7 +367,10 @@ export class Net {
     for (let i = snaps.length - 1; i > 0; i--) {
       if (snaps[i - 1].t <= target) { a = snaps[i - 1]; b = snaps[i]; break; }
     }
-    if (!b) { a = snaps[Math.max(0, snaps.length - 1)]; b = a; }
+    // If jitter leaves the render time before our oldest sample, hold that
+    // oldest pose. Jumping to the newest invents a forward teleport that the
+    // authority's rewind cannot hit. Never extrapolate through missing history.
+    if (!b) { a = target < snaps[0].t ? snaps[0] : snaps[snaps.length - 1]; b = a; }
 
     const span = Math.max(1, b.t - a.t);
     const k = Math.max(0, Math.min(1, (target - a.t) / span));

@@ -101,3 +101,7 @@ python server/server.py --open
 素材遵循各自许可，不能把项目代码的使用视为所有素材的商业授权。**防毒面具和 AWP 模型具有非商业许可限制**；发布、再分发或商用前请核对原始条款及相关权利。
 
 [角色模型署名](public/models/genshin/CREDITS.md) · [枪械、手榴弹与面具署名](public/models/guns/CREDITS.md) · [车辆模型来源](public/models/maps/VEHICLES.md)
+
+## 第一人称手臂与命中检查
+
+第一人称统一使用闭合、相连的手套／手臂，避免直接裁切角色服装产生空心袖口；第三人称保留上传角色。意大利地图载入期间收到的毒气效果会保留剩余寿命，不再被场景清理丢弃。移动目标命中按受限 RTT 加插值延迟回溯；墙体、队伍规则和每人独立的五秒／行动取消出生保护仍然有效。[实现、专项测试与限制](docs/combat-rendering-and-hits.md)。

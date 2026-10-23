@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {EffectInbox} from '../public/js/effect-inbox.js';
+let now=1000;const inbox=new EffectInbox(()=>now);
+inbox.begin([{k:'gas',eid:1,age:7000,dur:14000},{k:'heal',eid:2,persist:true}]);
+now+=2000;inbox.push({k:'gas',eid:3,delay:2500,dur:14000});
+inbox.push({k:'remove',eid:2});
+now+=3000;
+const effects=inbox.finish();
+assert.equal(inbox.loading,false);assert.equal(effects.length,3);
+assert.equal(effects.find(e=>e.eid===1).age,12000,'Existing poison keeps aging during Italy decode');
+assert.equal(effects.find(e=>e.eid===3).age,3000,'Cast during decode survives world teardown, already landed');
+assert.equal(effects.find(e=>e.eid===2).k,'remove','A removed crate cannot be resurrected');
+assert.equal(inbox.pending.size,0);
+inbox.begin([{eid:9,k:'gas'}]);inbox.begin([{eid:10,k:'smoke'}]);
+assert.deepEqual(inbox.finish().map(e=>e.eid),[10],'New connection cannot inherit previous match FX');
+console.log('PASS: decode-time effect preservation, late-join aging, removals and match isolation');

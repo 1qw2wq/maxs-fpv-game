@@ -156,34 +156,25 @@ del _m,_p
         # test-only software-GPU override before the animation/death sequence.
         page.evaluate("window.__trench.app.renderer.setPixelRatio(.25)")
         page.evaluate("window.__trench.app.net._engine.py.runPython('import game;_host.room.match.start_ms=game.now_ms()')")
-        # Exercise the production syncFpArms path, not just the pure latch:
-        # alternate valid/invalid reach reports while real animation still runs.
-        page.wait_for_function("window.__trench.app.fpArms&&window.__trench.app.net.lastMe.alive",timeout=60000)
+        # Production no longer crops costume geometry. Skin changes and model
+        # arrival must not replace the closed glove pair or flash either rig.
+        page.wait_for_function("window.__trench.app.vm.armMeshes.visible&&window.__trench.app.net.lastMe.alive",timeout=60000)
         presentation=page.evaluate("""async()=>{
-          const a=window.__trench.app,rig=a.fpArms,pose=rig.poseArms,reach=Object.getOwnPropertyDescriptor(rig,'armReachError');
-          a.cameraMode='fp';a.controls.ads=false;
-          a.vm.setWeapon(a.data.weaponById[a.net.lastMe.w]);await a.vm.gunMeshes.userData.modelReady;
-          let calls=0,changes=0,last=null;
-          rig.poseArms=function(...args){pose.apply(this,args);return ++calls%2===1;};
-          Object.defineProperty(rig,'armReachError',{configurable:true,get:()=>.01});
-          try {
-            for(let i=0;i<40;i++) {
-              await new Promise(requestAnimationFrame);
-              const imported=rig.holder.visible,procedural=a.vm.armMeshes.visible;
-              if(imported===procedural)throw Error('Both/neither arm pairs drawn while alive');
-              if(last!==null&&imported!==last)changes++;
-              last=imported;
-            }
-            if(changes>1)throw Error('Production arm presentation flashes across reach threshold');
-            return{frames:40,changes,calls};
-          } finally {rig.poseArms=pose;Object.defineProperty(rig,'armReachError',reach);}
+          const a=window.__trench.app;a.cameraMode='fp';a.controls.ads=false;
+          const pair=a.vm.armMeshes,skins=[...a.charTemplates.keys()];
+          for(let i=0;i<40;i++) {
+            if(skins.length)a.loadout.skin=skins[i%skins.length];
+            await new Promise(requestAnimationFrame);
+            if(a.fpArms||a.vm.armMeshes!==pair||!pair.visible)throw Error('Camera arm presentation changed with costume availability');
+          }
+          return {frames:40,skins:skins.length};
         }""")
-        print('PASS: actual frame-loop arm fallback stays stable under alternating reach reports',presentation,flush=True)
+        print('PASS: closed production arms stable across skin changes',presentation,flush=True)
         # Drive a real authoritative death, then choose a different class,
         # primary and secondary and redeploy through the real button/network.
         page.evaluate("window.__trench.app.net._engine.py.runPython('_p=next(iter(_host.room.match.players.values()));_host.room.match._kill(_p,_p,False)')")
         page.wait_for_function("!window.__trench.app.net.lastMe.alive&&!document.querySelector('#death-panel').classList.contains('hidden')")
-        page.wait_for_function("!window.__trench.app.vm.root.visible&&!window.__trench.app.fpArms.holder.visible&&!window.__trench.app.vm.armMeshes.visible")
+        page.wait_for_function("!window.__trench.app.vm.root.visible&&!window.__trench.app.fpArms?.holder.visible&&!window.__trench.app.vm.armMeshes.visible")
         # Advance past the former forced-redeploy deadline without waiting in
         # real time: the authoritative human must remain in the open picker.
         page.evaluate("window.__trench.app.net._engine.py.runPython('_p[\"respawn_at\"]=game.now_ms()-9000')")

@@ -101,3 +101,7 @@ The client uses native ES modules and vendored Three.js. Match logic and shared 
 Assets retain their individual licenses; using the project code does not grant commercial rights to every asset. **The gas mask and AWP models have non-commercial license restrictions.** Check original terms and relevant rights before publishing, redistributing, or commercial use.
 
 [Character credits](public/models/genshin/CREDITS.md) · [Weapon, grenade, and mask credits](public/models/guns/CREDITS.md) · [Vehicle sources](public/models/maps/VEHICLES.md)
+
+## Camera hands and combat troubleshooting
+
+First person uses connected, closed gloves for every skin; third person keeps the uploaded character costumes. Gas received while Italy loads retains its remaining lifetime rather than disappearing during scene teardown. Moving-target hits use bounded RTT + interpolation rewind; walls, team rules and each player’s five-second/action-canceled spawn shield still apply. See [the implementation and focused tests](docs/combat-rendering-and-hits.md) for details and limitations.

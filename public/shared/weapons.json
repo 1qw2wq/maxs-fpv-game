@@ -13,7 +13,7 @@
     "stateRate": 20,
     "interpDelayMs": 120,
     "historyMs": 1000,
-    "lagCompMaxMs": 220,
+    "lagCompMaxMs": 360,
     "respawnMs": 3000,
     "spawnShieldMs": 5000,
     "scoreLimit": 75,

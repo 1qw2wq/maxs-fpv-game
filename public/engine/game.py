@@ -513,14 +513,15 @@ class Match:
         limit = wall if wall is not None else max_range
 
         # Lag compensation. The shooter aimed at whatever their client happened
-        # to be drawing: that is one one-way trip plus the remote interpolation
-        # delay behind the server's clock. Rewind every target to that instant.
+        # to be drawing: that was one host-to-client trip plus interpolation behind
+        # authority at click time, AND the fire message took another client-to-
+        # host trip. Rewind by RTT + interpolation, not half RTT + interpolation.
         # Bots have no network, so rewinding them would only make them miss.
         if p["bot"]:
             back = 0.0
         else:
-            one_way = clamp(float(p.get("ping") or 0.0) * 0.5, 0.0, MAX_ONE_WAY_MS)
-            back = clamp(one_way + INTERP_MS, 0.0, LAGCOMP_MAX_MS)
+            rtt = clamp(float(p.get("ping") or 0.0), 0.0, 2 * MAX_ONE_WAY_MS)
+            back = clamp(rtt + INTERP_MS, 0.0, LAGCOMP_MAX_MS)
         target_t = now - back
 
         best = None

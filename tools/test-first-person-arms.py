@@ -1,4 +1,5 @@
-"""Rendered first-person arm regressions, not just bone/visibility-flag tests.
+"""Legacy imported-arm lab rendering plus current closed-glove gameplay checks.
+Use test-combat-rendering.mjs for the current production viewmodel pixel suite.
 Serve public/ on CITY_ORIGIN; test-only Python Playwright + CHROMIUM_EXECUTABLE.
 Optional ARM_SCREENSHOT=/tmp/arms.png saves actual rig screenshots.
 """
@@ -159,28 +160,28 @@ with sync_playwright() as p:
     skin_ids = page.evaluate('[...__trench.app.charTemplates.keys()].filter(id=>id.startsWith("builtin-"))')
     for skin_id in skin_ids:
         page.evaluate('id=>{__trench.app.loadout.skin=id;}', skin_id)
-        page.wait_for_function('id=>{const a=__trench.app;return a.fpArms?.key.endsWith(id)&&a.fpArms.holder.visible&&!a.vm.armMeshes.visible;}', arg=skin_id, polling=50)
+        page.wait_for_function('id=>{const a=__trench.app;return a.loadout.skin===id&&!a.fpArms&&a.vm.armMeshes.visible;}', arg=skin_id, polling=50)
         page.keyboard.press('2')
-        page.wait_for_function('()=>{const a=__trench.app;return a.net.lastMe.slot==="secondary"&&a.fpArms.holder.visible&&!a.vm.armMeshes.visible;}', polling=50)
+        page.wait_for_function('()=>{const a=__trench.app;return a.net.lastMe.slot==="secondary"&&!a.fpArms&&a.vm.armMeshes.visible;}', polling=50)
         page.wait_for_function('__trench.app.net.lastMe.equipIn<=0', polling=50)
         page.keyboard.press('1')
-        page.wait_for_function('()=>{const a=__trench.app;return a.net.lastMe.w==="ar15"&&a.fpArms.holder.visible&&!a.vm.armMeshes.visible;}', polling=50)
+        page.wait_for_function('()=>{const a=__trench.app;return a.net.lastMe.w==="ar15"&&!a.fpArms&&a.vm.armMeshes.visible;}', polling=50)
         page.keyboard.press('v')
-        page.wait_for_function('!__trench.app.vm.root.visible&&!__trench.app.fpArms.holder.visible', polling=50)
+        page.wait_for_function('!__trench.app.vm.root.visible&&!__trench.app.vm.armMeshes.visible', polling=50)
         page.keyboard.press('v')
-        page.wait_for_function('__trench.app.vm.root.visible&&__trench.app.fpArms.holder.visible', polling=50)
+        page.wait_for_function('__trench.app.vm.root.visible&&__trench.app.vm.armMeshes.visible', polling=50)
         page.evaluate('__trench.app.controls.mouse.right=true')
-        page.wait_for_function('document.body.classList.contains("scope-active")&&!__trench.app.vm.root.visible&&!__trench.app.fpArms.holder.visible', polling=50)
+        page.wait_for_function('document.body.classList.contains("scope-active")&&!__trench.app.vm.root.visible&&!__trench.app.vm.armMeshes.visible', polling=50)
         page.evaluate('__trench.app.controls.mouse.right=false')
-        page.wait_for_function('__trench.app.vm.root.visible&&__trench.app.fpArms.holder.visible&&!__trench.app.vm.armMeshes.visible', polling=50)
+        page.wait_for_function('__trench.app.vm.root.visible&&!__trench.app.fpArms&&__trench.app.vm.armMeshes.visible', polling=50)
         page.keyboard.press('Escape')
         page.wait_for_function('__trench.app.paused', polling=50)
         page.click('#btn-pause-resume')
-        page.wait_for_function('!__trench.app.paused&&__trench.app.fpArms.holder.visible', polling=50)
+        page.wait_for_function('!__trench.app.paused&&__trench.app.vm.armMeshes.visible', polling=50)
     page.evaluate("""id=>{const a=__trench.app;a.charTemplates.set('unavailable-custom-rig',a.charTemplates.get(id));a.loadout.skin='unavailable-custom-rig';}""", skin_ids[0])
     page.wait_for_function('!__trench.app.fpArms&&__trench.app.vm.armMeshes.visible', polling=50)
     page.evaluate("id=>{const a=__trench.app;a.charTemplates.delete('unavailable-custom-rig');a.loadout.skin=id;}", skin_ids[0])
-    page.wait_for_function('__trench.app.fpArms?.holder.visible&&!__trench.app.vm.armMeshes.visible', polling=50)
+    page.wait_for_function('!__trench.app.fpArms&&__trench.app.vm.armMeshes.visible', polling=50)
     page.keyboard.press('Escape')
     page.click('#btn-pause-leave')
     page.wait_for_function('!__trench.app.playing&&!__trench.app.vm.root.visible', polling=50)

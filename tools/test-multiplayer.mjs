@@ -243,7 +243,7 @@ json.dumps({'phase':_m.phase,'players':[{k:v for k,v in p.items() if k in ('id',
    await h.evaluate(()=>{window.requestAnimationFrame=()=>0;});
    // Guest deploys first, including a deliberately conflicting map request.
    await g.evaluate(room=>net.join('Early Guest','assault','mp18',true,15,'',false,'somme','guest-seat',room,'tdm','deagle'),room);
-   await h.evaluate(map=>net.join('Map Host','assault','mp18',true,15,'',false,map,'host-seat','','control','g17'),map);
+   await h.evaluate(map=>net.join('Map Host','assault','mp18',false,0,'',false,map,'host-seat','','control','g17'),map);
    try{await g.waitForFunction(()=>net.lastState?.ps?.length===2&&net.lastMe?.alive,null,{timeout:45000});}
    catch(e){for(const [name,p]of[['host',h],['guest',g]])console.error(map,name,await p.evaluate(()=>({id:net.id,connected:net.connected,peers:net.peers,status:net.status?.(),state:net.lastState,me:net.lastMe,errors:netErrors,welcomes})));throw e;}
    assert.equal(await h.evaluate(()=>net.status().map),map);
@@ -270,9 +270,44 @@ for _p in _m.players.values():
      await p.waitForFunction(count=>net.lastMe.mag===count-1,count,{polling:50,timeout:5000});
    }
    for(const p of [h,g])await p.waitForFunction(()=>net.lastMe.shieldMs===0&&[...net.sample().values()].every(row=>row.shieldMs===0),null,{polling:50,timeout:10000});
+   // Every map must support an actual client-command kill in both directions.
+   // Fixture placement chooses clear collision-tested lanes; damage, scoring,
+   // ammo and private/public events still travel through the real RTC transport.
+   for(const [shooter,victim] of [[g,h],[h,g]]) {
+     const shooterId=await shooter.evaluate(()=>net.id),victimId=await victim.evaluate(()=>net.id);
+     const shot=await h.evaluate(({shooterId,victimId})=>JSON.parse(net._engine.py.runPython(`
+import combat, game, json, math
+m=_relay.room.match
+s=m.players[${shooterId}];q=m.players[${victimId}]
+found=False
+for spawn in combat.MAP_DATA['spawns']['0']:
+ base=[spawn['x'],spawn['y'],spawn['z']]
+ for dx,dz in ((3,0),(-3,0),(0,3),(0,-3),(5,0),(0,5)):
+  pos=[base[0]+dx,combat.floor_at(base[0]+dx,base[2]+dz,base[1]),base[2]+dz]
+  if combat.blocked(pos[0],pos[2],pos[1]):continue
+  eye=[base[0],base[1]+1.58,base[2]]
+  point=[pos[0],pos[1]+1.3,pos[2]]
+  d=combat.normalize(tuple(point[i]-eye[i] for i in range(3)))
+  if combat.ray_world(eye,d,combat.dist3(eye,point)) is not None:continue
+  found=True;break
+ if found:break
+assert found, 'no clear duel lane'
+m.phase='live';m.scores=[0,0]
+for p,where,team in ((s,base,0),(q,pos,1)):
+ p.update(pos=where[:],safe_pos=where[:],alive=True,hp=1,team=team,shield_until=0,shield_cancelled=True,last_shot=0,mag=100,reload_end=0,equip_until=0,flags={})
+ game._seed_hist(p,game.now_ms())
+json.dumps(dict(o=eye,d=d))
+`)),{shooterId,victimId});
+     await victim.waitForFunction(()=>!!net.lastMe.alive,null,{polling:50});
+     const eventStart=await shooter.evaluate(()=>events.length);
+     await shooter.evaluate(shot=>net.send({t:'fire',life:net.lastMe.life,...shot}),shot);
+     await victim.waitForFunction(()=>!net.lastMe.alive,null,{polling:50,timeout:5000});
+     await shooter.waitForFunction(n=>events.slice(n).some(m=>m.t==='kill'),eventStart,{polling:50,timeout:5000});
+     assert(await shooter.evaluate(n=>events.slice(n).some(m=>m.t==='hit'&&m.r==='deal'&&m.lethal),eventStart));
+   }
    await h.evaluate(()=>net.close());
    await g.waitForFunction(()=>!net.connected&&netErrors.length>0,null,{timeout:5000});
-   console.log(`PASS: ${map}: RTC early join, host map/control rules, zero multiplayer bots, private sidearm/ammo, bidirectional commands/chat, per-player movement/fire shield cancellation and host-close notification`);
+   console.log(`PASS: ${map}: RTC early join, host map/control rules, zero multiplayer bots, private sidearm/ammo, bidirectional commands/chat, per-player movement/fire shield cancellation, bidirectional authoritative kills and host-close notification`);
    await a.close();await b.close();
  }
 

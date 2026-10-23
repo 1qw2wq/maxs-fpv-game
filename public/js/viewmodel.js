@@ -171,14 +171,21 @@ export class ViewModel {
 
   setClass(cls) {
     this.cls = cls;
-    if (this.armMeshes) this.arms.remove(this.armMeshes);
+    if (this.armMeshes) {
+      const materials = new Set();
+      this.armMeshes.traverse(o => {
+        if (o.isMesh) { o.geometry.dispose(); materials.add(o.material); }
+      });
+      for (const material of materials) material.dispose();
+      this.arms.remove(this.armMeshes);
+    }
     this.armMeshes = new THREE.Group();
 
-    // The first-person arms are the character's own arms — the very same spec
-    // the third-person body is built from, with only a modest sleeve allowance.
+    // Dedicated closed first-person geometry. Never crop a full-body costume:
+    // its open/flared sleeves are not safe to display centimetres from a lens.
     const a = soldierArms(cls);
     const k = a.fpScale;
-    const sleeve = toonMat(a.sleeve);
+    const sleeve = toonMat(new THREE.Color(a.sleeve).lerp(new THREE.Color('#414954'), .72));
     const glove = toonMat(a.glove);
 
     // Keep the shoulders camera-local, but solve each limb to the gun's live
@@ -189,15 +196,19 @@ export class ViewModel {
       const shoulder = new THREE.Vector3(side * 0.32, -0.46, 0.06);
       const elbow = new THREE.Vector3(side * 0.28, -0.43, -0.15);
       const material = (mat, radius) => {
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.8, radius, 1, 8), mat);
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.8, radius, 1, 12), mat);
         this.armMeshes.add(mesh);
         return mesh;
       };
       const upper = material(sleeve, a.upperR[0] * k * 0.8);
-      const fore = material(glove, a.foreR[0] * k * 0.8);
+      const fore = material(sleeve, a.foreR[0] * k * 0.8);
+      // Overlap the capped segments at their bend, so no open seam is exposed
+      // during a reload or at the widest mobile FOV.
+      const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(a.foreR[0] * k * 0.8, 12, 8), sleeve);
+      this.armMeshes.add(elbowJoint);
       const palm = buildGripGlove(glove, side === 1 ? 'R' : 'L');
       this.armMeshes.add(palm);
-      this.armRigs.push({ side, shoulder, elbow, upper, fore, palm });
+      this.armRigs.push({ side, shoulder, elbow, upper, fore, palm, elbowJoint });
     }
 
     this.arms.add(this.armMeshes);
@@ -232,9 +243,9 @@ export class ViewModel {
 
   /**
    * World-space contact points and optional live gun orientation. The palms
-   * wrap these points, with the wrist offset behind the palm; when the player's own character model supplies the arms instead
-   * (main.js), they are what that rig's IK is solved onto — so the borrowed
-   * arms track ADS, recoil and bob with the correct palm and finger direction.
+   * wrap these points, with the wrist offset behind the palm. The imported-rig
+   * laboratory can also solve onto these anchors; gameplay uses closed gloves
+   * so full-body costume topology cannot leak into the camera.
    */
   gripWorld(outHand, outFore, outRotation) {
     if (!this.anchors) return false;
@@ -272,6 +283,7 @@ export class ViewModel {
       const target = this._armTarget.copy(node.position).applyMatrix4(matrix);
       rig.elbow.set(rig.side * 0.28, Math.min(-0.38, target.y - 0.13), (target.z + 0.06) * 0.38);
       aim(rig.upper, rig.shoulder, rig.elbow);
+      rig.elbowJoint.position.copy(rig.elbow);
       rig.palm.position.copy(target);
       const gunRotation = this.gunMount.quaternion.clone().multiply(this.gunMeshes.quaternion);
       gripRotation(gunRotation, rig.side === 1 ? 'R' : 'L', rig.palm.quaternion,this.weapon?.shape);
@@ -379,12 +391,18 @@ export class ViewModel {
       this.gunMount.updateMatrix();this.gunMeshes.updateMatrix();
       const matrix=this._armMatrix.multiplyMatrices(this.gunMount.matrix,this.gunMeshes.matrix);
       const tangent=Math.tan(THREE.MathUtils.degToRad(st.viewFov||78)*.5)*.72;
-      let lift=0;
+      let lift=0, shiftMin=-Infinity, shiftMax=Infinity;
+      const aspect=st.viewAspect || 4/3;
       for(const anchor of [this.anchors.hand,this.anchors.fore]){
         const contact=this._armTarget.copy(anchor.position).applyMatrix4(matrix);
         lift=Math.max(lift,-Math.max(.12,-contact.z)*tangent-contact.y);
+        const halfWidth=Math.max(.12,-contact.z)*tangent*aspect;
+        shiftMin=Math.max(shiftMin,-halfWidth-contact.x);
+        shiftMax=Math.min(shiftMax,halfWidth-contact.x);
       }
       this.gunMount.position.y+=lift*reload.present;
+      const pan=shiftMin<=shiftMax?THREE.MathUtils.clamp(0,shiftMin,shiftMax):(shiftMin+shiftMax)*.5;
+      this.gunMount.position.x+=pan*reload.present;
     }
     this._updateArms();
   }

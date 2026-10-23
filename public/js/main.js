@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import {RoomLobby} from './room-lobby.js';
+import {EffectInbox} from './effect-inbox.js';
 import {cleanBotSettings} from './bot-settings.js';
 import {renderRoomLobby} from './room-lobby-view.js';
 import { loadConfig } from './config.js';
@@ -16,7 +17,7 @@ import { updateContactShadow } from './lighting.js';
 import { rayWorld, safeMuzzle, clipTracer } from './ballistics.js';
 import { AdaptiveResolution, poseInterval } from './performance.js';
 import { resolveCamera } from './camera-collision.js';
-import { ArmPresentation, bodyVisibleAtDistance } from './avatar-visibility.js';
+import { bodyVisibleAtDistance } from './avatar-visibility.js';
 import { createGirl, yawToRotation } from './character.js';
 import { preloadGasMask, updateAvatarMask, disposeGasMask } from './gas-mask.js';
 import { ViewModel } from './viewmodel.js';
@@ -49,6 +50,8 @@ import { setApiBase, apiUrl } from './api.js';
 import { t, nameOf, getLang, setLang, onLangChange } from './i18n.js';
 import { createSettings, createExternalGirl, prepareTemplate, loadGltfFromUrl,
   BUILTIN_SKINS, DEFAULT_CLASS_SKIN } from './rig.js';
+
+const effectInbox = new EffectInbox();
 
 // Old Intel iGPUs (e.g. HD 4600, final 2020 driver) on old/portable Chromium
 // builds abort createImageBitmap() decodes partway through the spawn burst of
@@ -1572,6 +1575,7 @@ async function onWelcome(m,serial) {
   app.lastRecoverySeq = 0;
   app.shieldUntil = 0;
   app.playing = false;
+  effectInbox.begin(m.fx || []);
   app.myId = m.id;
   app.myTeam = m.team;
   app.loadout = { cls: m.cls, weapon: m.weapon, primary:m.weapon, secondary:m.secondary||'apx', skin: m.skin || app.loadout.skin || '' };
@@ -1614,9 +1618,9 @@ async function onWelcome(m,serial) {
   app.controls.pos.set(m.spawn[0], m.spawn[1], m.spawn[2]);
   resetRemoteWorld();
   app.gunfx?.clear();
-  // Crates that were already standing when we joined arrive with the welcome,
-  // so joining mid-round does not miss the medic's and support's boxes.
-  for (const fx of m.fx || []) spawnEffect(fx);
+  // Welcome payloads AND casts received while the map decoded now survive
+  // teardown. Their age includes decode time, so no fuse/lifetime restarts.
+  for (const fx of effectInbox.finish()) spawnEffect(fx);
 
   // Snapshots keep arriving while a large map decodes. Do not let the
   // welcome's old primary overwrite a newer acknowledged active weapon.
@@ -1898,7 +1902,6 @@ function onMe(me) {
     }
     if (app.fpArms) app.fpArms.holder.visible = false;
     if (app.self) app.self.root.visible = false;
-    fpArmPresentation.reset();
     clearFlash();
     cancelCharge();
     if (!app.deathShown) {
@@ -2009,7 +2012,10 @@ async function onMessage(m) {
     case 'map': {
       // Broadcast between rounds: rebuild the scene, then let the spawn messages
       // that follow (one per player) place everyone on the new ground.
+      const ownsInbox = !effectInbox.loading;
+      if (ownsInbox) effectInbox.begin();
       await setMap(m.id);
+      if (ownsInbox) for (const fx of effectInbox.finish()) spawnEffect(fx);
       if (Array.isArray(m.spawn)) app.controls.reset(m.spawn, m.yaw);
       app.hud.toast(t('地图切换：{name}', { name: nameOf(data.mapById[m.id] || { name: m.name }) }), 2600);
       break;
@@ -2085,6 +2091,7 @@ function buildCrate(fx) {
 }
 
 function spawnEffect(fx) {
+  if (effectInbox.loading) { effectInbox.push(fx); return; }
   if (fx.k === 'remove') {
     removeEffect(fx.eid);
     return;
@@ -2093,8 +2100,14 @@ function spawnEffect(fx) {
   if (!style) return;
 
   const now = performance.now();
+  const age = Math.max(0, fx.age || 0);
+  const flyMs = fx.from && fx.delay > 0 ? fx.delay : 0;
+  const duration = Math.max(300, grenadeVisualDuration(fx.k, fx.dur || 700));
+  if (!fx.persist && age >= flyMs + duration) return;
+  // A welcome snapshot and a live event can contain the same payload.
+  removeEffect(fx.eid);
   const rec = {
-    eid: fx.eid, start: now, dur: Math.max(300, grenadeVisualDuration(fx.k, fx.dur || 700)),
+    eid: fx.eid, start: now, dur: duration,
     persist: !!fx.persist, style, kind: fx.k,
   };
 
@@ -2115,8 +2128,6 @@ function spawnEffect(fx) {
 
   // Use the host's collision/bounce samples, never a client-invented curve.
   // Late joiners receive age so an existing fire does not restart its lifetime.
-  const age = Math.max(0, fx.age || 0);
-  const flyMs = fx.from && fx.delay > 0 ? fx.delay : 0;
   rec.flyMs = flyMs;
   rec.flyStart = now-age;
   rec.start = now-age+flyMs;
@@ -2635,7 +2646,7 @@ function tick(dt, now) {
     ads: app.controls.ads,
     sprinting: app.controls.sprinting,
     moveSpeed: app.controls.moveSpeed,
-    viewFov: app.camera.fov,
+    viewFov: app.camera.fov, viewAspect: app.camera.aspect,
   });
   syncFpArms();
 
@@ -2716,7 +2727,7 @@ function fireOnce(w, eye, dir) {
   const style = gunStyle(w);
   app.vm.kick(style.kick.vm);
   // Apply this shot's pose before reading sockets, not one frame afterwards.
-  app.vm.update(0, { ads: app.controls.ads, sprinting: app.controls.sprinting, moveSpeed: app.controls.moveSpeed, viewFov: app.camera.fov });
+  app.vm.update(0, { ads: app.controls.ads, sprinting: app.controls.sprinting, moveSpeed: app.controls.moveSpeed, viewFov: app.camera.fov, viewAspect: app.camera.aspect });
   syncFpArms();
   if (w.shape === 'bolt') app.vm.cycleBolt(w.straightPull ? 520 : 700);
   app.sfx.shot(w, style);
@@ -2824,77 +2835,15 @@ function syncSelfAvatar(dt, alive) {
 
 // ------------------------------------------------------ first-person arms
 //
-// The first-person arms are the player's own character model. A second instance
-// of the same rig is mounted under the camera with calibrated shoulders, facing
-// the same way, and both arms are solved onto the viewmodel's hand anchors every
-// frame. Skin-weight-filtered geometry removes the head, torso and legs;
-// the weapon stays the viewmodel's,
-// which is why ADS, recoil, reload and bob keep working untouched.
-const FP_EYE = 1.58;    // reference standing eye height, not a per-rig shoulder measurement
-const FP_NEAR = 0.06;   // keep nearby wrists/sleeves intact; the torso is removed
-const fpArmPresentation = new ArmPresentation();
-
-const _fpHand = new THREE.Vector3();
-const _fpFore = new THREE.Vector3();
-const _fpGunRotation = new THREE.Quaternion();
-
+// Full-body costume meshes are not viewmodels: cropping them by bone weight
+// leaves open bell sleeves/cuffs and floating accessories near the lens. Use
+// the closed, connected gloves/limbs driven by the same per-gun grip sockets.
+// Imported characters (including their original sleeves) remain in third person.
+const FP_NEAR = 0.06;
 function syncFpArms() {
-  const alive = app.playing && !!app.net.lastMe?.alive;
-  if (!alive || thirdPersonView() || document.body.classList.contains('scope-active')) {
-    if (app.fpArms) app.fpArms.holder.visible = false;
-    if (app.vm?.armMeshes) app.vm.armMeshes.visible = false;
-    if (!alive) fpArmPresentation.reset();
-    return;
-  }
-
-  const cls = app.data.classById[app.loadout.cls];
-  const skinId = app.loadout.skin || DEFAULT_CLASS_SKIN[cls.id] || '';
-  const useExt = !!skinId && app.charMeta.has(skinId) && app.charTemplates.has(skinId);
-  const key = useExt ? `${cls.id}|${skinId}` : '';
-
-  if (app.fpArms && app.fpArms.key !== key) {
-    app.fpArms.holder.removeFromParent();
-    app.fpArms.destroy();
-    app.fpArms = null;
-  }
-  if (!useExt) {
-    fpArmPresentation.reset();
-    if (app.vm.armMeshes) app.vm.armMeshes.visible = true;
-    return;
-  }
-
-  if (!app.fpArms) {
-    const girl = makeRemoteGirl(cls, app.data.teamById[app.myTeam], skinId);
-    girl.marker.visible = false;
-    girl.shadow.visible = false;
-    const holder = new THREE.Group();
-    // Keep the calibrated shoulders near the grips without moving the gun or
-    // sight anchors. The dedicated geometry mask removes the rest of the body.
-    holder.position.set(0.03, -FP_EYE + .14, -0.32);
-    holder.rotation.y = Math.PI;        // the model faces +Z, the lens faces -Z
-    holder.add(girl.root);
-    app.vm.root.add(holder);
-    // Also collapse the head/secondary armatures defensively. The skin-weight
-    // geometry mask, not near-plane clipping, removes the body and accessories.
-    if (girl.setHeadHidden) girl.setHeadHidden(true);
-    girl.setArmsOnly(true);
-    girl.key = key;
-    girl.holder = holder;
-    app.fpArms = girl;
-  }
-
-  // camera first: the viewmodel hangs off it, so its world matrices must be
-  // current before the two anchors can be read out
-  app.camera.updateMatrixWorld(true);
-  let ok = false;
-  if (app.vm.gripWorld(_fpHand, _fpFore, _fpGunRotation)) {
-    ok = app.fpArms.poseArms(_fpHand, _fpFore, _fpGunRotation,app.vm.weapon?.shape,true);
-  }
-  // Never alternate models as animated grips cross the reach threshold. If an
-  // equipped weapon needs the fallback once, retain it for that equip cycle.
-  const imported = fpArmPresentation.update(`${key}|${app.vm.gunMeshes.uuid}`, ok && app.fpArms.hasArmGeometry ? app.fpArms.armReachError : Infinity);
-  app.fpArms.holder.visible = imported;
-  if (app.vm.armMeshes) app.vm.armMeshes.visible = !imported;
+  if (app.vm?.armMeshes) app.vm.armMeshes.visible = app.playing &&
+    !!app.net.lastMe?.alive && !thirdPersonView() &&
+    !document.body.classList.contains('scope-active');
 }
 
 const _shotFrom = new THREE.Vector3();

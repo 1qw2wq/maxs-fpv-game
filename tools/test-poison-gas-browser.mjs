@@ -30,7 +30,7 @@ try {
  await context.addInitScript(()=>{window.WebSocket=class{constructor(){throw Error('No backend in static test');}};});
  await context.route('**/*',r=>r.request().url().startsWith(origin)?r.continue():r.abort());
  context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
- if(!process.env.GAS_MOBILE_ONLY)await testGasAssets(context,origin);
+ if(!process.env.GAS_MOBILE_ONLY&&!process.env.GAS_LIVE_ONLY)await testGasAssets(context,origin);
  if(!process.env.GAS_ASSETS_ONLY&&!process.env.GAS_MOBILE_ONLY){
   const p=await context.newPage();await p.goto(origin+'/');
   await p.waitForFunction(()=>window.__trench?.app.localEngine,null,{timeout:90000});
@@ -45,6 +45,6 @@ try {
   await p.close();
  }
  assert.deepEqual(errors,[]);await context.close();
- if(!process.env.GAS_ASSETS_ONLY)await testMobile(browser,origin);
+ if(!process.env.GAS_ASSETS_ONLY&&!process.env.GAS_LIVE_ONLY)await testMobile(browser,origin);
  console.log('PASS: poison-gas browser integration without an external backend or JavaScript errors');
 } finally { await browser.close();await new Promise(r=>server.close(r)); }
