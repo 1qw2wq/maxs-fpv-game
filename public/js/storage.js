@@ -35,11 +35,12 @@ function make(name) {
       }
       return memory.has(key) ? memory.get(key) : null;
     },
+    /** True only when this write reached browser storage, not memory alone. */
     set(key, value) {
       const text = String(value);
       memory.set(key, text);
-      if (!real) return;
-      try { real.setItem(key, text); } catch { /* dropped: memory keeps it */ }
+      if (!real) return false;
+      try { real.setItem(key, text); return true; } catch { return false; /* memory keeps it */ }
     },
     remove(key) {
       memory.delete(key);

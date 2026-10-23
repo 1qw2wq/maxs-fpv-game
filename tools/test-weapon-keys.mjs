@@ -2,12 +2,13 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import * as keyBindings from '../public/js/key-bindings.js';
 const source=(await readFile(new URL('../public/js/controls.js',import.meta.url),'utf8'))
   .replace(/^import .*;\n/gm,'').replace('export class Controls','class Controls');
 const window=new EventTarget(),document=new EventTarget(),canvas=new EventTarget();
 document.activeElement=null;
 class Vector3 { constructor(x=0,y=0,z=0){Object.assign(this,{x,y,z});} clone(){return new Vector3(this.x,this.y,this.z);} }
-const context=vm.createContext({window,document,THREE:{Vector3},MouseLook:class{},performance,clearTimeout});
+const context=vm.createContext({...keyBindings,window,document,THREE:{Vector3},MouseLook:class{},performance,clearTimeout});
 vm.runInContext(source+'\nglobalThis.Controls=Controls;',context);
 const controls=new context.Controls(canvas,null,{},{}),slots=[];
 controls.enabled=true;

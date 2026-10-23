@@ -126,7 +126,7 @@
           <div class="utility-actions"><button id="btn-mode-tutorial" class="mode-btn" type="button">
           <b>新手指引</b><span>学习移动 / 手榴弹 / 据点控制 / 联机</span>
         </button><button id="btn-mode-settings" class="mode-btn" type="button">
-          <b>设置模式</b><span>导入 / 上传角色模型与骨架</span>
+          <b>设置模式</b><span>键盘布局 / 角色模型与骨架</span>
         </button></div>
           <p id="skin-note" class="hint dim"></p>
         </div>
@@ -137,7 +137,7 @@
         <input class="mouse-sensitivity" type="range" min="25" max="200" step="5" value="100" aria-label="视角灵敏度">
       </label></div></div>
       </section>
-      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · 1 主武器 · 2 副武器 · X 切换武器 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · M 防毒面具 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人可由房主添加 AI；同一台机器多开两个标签页也能对战</p></div><div><label class="field">
+      <details class="landing-help"><summary>操作指南与高级选项</summary><div class="help-grid"><div><h3>操作指南</h3><p class="hint dim" data-key-help="full">操作：WASD 移动 · Shift 冲刺 · C 蹲下 · Space 跳 · 左键开火 · 右键瞄准 · R 换弹 · 1 主武器 · 2 副武器 · X 切换武器 · Q 技能 · G 蓄力投掷 · B 切换手榴弹 · M 防毒面具 · V 切换视角 · Tab 战绩 · Esc 暂停菜单</p><p class="hint">多人可由房主添加 AI；同一台机器多开两个标签页也能对战</p></div><div><label class="field">
         <span>服务器地址</span>
         <input id="input-server" type="text" placeholder="留空 = 自动（当前页面地址）" autocomplete="off">
       </label>
@@ -178,7 +178,7 @@
       <div class="weapon-row" id="weapon-row"></div>
       <div class="ops-section-label"><span>03</span><h3>副武器 · 选择一把手枪</h3></div>
       <div class="weapon-row secondary-row" id="secondary-row"></div>
-      <p class="slot-help">1 主武器 · 2 副武器 · X 切换武器</p>
+      <p class="slot-help" data-key-help="slots">1 主武器 · 2 副武器 · X 切换武器</p>
     </div>
 
     <footer class="select-foot">
@@ -195,9 +195,21 @@
   <div class="settings-inner">
     <header class="select-head ops-page-heading">
       <div class="ops-page-band"><span class="ops-wordmark">TF <i>/</i> FIELD OPERATIONS</span><span>02 / CHARACTER WORKSHOP</span></div>
-      <h2>设置模式 · 角色模型与骨架</h2>
+      <h2>设置模式 · 按键与角色</h2>
       <p>导入带蒙皮的 glTF/GLB，把模型骨骼映射到游戏关节，微调后上传即可全场共享。</p>
     </header>
+
+    <details id="keyboard-settings" class="keyboard-settings" open>
+      <summary>键盘按键布局</summary>
+      <p class="hint dim">点击按键后按下新键；可设置主按键和备用按键。</p>
+      <p class="hint dim">重复按键不能分配给多个操作，请先清除冲突。Esc 固定为暂停/取消；鼠标开火和瞄准、手机按钮布局不受影响。</p>
+      <p class="hint dim">按键按物理位置记录（标准键名）；左右 Shift/Ctrl 共用。</p>
+      <div class="key-binding-rows"></div>
+      <div class="key-binding-footer">
+        <button id="key-bindings-reset" class="ghost-btn" type="button">恢复默认按键</button>
+        <p class="hint" role="status" aria-live="polite"></p>
+      </div>
+    </details>
 
     <div class="settings-grid">
       <div class="rig-stage">
@@ -304,16 +316,16 @@
     </div>
     <div class="loadout-info">
       <div id="ability-chip">
-        <div class="ab-key">Q</div>
+        <div class="ab-key" data-key-action="ability">Q</div>
         <div class="ab-body">
           <b id="ab-name">炸药包</b>
           <div class="ab-cd"><i id="ab-fill"></i></div>
         </div>
       </div>
       <div id="grenade-chip" aria-live="polite">
-        <span class="ab-key">G</span>
+        <span class="ab-key" data-key-action="grenade">G</span>
         <div class="ab-body"><b id="grenade-name">破片手榴弹</b><small id="grenade-info"></small><div class="ab-cd"><i id="grenade-fill"></i></div></div>
-        <span class="grenade-cycle">B ↻</span>
+        <span class="grenade-cycle" data-key-action="grenadeCycle">B</span>
       </div>
     </div>
   </div>

@@ -27,6 +27,7 @@ import { buildGrenadeEffect, updateGrenadeEffect, grenadeVisualDuration, createG
 import { createGrenadeProjectile, updateGrenadeProjectile, disposeGrenadeProjectile, preloadGrenadeModels } from './grenade-models.js';
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
+import { createKeySettings } from './key-settings.js';
 import { updateSpawnShield } from './spawn-shield.js';
 import { MobileControls } from './mobile-controls.js';
 import { requestMobileFullscreen } from './mobile-fullscreen.js';
@@ -251,11 +252,16 @@ async function boot() {
   app.settings = createSettings({
     data: app.data,
     hud: app.hud,
+    onBack: () => {
+      if (app.playing) { app.hud.screen('game'); app.hud.showPause({host:!!app.relayHostCode}); }
+      else app.hud.screen('menu');
+    },
     onUse: (skin) => {
       app.loadout.skin = skin?.id || '';
       app.hud.setSkinNote(skin ? t('当前角色：{name}', { name: nameOf(skin) || skin.id }) : '');
     },
   });
+  app.keySettings = createKeySettings({controls:app.controls, hud:app.hud, onChange:() => app.tut?.refreshBindings()});
   setupServerAddress();
   await refreshCharLibrary();
   setupLocalPanel();
@@ -450,7 +456,7 @@ function setupLocalPanel() {
   render();
 
   exportBtn?.addEventListener('click', () => {
-    const data = { exportedAt: new Date().toISOString(), profile: profile.load() };
+    const data = { exportedAt: new Date().toISOString(), profile: profile.load(), keyBindings:app.controls.bindings };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -463,6 +469,7 @@ function setupLocalPanel() {
   resetBtn?.addEventListener('click', () => {
     if (!window.confirm(t('清空这台电脑上的游戏数据（名字、房号记录、战绩、本地角色映射）？'))) return;
     profile.reset();
+    app.keySettings?.reset();
     const mode = document.querySelector('.control-mode');
     if (mode) { mode.value = 'auto'; mode.dispatchEvent(new Event('change')); }
     const slider = document.querySelector('.mouse-sensitivity');
@@ -531,7 +538,7 @@ function setupPause() {
     onSettings: () => {
       app.roomLobby?.ready(false);
       app.sfx.resume();
-      app.settings.open();
+      app.settings.open({fromMatch:true});
     },
     onInvite: () => openInvite('host'),
     onLeave: () => leaveMatch(),

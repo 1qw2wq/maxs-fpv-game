@@ -201,3 +201,22 @@
   .tool-animation #panel { left:12px; right:12px; width:auto; max-height:calc(100dvh - 202px); }
   .tool-animation #logwrap { right:12px; left:12px; bottom:12px; width:auto; max-height:100px; }
 }
+
+/* Keyboard layout belongs to Settings, never a gameplay overlay. */
+.operations-game .keyboard-settings {margin:0 0 20px;padding:16px;border:1px solid var(--ops-line,#494b3e);border-radius:8px;background:#20251e;}
+.operations-game .keyboard-settings summary {cursor:pointer;font-size:18px;font-weight:700;padding:4px 0;}
+.operations-game .key-binding-rows {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;margin:14px 0;}
+.operations-game .key-binding-row {display:grid;grid-template-columns:minmax(78px,1fr) repeat(2,minmax(0,1.2fr));gap:8px;align-items:center;min-width:0;}
+.operations-game .key-binding-row>span {font-size:13px;overflow-wrap:anywhere;}
+.operations-game .key-binding-slot {display:flex;min-width:0;gap:3px;}
+.operations-game .key-binding-button {flex:1;min-width:0;min-height:44px;padding:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.operations-game .key-binding-clear {width:44px;min-width:44px;min-height:44px;padding:4px;font-size:20px;}
+.operations-game .key-binding-button[aria-pressed="true"] {outline:2px solid #e8b45b;color:#ffe1a5;background:#4a3a20;}
+.operations-game .key-binding-footer {display:flex;align-items:center;flex-wrap:wrap;gap:10px;}
+.operations-game .key-binding-footer p {flex:1 1 220px;margin:0;overflow-wrap:anywhere;}
+@media(max-width:850px) {.operations-game .key-binding-rows {grid-template-columns:minmax(0,1fr);}}
+@media(max-width:400px) {
+  .operations-game .keyboard-settings {padding:10px;}
+  .operations-game .key-binding-row {grid-template-columns:minmax(60px,.8fr) repeat(2,minmax(0,1.2fr));gap:4px;}
+}
+.operations-game .ab-key[data-key-action] {width:auto;min-width:26px;max-width:75px;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}

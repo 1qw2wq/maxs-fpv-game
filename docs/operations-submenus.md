@@ -7,6 +7,7 @@ The interface uses charcoal/olive surfaces, amber actions, fine borders and comp
 | Screen | Purpose |
 | --- | --- |
 | Class/loadout | Choose class, its primary, universal secondary and character; Back/Ready/Deploy/Start reflect the current Solo or lobby flow |
+| Keyboard layout | Assign main/alternate keys, clear conflicts, restore defaults and save locally; [details](keyboard-layout.md) |
 | Character workshop/settings | Preview/import characters, map bones, adjust sliders, save locally, reset, upload or export; choose interface language |
 | Tutorial/manual | Step list, key hints, practice/skip actions and nonblocking in-game guidance |
 | Match panels | Pause, invite/answer, scoreboard, results and death/redeploy loadout choices |

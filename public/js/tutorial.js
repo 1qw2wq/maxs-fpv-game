@@ -13,6 +13,7 @@
 //    keeps playing while it is on screen.
 
 import { t, onLangChange } from './i18n.js';
+import { defaultBindings, bindingLabel } from './key-bindings.js';
 
 const PANEL_ID = 'tutorial';
 
@@ -155,6 +156,23 @@ export class Tutorial {
     if (this._el) this._render();
   }
 
+  refreshBindings() { if (this._el) this._render(); }
+
+  keyText(text, id) {
+    const value = t(text);
+    if (this.mobileMode) return value;
+    const keys = {
+      move:{W:'forward',A:'left',S:'backward',D:'right',C:'crouch'},
+      reload:{R:'reload'}, crouch:{C:'crouch',Space:'jump'},
+      ability:{Q:'ability'}, grenade:{B:'grenadeCycle',G:'grenade',Q:'ability'},
+      round:{Tab:'scoreboard',V:'view',Enter:'chat'},
+    }[id];
+    if (!keys) return value;
+    const bindings = this.hud?.keyBindings || defaultBindings();
+    return value.replace(/\b(W|A|S|D|C|R|Space|Q|G|B|Tab|V|Enter)\b/g,
+      key => keys[key] ? bindingLabel(bindings,keys[key]) : key);
+  }
+
   // ------------------------------------------------------------------- UI
 
   _build() {
@@ -201,14 +219,16 @@ export class Tutorial {
       const li = document.createElement('li');
       const isDone = this.done.has(step.id) || i < this.index;
       li.className = (i === this.index && !isDone ? 'now ' : '') + (isDone ? 'done' : '');
-      li.innerHTML = `<b>${t(step.title)}</b><span class="key">${t(step.key)}</span>`
-        + `<span class="txt">${t(step.text)}</span>`;
+      const title = document.createElement('b'); title.textContent = t(step.title);
+      const key = document.createElement('span'); key.className = 'key'; key.textContent = this.keyText(step.key,step.id);
+      const text = document.createElement('span'); text.className = 'txt'; text.textContent = this.keyText(step.text,step.id);
+      li.append(title,key,text);
       list.appendChild(li);
     });
     const doneCount = STEPS.filter((s) => this.done.has(s.id)).length;
     el.querySelector('.tut-count').textContent = `${doneCount} / ${STEPS.length}`;
     const tip = (this.mobileMode && MOBILE_HELP[this.current.id]?.tip) || this.current.tip;
-    el.querySelector('.tut-tip').textContent = tip ? t(tip) : '';
+    el.querySelector('.tut-tip').textContent = tip ? this.keyText(tip,this.current.id) : '';
     const last = !!this.current.last;
     el.querySelector('[data-act="go"]').classList.toggle('hidden', this.inGame || last);
     el.querySelector('[data-act="finish"]').classList.toggle('hidden', !last);

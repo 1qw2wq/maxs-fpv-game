@@ -1425,9 +1425,9 @@ const SKIN_NAME_KEY = 'tf.skinName';
  * The "设置模式" screen: import a rig, map its bones, tune offsets, preview it
  * and publish it to the server so every player can pick it.
  *
- * @param {{data:object, hud:object, onUse:(skin:{id:string,name:string})=>void}} deps
+ * @param {{data:object, hud:object, onUse:(skin:{id:string,name:string})=>void, onBack?:Function}} deps
  */
-export function createSettings({ data, hud, onUse }) {
+export function createSettings({ data, hud, onUse, onBack }) {
   const $ = (id) => document.getElementById(id);
   const el = {
     canvas: $('rig-preview'), file: $('rig-file'), status: $('rig-status'), name: $('rig-name'),
@@ -1770,7 +1770,7 @@ export function createSettings({ data, hud, onUse }) {
     el.play.setAttribute('aria-pressed', String(state.play));
     el.play.classList.toggle('on', state.play);
   });
-  el.back.addEventListener('click', () => { visible = false; hud.screen('menu'); });
+  el.back.addEventListener('click', () => { visible = false; if (onBack) onBack(); else hud.screen('menu'); });
   el.reset.addEventListener('click', reset);
   el.local.addEventListener('click', saveLocal);
   el.upload.addEventListener('click', upload);
@@ -1781,8 +1781,10 @@ export function createSettings({ data, hud, onUse }) {
   return {
     get visible() { return visible; },
 
-    open() {
+    open({fromMatch = false} = {}) {
       visible = true;
+      hud.hidePause();
+      el.back.textContent = t(fromMatch ? '返回暂停菜单' : '返回主页');
       hud.screen('settings');
       loadLocal();
       refreshShared();

@@ -153,6 +153,6 @@ export function summary() {
     stats: p.stats,
     tutorialDone: p.tutorialDone,
     persistent: persistent(),
-    keys: ['tf.profile', 'tf.sid', 'tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig'],
+    keys: ['tf.profile', 'tf.sid', 'tf.mapId', 'tf.server', 'tf.skinId', 'tf.skinName', 'tf.localRig', 'tf.keyBindings.v1'],
   };
 }

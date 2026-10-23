@@ -16,6 +16,7 @@ python tools/test-control.py
 python tools/test-survival.py
 python tools/test-proc-city.py
 STAIR_JS_PARITY=1 python tools/test-stairs.py
+node tools/test-key-bindings.mjs
 node tools/test-weapon-keys.mjs
 node tools/test-room-lobby-unit.mjs
 node tools/test-gun-placement.mjs
@@ -41,6 +42,7 @@ Install test dependencies **outside the repository**:
 npm install --prefix /tmp/maxs-fpv-browser-tests playwright-core @sparticuz/chromium
 node tools/test-landing.mjs
 node tools/test-operations.mjs
+node tools/test-key-settings.mjs
 node tools/test-diagnostics.mjs
 node tools/test-room-lobby.mjs
 BOT_LOBBY_TEST=1 node tools/test-room-lobby.mjs

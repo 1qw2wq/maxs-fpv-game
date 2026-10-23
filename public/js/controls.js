@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { yawToRotation } from './character.js';
 import { MouseLook } from './mouse-look.js';
+import { defaultBindings, validateBindings, matchesKey } from './key-bindings.js';
 
 const PITCH_LIMIT = 88;
 
@@ -20,7 +21,7 @@ const ARROW_PITCH_RATE = 95;
 /** True while a text field has focus (chat box): game keys and look must idle. */
 function typing() {
   const a = document.activeElement;
-  return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
+  return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable);
 }
 
 export class Controls {
@@ -49,6 +50,7 @@ export class Controls {
     this._coyote = 0;
 
     this.keys = new Set();
+    this.bindings = defaultBindings();
     this.mouse = { left: false, right: false };
     this.ads = false;
     this._aimHeld = false;
@@ -153,6 +155,7 @@ export class Controls {
         this.mouse.right = false;
         this._aimHeld = this.ads = false;
         this.keys.clear();
+        this.onScoreboard?.(false);
         this.onAbilityCancel?.();
       }
       this.onLockChange?.(this.locked);
@@ -162,32 +165,36 @@ export class Controls {
     document.addEventListener('pointerlockerror', () => this._lockFailed());
 
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Tab') { e.preventDefault(); this.onScoreboard?.(true); return; }
-      if (e.code.startsWith('Arrow')) e.preventDefault();
-      if (!this.enabled || typing()) return;
-      // Esc hands the mouse back (see releaseLook) and opens the pause menu:
-      // one key, and the player can carry on, change settings or leave.
+      if (e.defaultPrevented || !this.enabled || typing() || e.isComposing || this.keyboardBlocked?.()) return;
+      // Escape is deliberately reserved: a layout can never remove the exit.
       if (e.code === 'Escape') { this.releaseLook(); this.onEscape?.(); return; }
-      if (e.repeat) return;
+      const actions = Object.keys(this.bindings).filter(id => matchesKey(this.bindings, id, e.code));
+      if (!actions.length) return;
+      e.preventDefault();
+      if (e.repeat || this.keys.has(e.code)) return;
+      const held = new Set(actions.filter(id => this.actionDown(id)));
       this.keys.add(e.code);
-      // Direct selection: 1 always means main gun; 2 always means secondary.
-      if (e.code === 'Digit1' || e.code === 'Numpad1') this.onWeaponSwitch?.('primary');
-      if (e.code === 'Digit2' || e.code === 'Numpad2') this.onWeaponSwitch?.('secondary');
-      if (e.code === 'KeyX') this.onWeaponSwitch?.();
-      if (e.code === 'KeyR') this.onReload?.();
-      if (e.code === 'KeyQ') this.onAbilityDown?.();
-      if (e.code === 'KeyG') this.onGrenadeDown?.();
-      if (e.code === 'KeyB') this.onGrenadeCycle?.();
-      if (e.code === 'KeyM') this.onMaskToggle?.();
-      if (e.code === 'KeyV') this.onViewToggle?.();
-      if (e.code === 'Enter') this.onChat?.();
-      if (e.code === 'Space') e.preventDefault();
+      for (const action of actions) {
+        if (held.has(action)) continue;
+        if (action === 'primary' || action === 'secondary') this.onWeaponSwitch?.(action);
+        if (action === 'switch') this.onWeaponSwitch?.();
+        if (action === 'reload') this.onReload?.();
+        if (action === 'ability') this.onAbilityDown?.();
+        if (action === 'grenade') this.onGrenadeDown?.();
+        if (action === 'grenadeCycle') this.onGrenadeCycle?.();
+        if (action === 'mask') this.onMaskToggle?.();
+        if (action === 'view') this.onViewToggle?.();
+        if (action === 'scoreboard') this.onScoreboard?.(true);
+        if (action === 'chat') this.onChat?.();
+      }
     });
     window.addEventListener('keyup', (e) => {
-      if (e.code === 'Tab') { this.onScoreboard?.(false); return; }
-      if (e.code === 'KeyQ') this.onAbilityUp?.();
-      if (e.code === 'KeyG') this.onGrenadeUp?.();
-      this.keys.delete(e.code);
+      // Release only keys accepted by gameplay, not keystrokes from Settings
+      // or chat. Multiple alternatives keep a hold alive until the last lifts.
+      if (!this.keys.delete(e.code)) return;
+      if (matchesKey(this.bindings, 'scoreboard', e.code) && !this.actionDown('scoreboard')) this.onScoreboard?.(false);
+      if (matchesKey(this.bindings, 'ability', e.code) && !this.actionDown('ability')) this.onAbilityUp?.();
+      if (matchesKey(this.bindings, 'grenade', e.code) && !this.actionDown('grenade')) this.onGrenadeUp?.();
     });
     window.addEventListener('blur', () => this.releaseLook());
     window.addEventListener('resize', () => {
@@ -197,6 +204,17 @@ export class Controls {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.releaseLook();
     });
+  }
+
+  actionDown(action) {
+    for (const code of this.keys) if (matchesKey(this.bindings, action, code)) return true;
+    return false;
+  }
+
+  setKeyBindings(value) {
+    const next = validateBindings(value);
+    this.releaseLook();
+    this.bindings = next;
   }
 
   /** True only while the player has explicitly taken control of the view. */
@@ -284,6 +302,7 @@ export class Controls {
     this.touchMove.x = this.touchMove.y = 0;
     this.touchKeys.clear();
     this.onInputReset?.();
+    this.onScoreboard?.(false);
     this.mouseLook.reset();
     clearTimeout(this._lockWatch);
     this._wantLook = false;
@@ -308,11 +327,10 @@ export class Controls {
 
   /** Arrow-key look: the same turn the mouse makes, at a constant rate. */
   _arrowLook(dt) {
-    const k = this.keys;
-    if (k.has('ArrowLeft')) this.yaw -= ARROW_YAW_RATE * dt;
-    if (k.has('ArrowRight')) this.yaw += ARROW_YAW_RATE * dt;
-    if (k.has('ArrowUp')) this.pitch += ARROW_PITCH_RATE * dt;
-    if (k.has('ArrowDown')) this.pitch -= ARROW_PITCH_RATE * dt;
+    if (this.actionDown('lookLeft')) this.yaw -= ARROW_YAW_RATE * dt;
+    if (this.actionDown('lookRight')) this.yaw += ARROW_YAW_RATE * dt;
+    if (this.actionDown('lookUp')) this.pitch += ARROW_PITCH_RATE * dt;
+    if (this.actionDown('lookDown')) this.pitch -= ARROW_PITCH_RATE * dt;
 
     this.yaw = ((this.yaw % 360) + 360) % 360;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
@@ -413,8 +431,7 @@ export class Controls {
     const ease = 1 - Math.exp(-(vup > 0.6 ? 40 : 12) * dt);
     this.eyeGround += (this.pos.y - this.eyeGround) * ease;
 
-    const k = this.keys;
-    const wantsCrouch = k.has('KeyC') || k.has('ControlLeft') || k.has('ControlRight') || this.touchKeys.has('KeyC');
+    const wantsCrouch = this.actionDown('crouch') || this.touchKeys.has('KeyC');
     // Refuse to stand up where the head would hit geometry: a body that crouched
     // into a low passage stays crouched on release instead of getting wedged.
     const canStand = !this.world.blocked(this.pos.x, this.pos.z, this.pos.y,
@@ -441,10 +458,10 @@ export class Controls {
 
     let fx = 0, fz = 0;
     const canMove = !typing();
-    if (canMove && k.has('KeyW')) fx += 1;
-    if (canMove && k.has('KeyS')) fx -= 1;
-    if (canMove && k.has('KeyD')) fz += 1;
-    if (canMove && k.has('KeyA')) fz -= 1;
+    if (canMove && this.actionDown('forward')) fx += 1;
+    if (canMove && this.actionDown('backward')) fx -= 1;
+    if (canMove && this.actionDown('right')) fz += 1;
+    if (canMove && this.actionDown('left')) fz -= 1;
     if (canMove && this.mobileMode && this.canLook) {
       fx += this.touchMove.y; fz += this.touchMove.x;
     }
@@ -455,7 +472,7 @@ export class Controls {
     if (!touchRun) this.touchSprintAt = null;
     else if (this.touchSprintAt === null) this.touchSprintAt = this.inputNow() + 1500;
     this.sprinting = canMove && len > .1 && !this.ads && !this.crouch &&
-      (k.has('ShiftLeft') || k.has('ShiftRight') || (touchRun && this.inputNow() >= this.touchSprintAt));
+      (this.actionDown('sprint') || (touchRun && this.inputNow() >= this.touchSprintAt));
     let speed = this.combat.maxMoveSpeed * this.speedMult;
     if (this.sprinting) speed *= this.combat.sprintMult || 1.35;
     if (this.crouch) speed *= 0.55;
@@ -477,7 +494,7 @@ export class Controls {
 
     // Edge-triggered jump with a small buffer and coyote window. Holding Space
     // no longer auto-bounces on every landing; chat/blur cannot queue a jump.
-    const jump=canMove && (k.has('Space') || this.touchKeys.has('Space'));
+    const jump=canMove && (this.actionDown('jump') || this.touchKeys.has('Space'));
     this._jumpBuffer = jump && !this._jumpHeld ? .12 : Math.max(0,this._jumpBuffer-dt);
     this._jumpHeld = jump;
     this._coyote = this.grounded ? .1 : Math.max(0,this._coyote-dt);

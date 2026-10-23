@@ -17,6 +17,8 @@ Start with the [中文 game guide](../README.md) or [English game guide](../READ
 
 ## Interface and developer tools
 
+- [Keyboard layout](keyboard-layout.md): rebind controls, resolve conflicts and restore defaults in Settings
+
 - [Main menu](landing-redesign.md) and [selection, settings and submenus](operations-submenus.md)
 - [Gun Lab](gun-placement-lab.md): tune, record and export third-person placement
 - [Diagnostics](diagnostics.md): startup/API investigation and local P2P self-test

@@ -13,6 +13,8 @@ Sidearms: **Beretta APX Carry, G17 Gen 5, Desert Eagle, Flare Pistol**. The flar
 
 ## Selection and inventory
 
+The keys below are defaults; [Settings → Keyboard layout](keyboard-layout.md) customizes them and updates in-game hints.
+
 - **1** selects primary, **2** selects secondary (number row or keypad); **X** toggles. Mobile has a dedicated, layout-editable Switch weapon button.
 - Choose a sidearm under the primary cards or in the death/redeploy picker. Class changes retain that selection; the local profile remembers it. Invalid/missing secondaries default to APX.
 - The HUD shows the active slot's ammo; other players see the actual equipped gun.

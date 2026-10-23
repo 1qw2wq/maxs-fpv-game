@@ -33,6 +33,8 @@ The first visit downloads the engine and models; larger maps can take time to lo
 
 ## Controls
 
+Defaults are listed below. Customize main/alternate keys in **Settings → Keyboard layout**; changes apply immediately and are saved locally. [Keyboard layout guide](docs/keyboard-layout.md).
+
 | Input | Action |
 | --- | --- |
 | `W A S D` / mouse | Move / look |
