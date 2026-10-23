@@ -1,0 +1,130 @@
+/* In-match UI. Keep the menu's olive theme out of the battlefield HUD.
+   No full-width backdrop: only small, isolated information surfaces. */
+.operations-game #screen-hud {
+  --hud-surface:rgba(15,19,25,.78);
+  --hud-edge:rgba(228,239,255,.16);
+  --hud-muted:#a7b2c2;
+  --hud-accent:#a3d9ed;
+  font-variant-numeric:tabular-nums;
+}
+.operations-game #statusbar {
+  background:transparent;
+  border:0;
+  box-shadow:none;
+  backdrop-filter:none;
+  padding:0;
+  gap:16px;
+  pointer-events:none;
+}
+.operations-game :is(.hp-wrap,.ammo-wrap,#ability-chip,#grenade-chip,#topbar,.objective-card) {
+  background:var(--hud-surface);
+  border:1px solid var(--hud-edge);
+  border-radius:10px;
+  box-shadow:0 4px 16px #0000001c;
+  color:#f1f5fb;
+  text-shadow:none;
+}
+.operations-game :is(.hp-wrap,.ammo-wrap) { padding:12px 15px; }
+.operations-game .hp-wrap { width:188px; gap:8px; }
+.operations-game .hp-meta { display:flex; justify-content:space-between; align-items:center; gap:8px; min-width:0; }
+.operations-game .hud-label { color:var(--hud-muted); font-size:9px; font-weight:600; line-height:1.3; letter-spacing:.1em; text-transform:uppercase; }
+.operations-game #hp-cls { color:#d5dde7; font-size:10px; font-weight:500; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.operations-game .hp-text { align-items:center; gap:8px; }
+.operations-game .health-mark { color:var(--hud-accent); font:400 21px/1 system-ui,sans-serif; }
+.operations-game #hp-num { font-size:30px; font-weight:650; letter-spacing:-.04em; line-height:1; text-shadow:none; }
+.operations-game .hp-bar { height:3px; border:0; border-radius:2px; background:#ffffff26; }
+.operations-game #hp-fill { background:var(--hud-accent); }
+.operations-game .hp-bar.low #hp-fill { background:#ff7280; }
+.operations-game #spawn-shield-status { bottom:calc(100% + 6px); color:#c0e9ff; font-weight:500; }
+.operations-game .ammo-wrap { display:grid; grid-template-columns:auto auto auto; column-gap:5px; row-gap:7px; align-items:baseline; }
+.operations-game #weapon-slot { grid-column:1/-1; max-width:210px; margin:0; color:var(--hud-muted); font-size:10px; font-weight:500; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.operations-game #ammo-mag { font-size:38px; font-weight:650; letter-spacing:-.05em; line-height:1; }
+.operations-game #ammo-max { font-size:16px; font-weight:500; color:#9caabd; }
+.operations-game .reserve-block { display:grid; gap:1px; margin-left:10px; padding-left:12px; border-left:1px solid var(--hud-edge); }
+.operations-game #ammo-reserve { margin:0; color:#e2eaf5; font-size:18px; font-weight:550; line-height:1.1; }
+.operations-game .ammo-wrap.empty #ammo-mag,.operations-game #ammo-reserve.dry { color:#ff7280; }
+.operations-game .reload-bar { left:12px; right:12px; bottom:4px; height:2px; border-radius:1px; }
+.operations-game .reload-bar i { background:var(--hud-accent); }
+.operations-game #reload-text { color:var(--hud-accent); font-weight:500; letter-spacing:.04em; }
+
+/* A single utility cluster, independent of health and ammunition. */
+.operations-game:not(.mobile-mode) #statusbar { left:max(24px,env(safe-area-inset-left)); right:max(24px,env(safe-area-inset-right)); bottom:max(24px,env(safe-area-inset-bottom)); }
+.operations-game:not(.mobile-mode) .loadout-info { display:flex; align-items:stretch; gap:8px; position:fixed; left:50%; bottom:max(24px,env(safe-area-inset-bottom)); transform:translateX(-50%); }
+.operations-game:not(.mobile-mode) .loadout-info :is(#ability-chip,#grenade-chip) { position:relative; top:auto; bottom:auto; left:auto; transform:none; min-width:0; width:174px; padding:11px 12px; gap:10px; }
+.operations-game:not(.mobile-mode) .loadout-info #grenade-chip { width:204px; }
+.operations-game .ab-key[data-key-action] { min-width:25px; width:auto; max-width:60px; height:25px; padding:0 5px; color:#e1eaf4; background:#ffffff0a; border:1px solid #ffffff38; border-radius:5px; font:600 11px/1 var(--font); }
+.operations-game .ab-body { min-width:0; gap:6px; }
+.operations-game .ab-body b { font-size:11px; font-weight:550; letter-spacing:.015em; line-height:1.3; }
+.operations-game :is(.ab-cd,#grenade-chip .ab-cd) { width:100%; height:2px; border-radius:1px; background:#ffffff20; }
+.operations-game .ab-cd i { background:var(--hud-accent); }
+.operations-game #ability-chip.ready { border-color:#b8d9e647; box-shadow:0 4px 16px #0000001c; }
+.operations-game :is(#ability-chip,#grenade-chip).charging { border-color:#efd49b99; box-shadow:none; }
+.operations-game :is(#ability-chip,#grenade-chip).charging .ab-cd i { background:#efd49b; }
+.operations-game #grenade-chip small { font-size:9px; font-weight:400; line-height:1.35; color:var(--hud-muted); }
+.operations-game .grenade-cycle { color:var(--hud-muted); font-size:10px; font-weight:500; }
+
+/* Match header and transient feeds use the same neutral surface vocabulary. */
+.operations-game #topbar { border-width:1px; padding:10px 16px; backdrop-filter:none; }
+.operations-game .tb-num { font-weight:650; font-size:26px; letter-spacing:-.035em; }
+.operations-game :is(#tb-score-0,#tb-score-1) { text-shadow:none; }
+.operations-game .tb-name { font-size:10px; font-weight:550; letter-spacing:.06em; }
+.operations-game #tb-timer { font-size:16px; font-weight:600; color:#eef4fb; }
+.operations-game .tb-map { color:var(--hud-muted); letter-spacing:.06em; font-size:9px; font-weight:400; }
+.operations-game .objective-card { border-width:1px; border-radius:7px; }
+.operations-game .kf { background:var(--hud-surface); border-radius:5px; font-weight:500; font-size:12px; }
+.operations-game .kf.me { border-left-color:var(--hud-accent); }
+.operations-game .chat-line { background:var(--hud-surface); border-radius:5px; font-size:12px; }
+.operations-game:not(.mobile-mode) #room-chip { background:var(--hud-surface); border:1px solid var(--hud-edge); border-radius:6px; color:#dbe5f2; }
+
+@media (max-width:1000px) {
+  .operations-game:not(.mobile-mode) .loadout-info { flex-direction:column; gap:6px; }
+  .operations-game:not(.mobile-mode) .loadout-info :is(#ability-chip,#grenade-chip) { width:180px; padding:8px 10px; }
+  .operations-game:not(.mobile-mode) :is(.hp-wrap,.ammo-wrap) { padding:10px 12px; }
+  .operations-game:not(.mobile-mode) .hp-wrap { width:160px; }
+  .operations-game:not(.mobile-mode) #ammo-mag { font-size:32px; }
+}
+@media (max-width:700px) {
+  .operations-game:not(.mobile-mode) .loadout-info :is(#ability-chip,#grenade-chip) { width:156px; padding:7px 8px; gap:6px; }
+  .operations-game:not(.mobile-mode) .hp-wrap { width:140px; }
+  .operations-game:not(.mobile-mode) .reserve-block { padding-left:8px; margin-left:4px; }
+  .operations-game:not(.mobile-mode) #topbar { padding:7px 10px; }
+}
+
+/* Keep established mobile lanes/safe areas and the editable touch layout.
+   Compact inline ammunition cannot grow down into the fire button lane. */
+.operations-game.mobile-mode .hp-wrap { width:120px; display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 6px; padding:6px 8px; border-radius:7px; }
+.operations-game.mobile-mode .hp-meta { grid-column:2; grid-row:1; justify-content:flex-end; }
+.operations-game.mobile-mode .hp-label,.operations-game.mobile-mode .health-mark { display:none; }
+.operations-game.mobile-mode .hp-text { grid-column:1; grid-row:1; }
+.operations-game.mobile-mode .hp-bar { grid-column:1/-1; grid-row:2; height:3px; }
+.operations-game.mobile-mode #hp-num { font-size:20px; }
+.operations-game.mobile-mode #hp-cls { font-size:9px; }
+.operations-game.mobile-mode .ammo-wrap { display:flex; align-items:center; gap:4px; padding:4px 7px; border-radius:7px; max-width:calc(100vw - 160px); }
+.operations-game.mobile-mode #weapon-slot { max-width:48px; font-size:8px; line-height:1.1; }
+.operations-game.mobile-mode #ammo-mag { font-size:24px; }
+.operations-game.mobile-mode #ammo-max { font-size:11px; }
+.operations-game.mobile-mode .reserve-block { display:block; padding-left:6px; margin-left:2px; font-size:12px; line-height:1; }
+.operations-game.mobile-mode .reserve-label { display:none; }
+.operations-game.mobile-mode #ammo-reserve { font-size:12px; }
+.operations-game.mobile-mode #spawn-shield-status { bottom:calc(100% + 1px); font-size:10px; }
+.operations-game.mobile-mode #topbar { padding:7px 10px; }
+.operations-game.mobile-mode .tb-num { font-size:21px; }
+.operations-game.mobile-mode #tb-timer { font-size:12px; }
+.operations-game.mobile-mode :is(#ability-chip,#grenade-chip) { border-radius:7px; box-shadow:none; }
+.operations-game.mobile-mode .ab-body b { font-size:10px; }
+@media (max-width:600px) and (min-height:421px) {
+  .operations-game.mobile-mode .loadout-info :is(#ability-chip,#grenade-chip) { padding:6px 8px; }
+}
+@media (max-height:350px) and (orientation:landscape) {
+  .operations-game.mobile-mode #topbar { max-width:108px; padding:6px; }
+  .operations-game.mobile-mode .tb-num { font-size:15px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .operations-game #hp-fill { transition:none; }
+}
+.operations-game.mobile-mode #statusbar { align-items:flex-start; }
+/* A small protection tag stays legible against snow/bright stone as well. */
+.operations-game #spawn-shield-status { padding:3px 6px; background:var(--hud-surface); border:1px solid var(--hud-edge); border-radius:4px; }
+.operations-game.mobile-mode #spawn-shield-status { padding:0 3px; border:0; line-height:10px; }
+.operations-game:not(.mobile-mode) .tb-name { white-space:nowrap; }
+.operations-game #mask-status:not(.sealed):not(.danger) { background:var(--hud-surface); border-color:var(--hud-edge); color:#c7d2df; }

@@ -1,6 +1,6 @@
 # Selection, settings and match submenus
 
-The interface uses charcoal/olive surfaces, amber actions, fine borders and compact field labels while retaining distinct team colors and transparent mobile controls.
+Menus use charcoal/olive surfaces and amber actions. The in-match HUD uses neutral charcoal information cards, cool accents, distinct team colors and transparent mobile controls. Health and ammo sit in separate cards: the full-width status positioning rail has **no background, border, blur or shadow**.
 
 ## Screens and actions
 
@@ -19,7 +19,7 @@ Game UI supports English/Chinese; decorative operation labels and standalone too
 
 ## Boundaries and source
 
-[operations.css](../public/css/operations.css) loads after `style.css`; landing-specific rules load afterward. `.operations-game` and tool classes scope the theme. Baseline layout still owns overlay anchoring, touch controls and battlefield scroll budgets.
+[operations.css](../public/css/operations.css) loads after `style.css`. [hud.css](../public/css/hud.css) separately owns in-match surfaces, compact health/ammo/utility cards and mobile-safe typography; landing-specific rules load afterward. The menu theme must not paint `#statusbar`. `.operations-game` and tool classes scope the theme. Baseline layout still owns overlay anchoring, touch controls and battlefield scroll budgets.
 
 Settings and tool shells do not change combat authority, weapon calibration, native pointer lock or the [host approval/Ready/Start contract](host-approved-lobby.md). Mobile controls remain layout-editable with fullscreen support. Static deployment needs no frontend npm install/build, external fonts or required backend.
 
@@ -30,6 +30,7 @@ Use [Gun Lab](gun-placement-lab.md) for placement—not the selection preview—
 ```sh
 node --check public/js/hud.js
 node tools/test-operations.mjs
+node tools/test-hud.mjs
 node tools/test-landing.mjs
 OPS_SCREENSHOTS=1 node tools/test-operations.mjs
 ```
@@ -37,3 +38,5 @@ OPS_SCREENSHOTS=1 node tools/test-operations.mjs
 See [test setup](testing.md). Coverage includes bilingual reachability, keyboard/selected states, death-picker persistence, tool return links and export availability. Animation Lab shell checks do not validate every clip; Gun Lab export availability is not an exhaustive placement audit. Screenshots stay in `/tmp`.
 
 中文：选人/选枪、设置、教程、暂停、死亡重部署与工具页共用界面风格，但不改变战斗或网络规则。键盘可操作原生按钮，小屏通过正常滚动访问全部操作。
+
+`HUD_SCREENSHOTS=1 node tools/test-hud.mjs` saves desktop/mobile fixtures and a real Solo screenshot in `/tmp`. HUD checks cover transparent rails, bilingual layouts, touch-lane separation, low health, empty ammo/reload, reduced motion and live authoritative readouts. They are not an FPS or physical-device benchmark.

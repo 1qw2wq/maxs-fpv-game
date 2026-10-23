@@ -28,6 +28,7 @@ import { createGrenadeProjectile, updateGrenadeProjectile, disposeGrenadeProject
 import { GunFx, gunStyle, tracerRound, remoteShotDue } from './gunfx.js';
 import { Controls } from './controls.js';
 import { createKeySettings } from './key-settings.js';
+import { keyLabel } from './key-bindings.js';
 import { updateSpawnShield } from './spawn-shield.js';
 import { MobileControls } from './mobile-controls.js';
 import { requestMobileFullscreen } from './mobile-fullscreen.js';
@@ -1872,7 +1873,10 @@ function onMe(me) {
   }
   if(app.hud.secondary!==app.loadout.secondary)app.hud.pickSecondary(app.loadout.secondary);
   const slotText=document.getElementById('weapon-slot');
-  slotText.textContent=(me.slot==='secondary'?'2 · ':'1 · ')+t(me.slot==='secondary'?'副武器':'主武器')+(me.equipIn>0?' · …':'');
+  const slotId=me.slot==='secondary'?'secondary':'primary';
+  const slotName=t(me.slot==='secondary'?'副武器':'主武器');
+  slotText.textContent=keyLabel(app.controls.bindings[slotId]?.[0])+' · '+slotName+(me.equipIn>0?' · …':'');
+  slotText.title=app.hud.keyLabel(slotId)+' · '+slotName;
   app.lastReloading = !!me.reloading;
   app.vm.syncReload(me.reloadTotal || data.weaponById[me.w].reloadMs, me.reloadIn, !!me.reloading);
 

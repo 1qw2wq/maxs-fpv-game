@@ -42,6 +42,7 @@ Install test dependencies **outside the repository**:
 npm install --prefix /tmp/maxs-fpv-browser-tests playwright-core @sparticuz/chromium
 node tools/test-landing.mjs
 node tools/test-operations.mjs
+node tools/test-hud.mjs
 node tools/test-key-settings.mjs
 node tools/test-diagnostics.mjs
 node tools/test-room-lobby.mjs

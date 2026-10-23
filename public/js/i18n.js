@@ -26,6 +26,7 @@ const CJK = /[\u4e00-\u9fff]/;
 //
 // Placeholders are {name} and are filled from the object passed to t().
 const EN = {
+  "生命值": "Health", "备弹": "Reserve", "战斗状态": "Combat status",
   "按键按物理位置记录（标准键名）；左右 Shift/Ctrl 共用。": "Bindings use physical key positions and standard key names; left/right Shift and Ctrl are shared.",
   "返回暂停菜单": "Back to pause menu",
   "冲刺": "Sprint", "兵种技能": "Class ability", "切换视角": "Toggle view",

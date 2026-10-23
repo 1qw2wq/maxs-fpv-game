@@ -124,8 +124,8 @@
 .ops-loader-brand { display:grid; justify-items:center; gap:10px; font:700 34px ui-monospace,monospace; color:#d1d8bf; }
 .ops-loader-brand span { color:#8fa17b; font:9px ui-monospace,monospace; letter-spacing:.18em; }
 .operations-game .boot-text { color:#b0bd9b; font-size:12px; letter-spacing:.09em; text-align:center; max-width:90vw; line-height:1.8; }
-/* HUD palette only; retain team colors, geometry and transparent touch affordances. */
-.operations-game :is(#topbar,#statusbar,#ability-chip,#grenade-chip,.objective-card) { background-color:#152010d9; border-color:#a3b88a40; box-shadow:none; }
+/* Match HUD surfaces are owned by hud.css, not the menu theme.
+   In particular, #statusbar is a transparent positioning rail, never a panel. */
 .operations-game #lockslot .lock-title { font-weight:650; letter-spacing:.02em; }
 @media(max-width:1000px) { .ops-settings-extras { grid-template-columns:1fr; } }
 @media(max-width:860px) { .operations-game .class-card canvas { height:155px; } }
